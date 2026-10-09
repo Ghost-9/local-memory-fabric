@@ -1,0 +1,272 @@
+use crate::MemoryFabric;
+use crate::paths::{MAX_RESULT_CHARS_DEFAULT, home_dir, safe_relpath, set_mode, set_open_mode};
+use crate::policy::{
+    DEFAULT_EXCLUDED_DIRS, DEFAULT_INCLUDE_DIRS, DEFAULT_INCLUDE_FILES, apple_path_re,
+};
+use rusqlite::{Connection, OptionalExtension, Row};
+use serde_json::{Map, Value, json};
+use std::collections::HashSet;
+use std::env;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::PathBuf;
+
+impl MemoryFabric {
+    pub(crate) fn new() -> Result<Self, String> {
+        let home = env::var_os("MEMORY_FABRIC_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home_dir().join(".pi/agent/scratch/memory-fabric"));
+        let vault = env::var_os("MEMORY_FABRIC_VAULT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home_dir().join("system-memory"));
+        Self::with_paths(home, vault)
+    }
+
+    pub(crate) fn with_paths(home: PathBuf, vault: PathBuf) -> Result<Self, String> {
+        if home.is_symlink() {
+            return Err("Memory Fabric state directory must not be a symlink".into());
+        }
+        fs::create_dir_all(&home).map_err(|e| format!("cannot create state directory: {e}"))?;
+        if home.is_symlink() {
+            return Err("Memory Fabric state directory must not be a symlink".into());
+        }
+        set_mode(&home, 0o700);
+        let db_path = home.join("index.sqlite3");
+        let proposals_path = home.join("proposals");
+        let config_path = home.join("config.json");
+        if config_path.is_symlink() {
+            return Err("Memory Fabric config must not be a symlink".into());
+        }
+        let mut config_value = if config_path.exists() {
+            let raw =
+                fs::read_to_string(&config_path).map_err(|e| format!("cannot read config: {e}"))?;
+            serde_json::from_str::<Value>(&raw)
+                .map_err(|_| "Memory Fabric config must be valid JSON".to_string())?
+        } else {
+            let mut m = Map::new();
+            m.insert("include_dirs".into(), json!(DEFAULT_INCLUDE_DIRS));
+            m.insert("include_files".into(), json!(DEFAULT_INCLUDE_FILES));
+            m.insert("excluded_dirs".into(), json!(DEFAULT_EXCLUDED_DIRS));
+            m.insert(
+                "local_providers".into(),
+                json!(["lmstudio", "llama.cpp", "ollama"]),
+            );
+            m.insert("max_result_chars".into(), json!(MAX_RESULT_CHARS_DEFAULT));
+            Value::Object(m)
+        };
+        if !config_value.is_object() {
+            return Err("Memory Fabric config must be a JSON object".into());
+        }
+        if let Ok(providers) = env::var("PI_MEMORY_LOCAL_PROVIDERS") {
+            config_value["local_providers"] = json!(
+                providers
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+            );
+        }
+        let include_dirs = string_list(&config_value, "include_dirs", DEFAULT_INCLUDE_DIRS)?;
+        let include_files = string_list(&config_value, "include_files", DEFAULT_INCLUDE_FILES)?;
+        let excluded = string_list(&config_value, "excluded_dirs", DEFAULT_EXCLUDED_DIRS)?;
+        let providers = string_list(
+            &config_value,
+            "local_providers",
+            &["lmstudio", "llama.cpp", "ollama"],
+        )?;
+        if include_dirs
+            .iter()
+            .chain(include_files.iter())
+            .any(|s| apple_path_re().is_match(s))
+        {
+            return Err("Apple Notes paths cannot be added to the source allowlist".into());
+        }
+        let max_result_chars = config_value
+            .get("max_result_chars")
+            .and_then(Value::as_u64)
+            .unwrap_or(MAX_RESULT_CHARS_DEFAULT as u64)
+            .clamp(500, 12_000) as usize;
+        if !config_path.exists() {
+            let mut opts = OpenOptions::new();
+            opts.write(true).create_new(true);
+            set_open_mode(&mut opts, 0o600);
+            let mut file = opts
+                .open(&config_path)
+                .map_err(|e| format!("cannot create config: {e}"))?;
+            serde_json::to_writer_pretty(&mut file, &config_value).map_err(|e| e.to_string())?;
+            file.write_all(b"\\n").map_err(|e| e.to_string())?;
+        }
+        set_mode(&config_path, 0o600);
+        Ok(Self {
+            home,
+            vault,
+            db_path,
+            proposals_path,
+            config: Config {
+                include_dirs,
+                include_files,
+                excluded_dirs: excluded.into_iter().collect(),
+                local_providers: providers
+                    .into_iter()
+                    .map(|s| s.to_ascii_lowercase())
+                    .collect(),
+                max_result_chars,
+            },
+        })
+    }
+
+    pub(crate) fn connect(&self) -> Result<Connection, String> {
+        if self.db_path.is_symlink() {
+            return Err("Memory index must not be a symlink".into());
+        }
+        if !self.db_path.exists() {
+            return Err(
+                "Memory index is not initialized; run the explicit 'index' command first".into(),
+            );
+        }
+        let connection = Connection::open(&self.db_path).map_err(|e| e.to_string())?;
+        connection
+            .busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| e.to_string())?;
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| e.to_string())?;
+        Ok(connection)
+    }
+
+    pub(crate) fn init_db(&self, con: &Connection) -> Result<bool, String> {
+        con.execute_batch("\
+            CREATE TABLE IF NOT EXISTS documents (
+                id INTEGER PRIMARY KEY, relpath TEXT NOT NULL UNIQUE, title TEXT NOT NULL, scope TEXT NOT NULL,
+                classification TEXT NOT NULL, source_status TEXT NOT NULL DEFAULT 'unspecified', valid_from TEXT,
+                valid_to TEXT, superseded_by TEXT, provider_policy TEXT NOT NULL DEFAULT 'loopback_allowlist_only',
+                export_policy TEXT NOT NULL DEFAULT 'deny_remote', body TEXT NOT NULL, content_hash TEXT NOT NULL,
+                mtime_ns INTEGER NOT NULL, indexed_at TEXT NOT NULL
+            );
+            CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(relpath UNINDEXED,title,headings,body,tokenize='porter unicode61');
+            CREATE TABLE IF NOT EXISTS doc_terms(relpath TEXT NOT NULL,term TEXT NOT NULL,PRIMARY KEY(relpath,term)) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS doc_terms_by_term ON doc_terms(term);
+            CREATE TABLE IF NOT EXISTS term_df(term TEXT PRIMARY KEY,df INTEGER NOT NULL) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL) WITHOUT ROWID;
+        ").map_err(|e| e.to_string())?;
+        let version: Option<String> = con
+            .query_row(
+                "SELECT value FROM metadata WHERE key='schema_version'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let mut migrated = version.as_deref() != Some("2");
+        let mut columns = HashSet::new();
+        let mut stmt = con
+            .prepare("PRAGMA table_info(documents)")
+            .map_err(|e| e.to_string())?;
+        let iter = stmt
+            .query_map([], |r| r.get::<_, String>(1))
+            .map_err(|e| e.to_string())?;
+        for col in iter {
+            columns.insert(col.map_err(|e| e.to_string())?);
+        }
+        let migrations = [
+            ("source_status", "TEXT NOT NULL DEFAULT 'unspecified'"),
+            ("valid_from", "TEXT"),
+            ("valid_to", "TEXT"),
+            ("superseded_by", "TEXT"),
+            (
+                "provider_policy",
+                "TEXT NOT NULL DEFAULT 'loopback_allowlist_only'",
+            ),
+            ("export_policy", "TEXT NOT NULL DEFAULT 'deny_remote'"),
+        ];
+        for (name, declaration) in migrations {
+            if !columns.contains(name) {
+                con.execute(
+                    &format!("ALTER TABLE documents ADD COLUMN {name} {declaration}"),
+                    [],
+                )
+                .map_err(|e| e.to_string())?;
+                migrated = true;
+            }
+        }
+        con.execute("INSERT INTO metadata(key,value) VALUES('schema_version','2') ON CONFLICT(key) DO UPDATE SET value=excluded.value", []).map_err(|e| e.to_string())?;
+        Ok(migrated)
+    }
+}
+
+pub(crate) struct Config {
+    pub(crate) include_dirs: Vec<String>,
+    pub(crate) include_files: Vec<String>,
+    pub(crate) excluded_dirs: HashSet<String>,
+    pub(crate) local_providers: HashSet<String>,
+    pub(crate) max_result_chars: usize,
+}
+
+fn string_list(value: &Value, key: &str, default: &[&str]) -> Result<Vec<String>, String> {
+    let Some(array) = value.get(key).and_then(Value::as_array) else {
+        return Ok(default.iter().map(|s| s.to_string()).collect());
+    };
+    array
+        .iter()
+        .map(|v| {
+            let s = v
+                .as_str()
+                .ok_or_else(|| format!("config field {key} must contain strings"))?;
+            let rel = safe_relpath(s)?;
+            if rel != s.replace('\\', "/") {
+                return Err(format!("config field {key} contains a non-normalized path"));
+            }
+            Ok(rel)
+        })
+        .collect()
+}
+
+pub(crate) fn delete_fts_terms(con: &Connection, rel: &str) -> Result<(), String> {
+    con.execute("DELETE FROM documents_fts WHERE relpath=?1", [rel])
+        .map_err(|e| e.to_string())?;
+    con.execute("DELETE FROM doc_terms WHERE relpath=?1", [rel])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub(crate) fn delete_document(con: &Connection, rel: &str) -> Result<(), String> {
+    delete_fts_terms(con, rel)?;
+    con.execute("DELETE FROM documents WHERE relpath=?1", [rel])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[derive(Debug)]
+pub(crate) struct Candidate {
+    pub(crate) relpath: String,
+    pub(crate) title: String,
+    pub(crate) scope: String,
+    pub(crate) classification: String,
+    pub(crate) source_status: String,
+    pub(crate) valid_from: Option<String>,
+    pub(crate) valid_to: Option<String>,
+    pub(crate) superseded_by: Option<String>,
+    pub(crate) provider_policy: String,
+    pub(crate) export_policy: String,
+    pub(crate) body: String,
+    pub(crate) indexed_at: String,
+    pub(crate) rank: f64,
+}
+
+pub(crate) fn map_candidate(row: &Row<'_>) -> rusqlite::Result<Candidate> {
+    Ok(Candidate {
+        relpath: row.get(0)?,
+        title: row.get(1)?,
+        scope: row.get(2)?,
+        classification: row.get(3)?,
+        source_status: row.get(4)?,
+        valid_from: row.get(5)?,
+        valid_to: row.get(6)?,
+        superseded_by: row.get(7)?,
+        provider_policy: row.get(8)?,
+        export_policy: row.get(9)?,
+        body: row.get(10)?,
+        indexed_at: row.get(11)?,
+        rank: row.get(12)?,
+    })
+}

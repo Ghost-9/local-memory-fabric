@@ -1,0 +1,119 @@
+use crate::MemoryFabric;
+use crate::text::regex;
+use regex::Regex;
+
+pub(crate) const DEFAULT_INCLUDE_DIRS: &[&str] = &[
+    "agents",
+    "company",
+    "daily",
+    "evidence",
+    "pi-harness",
+    "projects",
+];
+pub(crate) const DEFAULT_INCLUDE_FILES: &[&str] =
+    &["README.md", "ROADMAP.md", "STATUS.md", "Welcome.md"];
+
+pub(crate) const DEFAULT_EXCLUDED_DIRS: &[&str] = &[
+    ".git",
+    ".obsidian",
+    ".trash",
+    "archive",
+    "archives",
+    "templates",
+    "apple-notes",
+    "apple_notes",
+    "notes-export",
+    "notes_export",
+];
+
+pub(crate) const STOPWORDS: &str = "a an and are as at be been being but by can could did do does for from had has have how i in into is it its may might of on or our should so than that the their then there these this those to was we were what when where which who why will with would you your";
+
+pub(crate) fn apple_path_re() -> Regex {
+    regex(r"(?i)(?:apple[ _-]*notes|notes[ _-]*export)")
+}
+
+pub(crate) fn secret_signature(text: &str) -> Option<&'static str> {
+    let patterns: [(&str, &str); 9] = [
+        (
+            "private_key",
+            r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
+        ),
+        ("aws_access_key", r"\bAKIA[0-9A-Z]{16}\b"),
+        (
+            "github_token",
+            r"\b(?:gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{30,})\b",
+        ),
+        ("slack_token", r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b"),
+        ("stripe_live_key", r"\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b"),
+        ("google_api_key", r"\bAIza[0-9A-Za-z_-]{30,}\b"),
+        (
+            "openai_api_key",
+            r"(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{20,}(?:$|[^A-Za-z0-9])",
+        ),
+        (
+            "jwt",
+            r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\b",
+        ),
+        (
+            "bearer_credential",
+            r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{24,}={0,2}",
+        ),
+    ];
+    for (kind, pattern) in patterns {
+        if regex(pattern).is_match(text) {
+            return Some(kind);
+        }
+    }
+    let assignment = regex(
+        r#"(?i)(?:^|[^A-Za-z0-9])([A-Za-z0-9_-]*(?:api[_-]?key|client[_-]?secret|service[_-]?role[_-]?key|access[_-]?key|private[_-]?key|secret|password|passwd|token)[A-Za-z0-9_-]*)\s*[:=]\s*['\"]?([^\s'\"]{12,})"#,
+    );
+    let placeholders = [
+        "placeholder",
+        "redacted",
+        "example",
+        "sample",
+        "change-me",
+        "changeme",
+        "your_",
+        "your-",
+        "insert_",
+        "insert-",
+        "replace_",
+        "replace-",
+        "not-a-real",
+        "not_a_real",
+        "dummy",
+        "fake",
+    ];
+    if let Some(captures) = assignment.captures(text) {
+        let value = captures
+            .get(2)
+            .map(|m| {
+                m.as_str()
+                    .trim_matches(['\'', '"', ' '])
+                    .to_ascii_lowercase()
+            })
+            .unwrap_or_default();
+        if !placeholders.iter().any(|marker| value.contains(marker))
+            && !regex(r"^<[^>]+>$").is_match(&value)
+        {
+            return Some("credential_assignment");
+        }
+    }
+    if regex(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@").is_match(text) {
+        return Some("credential_url");
+    }
+    None
+}
+
+impl MemoryFabric {
+    pub(crate) fn is_local_provider(&self, provider: Option<&str>) -> bool {
+        provider
+            .map(|p| {
+                self.config
+                    .local_providers
+                    .contains(&p.trim().to_ascii_lowercase())
+            })
+            .unwrap_or(false)
+    }
+}
