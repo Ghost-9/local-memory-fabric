@@ -2,6 +2,7 @@
 # Single gate entrypoint. Every lane and reviewer runs exactly this.
 # Order matters: cheap policy contract first, then the engine, then the
 # Python/Rust agreement check that keeps the two engines honest.
+# Must pass on stock macOS python3 (3.9): the Python engine avoids 3.10-only APIs.
 set -euo pipefail
 cd "$(dirname "$0")"
 

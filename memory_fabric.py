@@ -310,7 +310,10 @@ class MemoryFabric:
                     if path.is_symlink() or not path.is_file():
                         continue
                     text = path.read_text(encoding="utf-8")
-                    st = path.stat(follow_symlinks=False)
+                    # os.stat, not Path.stat: the latter only accepted follow_symlinks from
+                    # Python 3.10, and macOS ships 3.9 as /usr/bin/python3. A missing or
+                    # relinked Homebrew python3 therefore used to break indexing outright.
+                    st = os.stat(path, follow_symlinks=False)
                 except (OSError, UnicodeError, ValueError):
                     continue
                 rel = path.relative_to(self.vault).as_posix()
