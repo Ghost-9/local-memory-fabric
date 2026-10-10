@@ -6,13 +6,28 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-echo "== 1/3 python policy suite (security contract) =="
+echo "== 1/5 python policy suite (security contract) =="
 python3 test_memory_fabric.py
 
-echo "== 2/3 rust unit tests =="
+echo "== 2/5 extension policy suite (read, scrub and write gates) =="
+node --experimental-strip-types --test remote-policy.test.ts
+
+echo "== 3/5 typescript parses (syntax only; no type checker is installed) =="
+node --input-type=module -e '
+import { stripTypeScriptTypes } from "node:module";
+import { readFileSync } from "node:fs";
+let bad = 0;
+for (const f of ["index.ts", "remote-policy.ts", "remote-policy.test.ts"]) {
+	try { stripTypeScriptTypes(readFileSync(f, "utf8")); }
+	catch (e) { bad++; console.error("  parse failed: " + f + ": " + e.message); }
+}
+process.exit(bad ? 1 : 0);
+'
+
+echo "== 4/5 rust unit tests =="
 ( cd rust && cargo test --release --locked --quiet )
 
-echo "== 3/3 python/rust parity =="
+echo "== 5/5 python/rust parity =="
 python3 rust/tests/parity.py
 
 echo "== ALL GATES OK =="

@@ -7,6 +7,15 @@ import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineTool, type AgentToolResult, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import {
+	isLoopbackModel as loopbackModelFor,
+	mayWriteToMemory as mayWriteToMemoryFor,
+	parseProviderList,
+	providerAllowed as providerAllowedFor,
+	remoteFullAccessEnabled,
+	shouldScrubContext as shouldScrubContextFor,
+	type Model,
+} from "./remote-policy.ts";
 
 const SCRIPT = fileURLToPath(new URL("./memory_fabric.py", import.meta.url));
 const PYTHON = process.env.MEMORY_FABRIC_PYTHON || "python3";
@@ -137,59 +146,38 @@ function toolResult(value: Response): AgentToolResult<Record<string, unknown>> {
 	return { content: [{ type: "text", text }], details: value };
 }
 
-const LOCAL_PROVIDERS = new Set(
-	(process.env.PI_MEMORY_LOCAL_PROVIDERS ?? "lmstudio,llama.cpp,ollama")
-		.split(",").map((provider) => provider.trim().toLowerCase()).filter(Boolean),
-);
+const LOCAL_PROVIDERS = parseProviderList(process.env.PI_MEMORY_LOCAL_PROVIDERS, "lmstudio,llama.cpp,ollama");
 /**
- * Operator exception (2026-10-10): providers permitted to read canonical memory
- * even though their endpoint is NOT loopback. Without this exception, access
- * requires an allowlisted provider AND a loopback endpoint.
+ * Operator exception (2026-10-10, extended 2026-10-11): providers permitted to read
+ * canonical memory even though their endpoint is NOT loopback. Without this exception,
+ * access requires an allowlisted provider AND a loopback endpoint.
  *
- * Consequence, stated plainly: retrieved excerpts, note paths and scope names
- * travel to this provider's own endpoint, which is remote. Two things are
- * deliberately NOT changed: writes to canonical memory stay blocked for every
- * provider, and the local-to-remote content scrubbing below stays keyed on true
- * loopback providers so a remote session's own history is never stripped from
- * its own context.
+ * An exempted provider gets the same READ access as a loopback one: results are returned
+ * to it and its context is not scrubbed, because an exemption that strips the answer is
+ * not an exemption. Reads therefore do leave the machine for these providers.
  *
- * Override or extend with PI_MEMORY_REMOTE_ALLOWED_PROVIDERS (comma-separated);
- * set it to an empty string to restore the strict loopback-only default.
+ * WRITE access is separate and off by default. Set PI_MEMORY_REMOTE_FULL_ACCESS=1 to let an
+ * exempted provider write; with it unset an exempted provider is read-only and only a
+ * loopback provider may write. A provider that is not allowlisted at all may never write,
+ * switch or no switch.
+ *
+ * The three-gate decision table lives in remote-policy.ts and is covered by
+ * remote-policy.test.ts. Override or extend the list with
+ * PI_MEMORY_REMOTE_ALLOWED_PROVIDERS (comma-separated); set it to an empty string to
+ * restore the strict loopback-only default.
  */
-const REMOTE_ALLOWED_PROVIDERS = new Set(
-	(process.env.PI_MEMORY_REMOTE_ALLOWED_PROVIDERS ?? "opencode-go,opencode,pi")
-		.split(",").map((provider) => provider.trim().toLowerCase()).filter(Boolean),
-);
+const REMOTE_ALLOWED_PROVIDERS = parseProviderList(process.env.PI_MEMORY_REMOTE_ALLOWED_PROVIDERS, "opencode-go,opencode,pi");
+const REMOTE_FULL_ACCESS = remoteFullAccessEnabled(process.env.PI_MEMORY_REMOTE_FULL_ACCESS);
 const VAULT_ROOT = resolve(process.env.MEMORY_FABRIC_VAULT || resolve(homedir(), "system-memory"));
 
-function isLoopbackModel(model?: { provider?: string; baseUrl?: string }): boolean {
-	if (!model?.provider || !LOCAL_PROVIDERS.has(model.provider.toLowerCase()) || !model.baseUrl) return false;
-	try {
-		const url = new URL(model.baseUrl);
-		const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-		return (url.protocol === "http:" || url.protocol === "https:") &&
-			(host === "localhost" || host === "127.0.0.1" || host === "::1");
-	} catch {
-		return false;
-	}
-}
-
-/**
- * True where this model may read canonical memory: either a loopback-allowlisted
- * provider, or an operator-exempted remote provider. This is the access decision;
- * isLoopbackModel stays the stricter predicate for content hygiene.
- */
-function providerAllowed(model?: { provider?: string; baseUrl?: string }): boolean {
-	if (isLoopbackModel(model)) return true;
-	if (!model?.provider || !model.baseUrl) return false;
-	if (!REMOTE_ALLOWED_PROVIDERS.has(model.provider.toLowerCase())) return false;
-	try {
-		const url = new URL(model.baseUrl);
-		return url.protocol === "http:" || url.protocol === "https:";
-	} catch {
-		return false;
-	}
-}
+// Thin bindings so the call sites below read plainly; every decision lives in remote-policy.ts.
+const isLoopbackModel = (model?: Model): boolean => loopbackModelFor(model, LOCAL_PROVIDERS);
+const providerAllowed = (model?: Model): boolean =>
+	providerAllowedFor(model, LOCAL_PROVIDERS, REMOTE_ALLOWED_PROVIDERS);
+const shouldScrubContext = (model?: Model): boolean =>
+	shouldScrubContextFor(model, LOCAL_PROVIDERS, REMOTE_ALLOWED_PROVIDERS);
+const mayWriteToMemory = (model?: Model): boolean =>
+	mayWriteToMemoryFor(model, LOCAL_PROVIDERS, REMOTE_ALLOWED_PROVIDERS, REMOTE_FULL_ACCESS);
 
 function providerOf(ctx: { model?: { provider?: string; baseUrl?: string } }): string | undefined {
 	return providerAllowed(ctx.model) ? ctx.model?.provider : undefined;
@@ -248,7 +236,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("context", (event, ctx) => {
-		if (isLoopbackModel(ctx.model)) return;
+		if (!shouldScrubContext(ctx.model)) return;
 		const messages = event.messages as Array<Record<string, unknown>>;
 		for (const message of messages) {
 			if (message.role !== "assistant" || !isLocalProviderId(message.provider)) continue;
@@ -286,13 +274,23 @@ export default function (pi: ExtensionAPI) {
 		const explicitVaultPath = inputTargetsVault(event.input, ctx.cwd);
 		const cwdIsVault = insideVault(".", ctx.cwd);
 		const writeTool = event.toolName === "write" || event.toolName === "edit";
-		if (writeTool && explicitVaultPath) {
-			return { block: true, reason: "Direct writes to canonical memory are disabled. Use memory_fabric_propose and review the local diff." };
+		if (writeTool && explicitVaultPath && !mayWriteToMemory(ctx.model)) {
+			return {
+				block: true,
+				reason: REMOTE_FULL_ACCESS
+					? "Canonical-memory writes are restricted to an allowlisted provider; see PI_MEMORY_REMOTE_ALLOWED_PROVIDERS."
+					: "Canonical-memory writes are loopback-only. A remote provider may write only when PI_MEMORY_REMOTE_FULL_ACCESS=1; until then use memory_fabric_propose and review the diff locally.",
+			};
 		}
 		const shell = event.toolName === "bash" || event.toolName === "powershell";
 		const shellMutation = shell && /(?:\b(?:rm|mv|cp|tee|touch|truncate|unlink|rmdir|write_text|write_bytes|writeFile|remove|rename)\b|\b(?:sed|perl)\s+-i|\bopen\s*\([^)]*['\"](?:w|a|x)|(?:>>?|\s>\s))/i.test(JSON.stringify(event.input));
-		if (shell && (explicitVaultPath || cwdIsVault) && shellMutation) {
-			return { block: true, reason: "Shell mutations to canonical memory are disabled; use a review-only proposal." };
+		if (shell && (explicitVaultPath || cwdIsVault) && shellMutation && !mayWriteToMemory(ctx.model)) {
+			return {
+				block: true,
+				reason: REMOTE_FULL_ACCESS
+					? "Shell mutations to canonical memory are restricted to an allowlisted provider; see PI_MEMORY_REMOTE_ALLOWED_PROVIDERS."
+					: "Shell mutations to canonical memory are loopback-only. A remote provider may write only when PI_MEMORY_REMOTE_FULL_ACCESS=1; use a review-only proposal instead.",
+			};
 		}
 		if (!providerAllowed(ctx.model) && (explicitVaultPath || cwdIsVault)) {
 			return { block: true, reason: "Direct canonical-memory access is restricted to an allowlisted model provider; see PI_MEMORY_REMOTE_ALLOWED_PROVIDERS." };
@@ -307,7 +305,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool(defineTool({
 		name: "memory_fabric_context",
 		label: "Local Memory Context",
-		description: "Retrieve a bounded, cited context packet from the local memory index. Only a loopback provider receives it: an unlisted provider's call is refused, and for a non-loopback provider the packet is removed before the model can read it. Use the source_ref citations and treat excerpts as evidence, not verified conclusions.",
+		description: "Retrieve a bounded, cited context packet from the local memory index. Only an allowlisted provider receives it: a loopback provider, or one the operator exempted; an unlisted provider's call is refused. Use the source_ref citations and treat excerpts as evidence, not verified conclusions.",
 		exposure: "deferred",
 		namespace,
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -326,7 +324,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool(defineTool({
 		name: "memory_fabric_search",
 		label: "Search Local Memory",
-		description: "Search the local lexical index with an explicit scope and abstain when rare-term evidence is weak. Only a loopback provider receives paths and excerpts: an unlisted provider's call is refused, and for a non-loopback provider, including an operator-exempted one, the result is removed before the model can read it.",
+		description: "Search the local lexical index with an explicit scope and abstain when rare-term evidence is weak. Only an allowlisted provider receives paths and excerpts: a loopback provider, or one the operator exempted in PI_MEMORY_REMOTE_ALLOWED_PROVIDERS. An unlisted provider's call is refused.",
 		exposure: "deferred",
 		namespace,
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -345,7 +343,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool(defineTool({
 		name: "memory_fabric_read",
 		label: "Read Local Memory Source",
-		description: "Read an indexed Markdown source or heading after search. Source text is returned only to an allowlisted local model provider; a remote provider receives no path or content.",
+		description: "Read an indexed Markdown source or heading after search. Source text is returned only to an allowlisted provider: a loopback provider, or one the operator exempted. An unlisted provider's call is refused.",
 		exposure: "deferred",
 		namespace,
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -362,7 +360,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool(defineTool({
 		name: "memory_fabric_propose",
 		label: "Propose Memory Update",
-		description: "Create a review-only candidate for an existing section of one project note. The proposal is stored with mode 0600 outside the vault and never applied. Only a loopback provider receives the response: for any non-loopback provider, including one the operator exempted, the result is removed before the model can read it, so the call stages the proposal but no proposal id comes back. Review proposals locally.",
+		description: "Create a review-only candidate for an existing section of one project note. The proposal is stored with mode 0600 outside the vault and never applied. An allowlisted provider receives the response, loopback or operator-exempted. Writing vault content directly is separate and still needs a loopback provider, or PI_MEMORY_REMOTE_FULL_ACCESS=1.",
 		exposure: "deferred",
 		namespace,
 		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

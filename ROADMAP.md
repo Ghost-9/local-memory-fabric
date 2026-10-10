@@ -41,7 +41,7 @@ parse; that check was confirmed failing against the pre-fix binary.
 | L3 | `bench/` committed: `baseline.sh` builds a baseline from any git ref, `ab.py` runs the real-index A/B, `scale.py` varies vocabulary at fixed document count | Re-derived **through the committed harness** rather than the author's `/tmp` copy: real index -54.7% (2.70 -> 1.22 ms, n=200); 1,130 docs at 41,970 terms -85.8% (7.07 -> 1.00 ms); at 3,707 terms -3.6% |
 | L2 | Exit-code taxonomy `0/1/2/3` plus `--quiet`, in both engines | Demonstrated through the CLI: `0` match, `1` no match, `2` blocked provider, `3` invalid request; `--quiet` silent. Rust unit test added; gate green |
 | - | Portability: the Python engine called `Path.stat(follow_symlinks=)`, which is Python 3.10+ | A Homebrew `python@3.14` install removed the plain `python3` symlink, so `python3` fell through to macOS 3.9.6 and **all 13 policy tests failed**. Now `os.stat`; gate green on 3.9.6 |
-| - | Option (a) applied to the proposal-receipt gap | Contracts corrected to match behaviour; the scrub is untouched. See Track 2 |
+| - | Proposal-receipt gap: option (a) applied, then reversed by the operator to option (c) | An exempted provider now keeps its results. The three gates were extracted to `remote-policy.ts`, with 8 node tests asserting the matrix (confirmed failing against the previous semantics) and a TS parse check added to the gate. See Track 2 |
 
 An empty search result is deliberately **exit 1, not 0**, so `if memory-fabric ...; then` cannot read
 "no match" as success. `--serve` never exits on a per-request outcome.
@@ -145,12 +145,13 @@ review-only path instead. Findings, all verified against the running engine:
   `providerAllowed()` so the exemption means what the README says. An agent must
   not choose (b) or (c) by itself, because either changes what a remote provider
   receives - and least of all to unblock its own workflow.
-  **Decided by the operator 2026-10-11: option (a).** The scrub is unchanged; the README
-  and the tool descriptions now state the two gates separately and say plainly that an
-  exempted provider's fabric results are stripped, while its direct file reads are not.
-  That last point is the part the old wording hid: gate 1 grants "this provider may read
-  the vault" through the ordinary tools, which is broader than the fabric path it was
-  described as being.
+  **Superseded the same day.** Option (a) was applied first, then the operator reversed it and chose
+  **(c)**: an exempted provider is allowed to read, so its results are kept and its context is not
+  scrubbed. The scrub now applies only to a provider that is **not allowlisted at all**, which is the
+  provider-switch case it was written for. The write decision was split into a third gate with its own
+  switch, `PI_MEMORY_REMOTE_FULL_ACCESS` (default off), so reading the vault and changing it are no
+  longer the same permission. The predicates live in `remote-policy.ts`; `remote-policy.test.ts` is
+  the executable decision table, and `test.sh` now runs both it and a TypeScript parse check.
 - One unrelated proposal for project `aether` (2026-10-09) is still awaiting
   review.
 
