@@ -97,6 +97,29 @@ provider exception).
 - Enforce per-note `export_policy` (L5) so the per-content control from the
   original design replaces the blanket provider exemption.
 
+### Attempted 2026-10-10: what is actually proposable
+
+Writes to the vault are blocked for every provider (the check in `index.ts` has
+no provider term at all), so corrections were staged through the sanctioned
+review-only path instead. Findings, all verified against the running engine:
+
+- **Eligible:** only targets inside `projects/{project}/...`, enforced in
+  `propose.rs`. The architecture-note correction was staged as proposal
+  `af4c586d9960`, status `proposed_review_required`, stored mode 0600 outside the
+  vault, with the diff withheld from a non-allowlisted provider. Nothing was
+  applied, and no auto-apply exists.
+- **Not eligible, therefore operator-only:** `agents/ENTRY.md` and
+  `pi-harness/09-decision-log.md` cannot be proposed at all, because they live
+  outside every project directory. Correcting them needs a manual edit or a
+  deliberately widened propose scope. Recorded here so it is not rediscovered.
+- **Adapter gap:** `memory_fabric_propose` returned no output to the agent even
+  though the engine answered with `{ok, proposal_id, status}`; `proposal_show`
+  likewise returned nothing where the engine returns a `blocked` reason. The
+  agent gets no receipt for its own proposal and cannot tell success from
+  failure. Investigate before treating proposals as an agent-facing workflow.
+- One unrelated proposal for project `aether` (2026-10-09) is still awaiting
+  review.
+
 ### Non-goals (permanent)
 
 No sync, no publish, no account, no cloud AI plugins. No agent
