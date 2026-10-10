@@ -34,15 +34,32 @@ a newline, so a fresh state initialized once and then failed on every later
 start. `parity.py` now fails if either engine leaves a config the other cannot
 parse; that check was confirmed failing against the pre-fix binary.
 
+### Landed (2026-10-11)
+
+| # | Change | Evidence |
+|---|--------|----------|
+| L3 | `bench/` committed: `baseline.sh` builds a baseline from any git ref, `ab.py` runs the real-index A/B, `scale.py` varies vocabulary at fixed document count | Re-derived **through the committed harness** rather than the author's `/tmp` copy: real index -54.7% (2.70 -> 1.22 ms, n=200); 1,130 docs at 41,970 terms -85.8% (7.07 -> 1.00 ms); at 3,707 terms -3.6% |
+| L2 | Exit-code taxonomy `0/1/2/3` plus `--quiet`, in both engines | Demonstrated through the CLI: `0` match, `1` no match, `2` blocked provider, `3` invalid request; `--quiet` silent. Rust unit test added; gate green |
+| - | Portability: the Python engine called `Path.stat(follow_symlinks=)`, which is Python 3.10+ | A Homebrew `python@3.14` install removed the plain `python3` symlink, so `python3` fell through to macOS 3.9.6 and **all 13 policy tests failed**. Now `os.stat`; gate green on 3.9.6 |
+| - | Option (a) applied to the proposal-receipt gap | Contracts corrected to match behaviour; the scrub is untouched. See Track 2 |
+
+An empty search result is deliberately **exit 1, not 0**, so `if memory-fabric ...; then` cannot read
+"no match" as success. `--serve` never exits on a per-request outcome.
+
 ### Next, in priority order
 
 | # | Change | Why | Expected metric (unmeasured until run) |
 |---|--------|-----|------------------------------------------|
-| L2 | Exit-code taxonomy: `0` result, `1` no result, `2` ambiguous/multiple interpretations, `3` error, plus `--quiet` | Today every outcome is exit 0 with prose to parse, so a script cannot branch without reading text | 4 codes asserted in the policy suite; no latency change |
-| L3 | Commit the benchmark harness into `bench/` (it currently lives in `/tmp` only) | The A/B above is reproducible by nobody but its author; other people's ranking changes need it | `bench/ab.py` reproduces the L1 table within noise |
-| L4 | Read-only `review` command for staged proposals | Needed before any write phase; lets a human inspect a diff without the writer having authority | Lists proposals, shows diff, exits non-zero if any is malformed |
-| L5 | Enforce per-note `export_policy` at retrieval for non-local callers | The field exists in schema and rows but is **compared nowhere** (verified); it is the per-content control the design calls for, versus the current blanket provider exemption | Withheld-note count reported; a note marked deny returns no excerpt to a remote caller |
-| L6 | Scope as an indexed token rather than a post-filter | Scope currently filters *after* matching, so a scoped search can miss a document that only matches outside the scope | unmeasured |
+| L4 | Read-only `review` for staged proposals (`/memory-fabric proposals` already lists them; this adds the diff view) | Needed before any write phase; lets a human inspect a diff without the writer holding authority | Lists proposals, shows the diff locally, exits non-zero on a malformed proposal |
+| L5 | Enforce per-note `export_policy` | **Blocked on an operator decision, not on code.** The field exists in the schema and every row carries `deny_remote`, but it is compared nowhere. Turning it on would override the operator's own blanket exemption, so an agent must not flip it | Withheld count reported; a `deny_remote` note returns no excerpt to a non-loopback caller. Fail closed when the caller does not assert locality |
+| L6 | Scope as an indexed token rather than a post-filter | Scope filters *after* matching, so a scoped search can miss a document that only matches outside the scope | unmeasured |
+
+**L5 design, settled but not built.** The engine cannot distinguish "truly local" from "named but
+remote", because `is_local_provider` consults a provider list that now contains remote IDs. The
+caller must therefore assert locality explicitly: the adapter passes `loopback =
+isLoopbackModel(ctx.model)`, and the engine drops any result whose `export_policy` is not
+`allow_remote` whenever `loopback` is not true, reporting how many were withheld. A **missing**
+`loopback` field withholds (fail closed). Roughly 40 lines per engine plus parity coverage.
 
 ### Rejected
 
@@ -128,6 +145,12 @@ review-only path instead. Findings, all verified against the running engine:
   `providerAllowed()` so the exemption means what the README says. An agent must
   not choose (b) or (c) by itself, because either changes what a remote provider
   receives - and least of all to unblock its own workflow.
+  **Decided by the operator 2026-10-11: option (a).** The scrub is unchanged; the README
+  and the tool descriptions now state the two gates separately and say plainly that an
+  exempted provider's fabric results are stripped, while its direct file reads are not.
+  That last point is the part the old wording hid: gate 1 grants "this provider may read
+  the vault" through the ordinary tools, which is broader than the fabric path it was
+  described as being.
 - One unrelated proposal for project `aether` (2026-10-09) is still awaiting
   review.
 

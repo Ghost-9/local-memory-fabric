@@ -307,7 +307,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool(defineTool({
 		name: "memory_fabric_context",
 		label: "Local Memory Context",
-		description: "Retrieve a bounded, cited context packet from the local memory index. Works only when the current model provider is allowlisted and loopback; remote providers receive no paths or content. Use the source_ref citations and treat excerpts as evidence, not verified conclusions.",
+		description: "Retrieve a bounded, cited context packet from the local memory index. Only a loopback provider receives it: an unlisted provider's call is refused, and for a non-loopback provider the packet is removed before the model can read it. Use the source_ref citations and treat excerpts as evidence, not verified conclusions.",
 		exposure: "deferred",
 		namespace,
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -326,7 +326,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool(defineTool({
 		name: "memory_fabric_search",
 		label: "Search Local Memory",
-		description: "Search the local lexical index with an explicit scope and abstain when rare-term evidence is weak. Only an allowlisted loopback provider receives paths and excerpts; remote providers receive a generic block response.",
+		description: "Search the local lexical index with an explicit scope and abstain when rare-term evidence is weak. Only a loopback provider receives paths and excerpts: an unlisted provider's call is refused, and for a non-loopback provider, including an operator-exempted one, the result is removed before the model can read it.",
 		exposure: "deferred",
 		namespace,
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -362,7 +362,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool(defineTool({
 		name: "memory_fabric_propose",
 		label: "Propose Memory Update",
-		description: "Create a review-only candidate for an existing section of one project note. The proposal is stored with mode 0600 outside the vault and never applied. A remote provider receives only the proposal id; its candidate text and any vault diff are not echoed back.",
+		description: "Create a review-only candidate for an existing section of one project note. The proposal is stored with mode 0600 outside the vault and never applied. Only a loopback provider receives the response: for any non-loopback provider, including one the operator exempted, the result is removed before the model can read it, so the call stages the proposal but no proposal id comes back. Review proposals locally.",
 		exposure: "deferred",
 		namespace,
 		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

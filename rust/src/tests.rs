@@ -1,6 +1,34 @@
+use crate::exit_code_for;
 use crate::paths::safe_relpath;
 use crate::policy::{apple_path_re, secret_signature};
 use crate::text::tokenize;
+use serde_json::json;
+
+#[test]
+fn exit_codes_separate_a_result_from_no_result_and_from_an_error() {
+    // A real result is 0, including for operations that carry no `results` array.
+    assert_eq!(
+        exit_code_for(&json!({"ok": true, "results": [{"source_ref": "projects/a.md"}]})),
+        0
+    );
+    assert_eq!(exit_code_for(&json!({"ok": true, "documents": 114})), 0);
+    // Nothing to return is 1, not an error, and not a success.
+    assert_eq!(
+        exit_code_for(&json!({"ok": true, "results": [], "abstention": "no indexed source contains these terms"})),
+        1
+    );
+    assert_eq!(
+        exit_code_for(&json!({"ok": true, "results": [], "shown": 0, "total_matches": 0, "abstention": null})),
+        1
+    );
+    // A policy refusal is its own outcome, not a failure of the request.
+    assert_eq!(
+        exit_code_for(&json!({"ok": false, "blocked": "Proposal contents are available only to an explicitly allowed local model provider."})),
+        2
+    );
+    // A real error is 3.
+    assert_eq!(exit_code_for(&json!({"ok": false, "error": "invalid project identifier"})), 3);
+}
 
 #[test]
 fn safe_paths_reject_traversal() {

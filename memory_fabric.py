@@ -729,6 +729,24 @@ def dispatch_request(fabric: MemoryFabric, req: dict[str, Any]) -> dict[str, Any
     return {"ok": False, "error": "unsupported memory operation"}
 
 
+def exit_code_for(result: dict[str, Any]) -> int:
+    """Exit-code taxonomy for the CLI, mirroring the Rust engine.
+
+    0 returned content, 1 nothing to return, 2 refused by policy, 3 error. A caller
+    should not have to parse prose to tell "no match" from "the engine broke".
+    """
+    if result.get("blocked") is not None:
+        return 2
+    if not result.get("ok"):
+        return 3
+    if any(key in result for key in ("results", "abstention", "content")):
+        results = result.get("results")
+        content = result.get("content")
+        if not (isinstance(results, list) and results) and not (isinstance(content, str) and content):
+            return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv == ["--json-stdin"]:
@@ -736,18 +754,18 @@ def main(argv: list[str] | None = None) -> int:
             raw = sys.stdin.read(131073)
             if len(raw) > 131072:
                 _emit({"ok": False, "error": "request exceeds size limit"})
-                return 2
+                return 3
             request = json.loads(raw)
             if not isinstance(request, dict):
                 _emit({"ok": False, "error": "request must be a JSON object"})
-                return 2
+                return 3
             fabric = MemoryFabric()
             result = dispatch_request(fabric, request)
             _emit(result)
-            return 0 if result.get("ok") else 2
+            return exit_code_for(result)
         except (OSError, ValueError, TypeError, json.JSONDecodeError, sqlite3.Error, RuntimeError) as exc:
             _emit({"ok": False, "error": str(exc)})
-            return 2
+            return 3
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vault", default=None)
     parser.add_argument("--home", default=None)
@@ -787,7 +805,7 @@ def main(argv: list[str] | None = None) -> int:
         fabric = MemoryFabric(home=args.home, vault=args.vault)
     except (OSError, ValueError, TypeError, RuntimeError, sqlite3.Error) as exc:
         _emit({"ok": False, "error": str(exc)})
-        return 2
+        return 3
     try:
         if args.command == "status": result = fabric.status()
         elif args.command == "index": result = fabric.index(force=args.force)
@@ -799,10 +817,10 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "proposal-list": result = fabric.proposal_list()
         else: raise AssertionError("unhandled command")
         _emit(result)
-        return 0 if result.get("ok") else 2
+        return exit_code_for(result)
     except (OSError, sqlite3.Error, RuntimeError, ValueError) as exc:
         _emit({"ok": False, "error": str(exc)})
-        return 2
+        return 3
 
 
 if __name__ == "__main__":
