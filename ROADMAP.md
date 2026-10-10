@@ -112,11 +112,22 @@ review-only path instead. Findings, all verified against the running engine:
   `pi-harness/09-decision-log.md` cannot be proposed at all, because they live
   outside every project directory. Correcting them needs a manual edit or a
   deliberately widened propose scope. Recorded here so it is not rediscovered.
-- **Adapter gap:** `memory_fabric_propose` returned no output to the agent even
-  though the engine answered with `{ok, proposal_id, status}`; `proposal_show`
-  likewise returned nothing where the engine returns a `blocked` reason. The
-  agent gets no receipt for its own proposal and cannot tell success from
-  failure. Investigate before treating proposals as an agent-facing workflow.
+- **Why the agent sees no receipt (diagnosed 2026-10-11, deliberately NOT fixed).**
+  The `context` hook returns early for a loopback model and otherwise strips every
+  `memory_fabric_*` tool result from the outbound message list. Access is decided
+  by a *different* predicate, `providerAllowed()`, so for an operator-exempted
+  provider the two disagree: the call executes (the proposal above really does
+  exist) and its result is then removed before the model can read it. Two
+  consequences: the tool description's promise that "a remote provider receives
+  only the proposal id" does not hold (it receives nothing), and an exempted
+  provider can call the fabric but never see an answer, which is narrower than
+  the README's description of the exemption. This needs an **operator decision,
+  not an agent one**: (a) keep the conservative posture and correct the docs;
+  (b) let content-free receipts through, whitelisting `ok` / `proposal_id` /
+  `status` / `blocked`, so the documented contract holds; or (c) key the scrub on
+  `providerAllowed()` so the exemption means what the README says. An agent must
+  not choose (b) or (c) by itself, because either changes what a remote provider
+  receives - and least of all to unblock its own workflow.
 - One unrelated proposal for project `aether` (2026-10-09) is still awaiting
   review.
 
