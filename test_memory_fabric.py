@@ -69,6 +69,32 @@ class MemoryFabricTests(unittest.TestCase):
         self.assertEqual(company["results"], [])
         self.assertIsNotNone(no_hit["abstention"])
 
+    def test_common_terms_answer_with_a_label_instead_of_silence(self):
+        """A term present in every note cannot discriminate. The engine must answer over the
+        query's own tokens and label the result, reserving abstention for terms the index lacks."""
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            vault = base / "vault"
+            (vault / "projects").mkdir(parents=True)
+            for i in range(4):
+                (vault / "projects" / f"n{i}.md").write_text(
+                    f"# Note {i}\n\nalpha shared topic body number {i}\n", encoding="utf-8")
+            fabric = MemoryFabric(home=base / "state", vault=vault)
+            self.assertTrue(fabric.index()["ok"])
+
+            common = fabric.search("alpha shared topic", provider="ollama")
+            self.assertTrue(common["ok"])
+            self.assertTrue(common["low_discrimination"], common)
+            self.assertGreater(common["shown"], 0)
+            self.assertGreaterEqual(common["total_matches"], common["shown"])
+            self.assertIsNone(common["abstention"])
+
+            absent = fabric.search("zirconium quasars", provider="ollama")
+            self.assertEqual(absent["shown"], 0)
+            self.assertEqual(absent["total_matches"], 0)
+            self.assertFalse(absent["low_discrimination"])
+            self.assertEqual(absent["abstention"], "no indexed source contains these terms")
+
     def test_as_of_filters_superseded_sources_and_preserves_provenance(self):
         current = self.fabric.search("legacy retention snapshots", scope="project:atlas", provider="ollama")
         historic = self.fabric.search("legacy retention snapshots", scope="project:atlas", provider="ollama", as_of="2023-06-01")

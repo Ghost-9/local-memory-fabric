@@ -141,6 +141,25 @@ const LOCAL_PROVIDERS = new Set(
 	(process.env.PI_MEMORY_LOCAL_PROVIDERS ?? "lmstudio,llama.cpp,ollama")
 		.split(",").map((provider) => provider.trim().toLowerCase()).filter(Boolean),
 );
+/**
+ * Operator exception (2026-10-10): providers permitted to read canonical memory
+ * even though their endpoint is NOT loopback. Without this exception, access
+ * requires an allowlisted provider AND a loopback endpoint.
+ *
+ * Consequence, stated plainly: retrieved excerpts, note paths and scope names
+ * travel to this provider's own endpoint, which is remote. Two things are
+ * deliberately NOT changed: writes to canonical memory stay blocked for every
+ * provider, and the local-to-remote content scrubbing below stays keyed on true
+ * loopback providers so a remote session's own history is never stripped from
+ * its own context.
+ *
+ * Override or extend with PI_MEMORY_REMOTE_ALLOWED_PROVIDERS (comma-separated);
+ * set it to an empty string to restore the strict loopback-only default.
+ */
+const REMOTE_ALLOWED_PROVIDERS = new Set(
+	(process.env.PI_MEMORY_REMOTE_ALLOWED_PROVIDERS ?? "opencode-go,opencode,pi")
+		.split(",").map((provider) => provider.trim().toLowerCase()).filter(Boolean),
+);
 const VAULT_ROOT = resolve(process.env.MEMORY_FABRIC_VAULT || resolve(homedir(), "system-memory"));
 
 function isLoopbackModel(model?: { provider?: string; baseUrl?: string }): boolean {
@@ -155,8 +174,25 @@ function isLoopbackModel(model?: { provider?: string; baseUrl?: string }): boole
 	}
 }
 
+/**
+ * True where this model may read canonical memory: either a loopback-allowlisted
+ * provider, or an operator-exempted remote provider. This is the access decision;
+ * isLoopbackModel stays the stricter predicate for content hygiene.
+ */
+function providerAllowed(model?: { provider?: string; baseUrl?: string }): boolean {
+	if (isLoopbackModel(model)) return true;
+	if (!model?.provider || !model.baseUrl) return false;
+	if (!REMOTE_ALLOWED_PROVIDERS.has(model.provider.toLowerCase())) return false;
+	try {
+		const url = new URL(model.baseUrl);
+		return url.protocol === "http:" || url.protocol === "https:";
+	} catch {
+		return false;
+	}
+}
+
 function providerOf(ctx: { model?: { provider?: string; baseUrl?: string } }): string | undefined {
-	return isLoopbackModel(ctx.model) ? ctx.model?.provider : undefined;
+	return providerAllowed(ctx.model) ? ctx.model?.provider : undefined;
 }
 
 function insideVault(value: string, cwd: string): boolean {
@@ -258,8 +294,8 @@ export default function (pi: ExtensionAPI) {
 		if (shell && (explicitVaultPath || cwdIsVault) && shellMutation) {
 			return { block: true, reason: "Shell mutations to canonical memory are disabled; use a review-only proposal." };
 		}
-		if (!isLoopbackModel(ctx.model) && (explicitVaultPath || cwdIsVault)) {
-			return { block: true, reason: "Direct canonical-memory access is restricted to an allowlisted loopback model provider." };
+		if (!providerAllowed(ctx.model) && (explicitVaultPath || cwdIsVault)) {
+			return { block: true, reason: "Direct canonical-memory access is restricted to an allowlisted model provider; see PI_MEMORY_REMOTE_ALLOWED_PROVIDERS." };
 		}
 	});
 

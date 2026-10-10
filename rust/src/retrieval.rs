@@ -40,13 +40,24 @@ impl MemoryFabric {
         let n_docs: i64 = con
             .query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        let mut df = HashMap::new();
-        {
-            let mut stmt = con
-                .prepare("SELECT term,df FROM term_df")
-                .map_err(|e| e.to_string())?;
+        // Fetch document frequencies for this query's own tokens only. Reading the whole term_df
+        // table was the only super-linear step in the hot path. A token with no row keeps df 0 and
+        // is dropped by the gate below, exactly as before.
+        let probe: Vec<&str> = terms.iter().take(64).map(|t| t.as_str()).collect();
+        let mut df: HashMap<String, i64> = HashMap::new();
+        if !probe.is_empty() {
+            let placeholders = (1..=probe.len())
+                .map(|i| format!("?{i}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!("SELECT term,df FROM term_df WHERE term IN ({placeholders})");
+            let mut stmt = con.prepare(&sql).map_err(|e| e.to_string())?;
+            let params: Vec<&dyn rusqlite::ToSql> =
+                probe.iter().map(|t| t as &dyn rusqlite::ToSql).collect();
             let rows = stmt
-                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+                .query_map(params.as_slice(), |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+                })
                 .map_err(|e| e.to_string())?;
             for row in rows {
                 let (t, n) = row.map_err(|e| e.to_string())?;
@@ -54,29 +65,60 @@ impl MemoryFabric {
             }
         }
         let max_df = std::cmp::max(2, (n_docs as f64 * 0.25) as i64);
-        let mut useful: Vec<String> = terms
-            .into_iter()
-            .filter(|t| {
-                df.get(t).copied().unwrap_or(0) > 0 && df.get(t).copied().unwrap_or(0) <= max_df
-            })
-            .collect();
-        useful.sort_by(|a, b| {
+        let rank_key = |a: &String, b: &String| {
             df[a]
                 .cmp(&df[b])
                 .then_with(|| b.len().cmp(&a.len()))
                 .then_with(|| a.cmp(b))
-        });
+        };
+        let indexed: Vec<String> = terms
+            .iter()
+            .filter(|t| df.get(*t).copied().unwrap_or(0) > 0)
+            .cloned()
+            .collect();
+        let mut useful: Vec<String> = indexed
+            .iter()
+            .filter(|t| df.get(*t).copied().unwrap_or(0) <= max_df)
+            .cloned()
+            .collect();
+        useful.sort_by(|a, b| rank_key(a, b));
         useful.truncate(16);
+        // Every query token is indexed but all are too common to discriminate. Returning silence
+        // here reads to a caller as "the vault has nothing on this", which is false. Answer over
+        // the query's own tokens and label the result; abstention is reserved for tokens the index
+        // does not contain at all.
+        let mut low_discrimination = false;
         if useful.is_empty() {
-            return Ok(
-                json!({"ok":true,"results":[],"abstention":"no discriminative indexed terms"}),
-            );
+            if indexed.is_empty() {
+                return Ok(json!({
+                    "ok": true,
+                    "results": [],
+                    "shown": 0,
+                    "total_matches": 0,
+                    "low_discrimination": false,
+                    "abstention": "no indexed source contains these terms",
+                }));
+            }
+            low_discrimination = true;
+            let mut fallback = indexed;
+            fallback.sort_by(|a, b| rank_key(a, b));
+            fallback.truncate(16);
+            useful = fallback;
         }
         let match_query = useful
             .iter()
             .map(|t| format!("\"{}\"", t.replace('"', "")))
             .collect::<Vec<_>>()
             .join(" OR ");
+        // Total matches for the same predicate, so a caller can tell "no match" from "no data"
+        // and can see when the overlap or temporal gate withheld what did match.
+        let total_matches: i64 = con
+            .query_row(
+                "SELECT COUNT(*) FROM documents_fts JOIN documents d ON d.relpath=documents_fts.relpath WHERE documents_fts MATCH ?1 AND (?2='all' OR ?2='' OR d.scope=?2)",
+                params![&match_query, &scope],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
         let mut stmt=con.prepare("SELECT d.relpath,d.title,d.scope,d.classification,d.source_status,d.valid_from,d.valid_to,d.superseded_by,d.provider_policy,d.export_policy,d.body,d.indexed_at,bm25(documents_fts,0.0,4.0,1.5,1.0) AS rank FROM documents_fts JOIN documents d ON d.relpath=documents_fts.relpath WHERE documents_fts MATCH ?1 AND (?2='all' OR ?2='' OR d.scope=?2) ORDER BY rank LIMIT ?3").map_err(|e|e.to_string())?;
         let raw = stmt
             .query_map(
@@ -87,6 +129,28 @@ impl MemoryFabric {
         let mut candidates = Vec::new();
         for row in raw {
             candidates.push(row.map_err(|e| e.to_string())?);
+        }
+        // One lookup for every candidate instead of one query per candidate.
+        let mut terms_by_relpath: HashMap<String, HashSet<String>> = HashMap::new();
+        if !candidates.is_empty() {
+            let relpaths: Vec<&str> = candidates.iter().map(|c| c.relpath.as_str()).collect();
+            let placeholders = (1..=relpaths.len())
+                .map(|i| format!("?{i}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!("SELECT relpath,term FROM doc_terms WHERE relpath IN ({placeholders})");
+            let mut q = con.prepare(&sql).map_err(|e| e.to_string())?;
+            let params: Vec<&dyn rusqlite::ToSql> =
+                relpaths.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
+            let iter = q
+                .query_map(params.as_slice(), |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })
+                .map_err(|e| e.to_string())?;
+            for x in iter {
+                let (rel, term) = x.map_err(|e| e.to_string())?;
+                terms_by_relpath.entry(rel).or_default().insert(term);
+            }
         }
         let mut results = Vec::new();
         let mut excluded_temporal = 0;
@@ -124,18 +188,7 @@ impl MemoryFabric {
             {
                 continue;
             }
-            let mut doc_terms = HashSet::new();
-            {
-                let mut q = con
-                    .prepare("SELECT term FROM doc_terms WHERE relpath=?1")
-                    .map_err(|e| e.to_string())?;
-                let iter = q
-                    .query_map([&row.relpath], |r| r.get::<_, String>(0))
-                    .map_err(|e| e.to_string())?;
-                for x in iter {
-                    doc_terms.insert(x.map_err(|e| e.to_string())?);
-                }
-            }
+            let doc_terms = terms_by_relpath.get(&row.relpath).cloned().unwrap_or_default();
             let matched: Vec<String> = useful
                 .iter()
                 .filter(|t| doc_terms.contains(t.as_str()))
@@ -203,8 +256,19 @@ impl MemoryFabric {
         } else if temporal_without_as_of && as_of.is_none() {
             warning=Some("No as_of date supplied; validity bounds were not evaluated against the host clock.".into());
         }
+        if low_discrimination && warning.is_none() {
+            warning = Some("Query terms were too common in this index to discriminate; these are unfiltered candidates, not a ranked answer.".into());
+        }
+        let shown = results.len();
+        let abstention = if shown > 0 {
+            None
+        } else if total_matches == 0 {
+            Some("no indexed source matches these terms")
+        } else {
+            Some("matches exist but none passed the overlap or temporal gate; inspect total_matches and the date")
+        };
         Ok(
-            json!({"ok":true,"results":results,"abstention":if results.is_empty(){Some("insufficient rare-term overlap or no source valid at the requested date")}else{None},"temporal_warning":warning,"as_of":as_of,"local_only":true,"note":"Lexical candidates are not verified facts; inspect cited source passages."}),
+            json!({"ok":true,"results":results,"shown":shown,"total_matches":total_matches,"low_discrimination":low_discrimination,"abstention":abstention,"temporal_warning":warning,"as_of":as_of,"local_only":true,"note":"Lexical candidates are not verified facts; inspect cited source passages."}),
         )
     }
 

@@ -103,12 +103,28 @@ def main() -> int:
             after = {str(p.relative_to(vault)): p.read_bytes() for p in vault.rglob("*.md")}
             checks += 1
             mismatches += int(before != after)
+            # Both engines must leave a config file the other can parse. The Rust writer once
+            # emitted a literal backslash-n, so a fresh state initialized once and then failed
+            # to start on every later run.
+            def config_keys(path):
+                try:
+                    loaded = json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    return None
+                return sorted(loaded) if isinstance(loaded, dict) else None
+
+            py_cfg = config_keys(py_home / "config.json")
+            rust_cfg = config_keys(rust_home / "config.json")
+            checks += 1
+            mismatches += int(py_cfg is None or rust_cfg is None or py_cfg != rust_cfg)
             checks += 1
             mismatches += int(py_home.stat().st_mode & 0o777 != 0o700 or
                               rust_home.stat().st_mode & 0o777 != 0o700 or
                               (rust_home / "config.json").stat().st_mode & 0o777 != 0o600 or
                               (rust_home / "index.sqlite3").stat().st_mode & 0o777 != 0o600)
             report = {"ok": mismatches == 0, "parity_checks": checks, "mismatches": mismatches,
+                      "python_config_keys": len(py_cfg) if py_cfg else 0,
+                      "rust_config_keys": len(rust_cfg) if rust_cfg else 0,
                       "python_documents": py_index.get("documents"), "rust_documents": rust_index.get("documents"),
                       "rust_excluded_sensitive": rust_index.get("excluded_sensitive"),
                       "python_state_mode": oct(py_home.stat().st_mode & 0o777),

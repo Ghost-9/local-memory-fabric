@@ -405,25 +405,52 @@ class MemoryFabric:
             return {"ok": True, "results": [], "abstention": "no searchable terms"}
         with closing(self._connect()) as con:
             n_docs = int(con.execute("SELECT COUNT(*) FROM documents").fetchone()[0])
-            df_rows = con.execute("SELECT term,df FROM term_df").fetchall()
+            # Document frequencies for this query's own tokens only. Reading the whole term_df
+            # table was the only super-linear step in the hot path.
+            probe = list(terms)[:64]
+            if probe:
+                marks = ",".join("?" * len(probe))
+                df_rows = con.execute(f"SELECT term,df FROM term_df WHERE term IN ({marks})", probe).fetchall()
+            else:
+                df_rows = []
             df = {r[0]: int(r[1]) for r in df_rows}
             max_df = max(2, int(n_docs * 0.25))
-            useful = [t for t in terms if 0 < df.get(t, 0) <= max_df]
+            indexed = [t for t in terms if df.get(t, 0) > 0]
+            useful = [t for t in indexed if df[t] <= max_df]
             useful.sort(key=lambda t: (df[t], -len(t), t))
             useful = useful[:16]
+            # Every token is indexed but all are too common to discriminate. Silence here reads as
+            # "the vault has nothing on this"; answer over the query's own tokens and label it.
+            low_discrimination = False
             if not useful:
-                return {"ok": True, "results": [], "abstention": "no discriminative indexed terms"}
+                if not indexed:
+                    return {"ok": True, "results": [], "shown": 0, "total_matches": 0,
+                            "low_discrimination": False,
+                            "abstention": "no indexed source contains these terms"}
+                low_discrimination = True
+                useful = sorted(indexed, key=lambda t: (df[t], -len(t), t))[:16]
             match_query = " OR ".join('"' + t.replace('"', '') + '"' for t in useful)
             where = ["documents_fts MATCH ?"]
             params: list[Any] = [match_query]
             if scope not in {"", "all", None}:
                 where.append("d.scope=?")
                 params.append(scope)
-            params.append(max(1, min(int(limit), 20)) * 10)
+            # Total matches for the same predicate, so a caller can tell "no match" from "no data".
+            total_matches = int(con.execute(
+                f"""SELECT COUNT(*) FROM documents_fts JOIN documents d ON d.relpath=documents_fts.relpath
+                    WHERE {' AND '.join(where)}""", params).fetchone()[0])
+            page_params = list(params) + [max(1, min(int(limit), 20)) * 10]
             rows = con.execute(f"""SELECT d.relpath,d.title,d.scope,d.classification,d.source_status,d.valid_from,d.valid_to,d.superseded_by,
                 d.provider_policy,d.export_policy,d.body,d.indexed_at,bm25(documents_fts,0.0,4.0,1.5,1.0) AS rank
                 FROM documents_fts JOIN documents d ON d.relpath=documents_fts.relpath
-                WHERE {' AND '.join(where)} ORDER BY rank LIMIT ?""", params).fetchall()
+                WHERE {' AND '.join(where)} ORDER BY rank LIMIT ?""", page_params).fetchall()
+            # One lookup for every candidate instead of one query per candidate.
+            terms_by_relpath: dict[str, set[str]] = {}
+            if rows:
+                rps = [r["relpath"] for r in rows]
+                marks = ",".join("?" * len(rps))
+                for rel, term in con.execute(f"SELECT relpath,term FROM doc_terms WHERE relpath IN ({marks})", rps):
+                    terms_by_relpath.setdefault(rel, set()).add(term)
             results = []
             excluded_temporal = 0
             temporal_without_as_of = False
@@ -441,7 +468,7 @@ class MemoryFabric:
                     continue
                 if status in {"superseded", "archived", "deprecated", "historical"} and (not as_of_date or not valid_to or as_of_date > valid_to):
                     continue
-                doc_terms = {x[0] for x in con.execute("SELECT term FROM doc_terms WHERE relpath=?", (row["relpath"],))}
+                doc_terms = terms_by_relpath.get(row["relpath"], set())
                 matched = [t for t in useful if t in doc_terms]
                 distinctive_single = any(len(t) >= 9 and df.get(t) == 1 for t in matched)
                 if len(matched) < 2 and not distinctive_single:
@@ -480,7 +507,17 @@ class MemoryFabric:
             warning = "Some candidates had invalid temporal metadata and were excluded."
         elif temporal_without_as_of and not as_of:
             warning = "No as_of date supplied; validity bounds were not evaluated against the host clock."
-        return {"ok": True, "results": results, "abstention": None if results else "insufficient rare-term overlap or no source valid at the requested date",
+        if low_discrimination and not warning:
+            warning = "Query terms were too common in this index to discriminate; these are unfiltered candidates, not a ranked answer."
+        shown = len(results)
+        if shown:
+            abstention = None
+        elif total_matches == 0:
+            abstention = "no indexed source matches these terms"
+        else:
+            abstention = "matches exist but none passed the overlap or temporal gate; inspect total_matches and the date"
+        return {"ok": True, "results": results, "shown": shown, "total_matches": total_matches,
+                "low_discrimination": low_discrimination, "abstention": abstention,
                 "temporal_warning": warning, "as_of": as_of,
                 "local_only": True, "note": "Lexical candidates are not verified facts; inspect cited source passages."}
 

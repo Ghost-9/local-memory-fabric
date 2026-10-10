@@ -94,7 +94,7 @@ impl MemoryFabric {
                 .open(&config_path)
                 .map_err(|e| format!("cannot create config: {e}"))?;
             serde_json::to_writer_pretty(&mut file, &config_value).map_err(|e| e.to_string())?;
-            file.write_all(b"\\n").map_err(|e| e.to_string())?;
+            file.write_all(b"\n").map_err(|e| e.to_string())?;
         }
         set_mode(&config_path, 0o600);
         Ok(Self {
