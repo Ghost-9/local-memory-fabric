@@ -9,7 +9,7 @@ from pathlib import Path
 
 MODULE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(MODULE))
-from memory_fabric import MemoryFabric  # noqa: E402
+from memory_fabric import MemoryFabric, dispatch_request  # noqa: E402
 
 BINARY = Path(__file__).resolve().parents[1] / "target" / "release" / "memory-fabric"
 
@@ -129,6 +129,37 @@ def main() -> int:
             checks += 1
             mismatches += int([r["source_ref"] for r in py_local["results"]] !=
                               [r["source_ref"] for r in rust_local["results"]])
+            # REGRESSION (0.3.5): the block above calls the Python METHOD, which bypasses
+            # dispatch_request - and that is exactly where the bug lived. The Python engine
+            # accepted `loopback` and never received it from the JSON path, so with enforcement
+            # on it withheld deny_remote notes from LOCAL providers too, while Rust (which does
+            # forward it) returned everything. Same request, opposite results, parity green.
+            #
+            # So: exercise search and context through the real JSON dispatch, with loopback
+            # asserted, and require both engines to return the same thing.
+            for op, payload in (
+                ("search", {"op": "search", "query": "retention snapshots", "scope": "all",
+                            "provider": "ollama", "limit": 5, "loopback": True}),
+                ("context", {"op": "context", "query": "retention snapshots",
+                             "provider": "ollama", "loopback": True}),
+            ):
+                py_dispatch = py_export_engine.__class__(
+                    home=py_home, vault=vault, config={"enforce_export_policy": True})
+                py_via_dispatch = dispatch_request(py_dispatch, payload)
+                rust_via_dispatch = rust(payload)
+                # `context` has no top-level withheld_export; it reports source_count instead.
+                py_shown = (py_via_dispatch.get("shown") if op == "search"
+                            else py_via_dispatch.get("source_count"))
+                rust_shown = (rust_via_dispatch.get("shown") if op == "search"
+                              else rust_via_dispatch.get("source_count"))
+                checks += 1
+                mismatches += int(py_shown != rust_shown)
+                # And the substantive claim: a loopback caller must still SEE the notes,
+                # and must not be blocked, under enforcement.
+                checks += 1
+                mismatches += int(not py_shown or bool(py_via_dispatch.get("blocked")) or
+                                  bool(rust_via_dispatch.get("blocked")) or
+                                  (op == "search" and py_via_dispatch.get("withheld_export")))
             checks += 1
             # Both engines must land a sandboxed payload identically: same handle (content
             # addressed, so identical bytes imply an identical digest), same bounded head, and

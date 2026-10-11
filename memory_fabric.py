@@ -553,11 +553,15 @@ class MemoryFabric:
                 "temporal_warning": warning, "as_of": as_of, "withheld_export": withheld,
                 "local_only": True, "note": "Lexical candidates are not verified facts; inspect cited source passages."}
 
-    def context(self, project: str | None, query: str, provider: str | None, token_budget: int = 1200, as_of: str | None = None) -> dict[str, Any]:
+    def context(self, project: str | None, query: str, provider: str | None, token_budget: int = 1200, as_of: str | None = None,
+                loopback: bool | None = None) -> dict[str, Any]:
         if not self.is_local_provider(provider):
             return {"ok": False, "blocked": "Memory content is available only to an explicitly allowed local model provider."}
         scope = f"project:{project}" if project else "all"
-        hits = self.search(query, scope=scope, limit=10, provider=provider, as_of=as_of)
+        # `loopback` must be forwarded, not just accepted: the export gate withholds
+        # deny_remote notes from everyone who is not loopback, so dropping it here made a
+        # LOCAL provider lose access to the whole vault whenever enforcement was on.
+        hits = self.search(query, scope=scope, limit=10, provider=provider, as_of=as_of, loopback=loopback)
         if not hits.get("ok"):
             return hits
         budget = max(100, min(int(token_budget), 6000))
@@ -821,8 +825,8 @@ def dispatch_request(fabric: MemoryFabric, req: dict[str, Any]) -> dict[str, Any
     op = req.get("op")
     if op == "status": return fabric.status()
     if op == "index": return fabric.index(bool(req.get("force", False)))
-    if op == "search": return fabric.search(str(req.get("query", "")), str(req.get("scope", "all")), int(req.get("limit", 5)), req.get("provider"), req.get("as_of"))
-    if op == "context": return fabric.context(req.get("project"), str(req.get("query", "")), req.get("provider"), int(req.get("token_budget", 1200)), req.get("as_of"))
+    if op == "search": return fabric.search(str(req.get("query", "")), str(req.get("scope", "all")), int(req.get("limit", 5)), req.get("provider"), req.get("as_of"), req.get("loopback"))
+    if op == "context": return fabric.context(req.get("project"), str(req.get("query", "")), req.get("provider"), int(req.get("token_budget", 1200)), req.get("as_of"), req.get("loopback"))
     if op == "read": return fabric.read(str(req.get("source_ref", "")), req.get("provider"), req.get("heading"))
     if op == "propose": return fabric.propose(str(req.get("project", "")), str(req.get("target", "")), str(req.get("section", "")), str(req.get("text", "")), req.get("source_refs", []), req.get("provider"))
     if op == "sandbox": return fabric.sandbox(str(req.get("title", "")), str(req.get("text", "")), str(req.get("scope", "episodic")), req.get("provider"), req.get("loopback"))
