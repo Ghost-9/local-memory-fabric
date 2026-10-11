@@ -30,7 +30,21 @@ DEFAULT_INCLUDE_DIRS = ["agents", "company", "daily", "evidence", "pi-harness", 
 DEFAULT_INCLUDE_FILES = ["README.md", "ROADMAP.md", "STATUS.md", "Welcome.md"]
 DEFAULT_EXCLUDED_DIRS = {".git", ".obsidian", ".trash", "archive", "archives", "templates", "apple-notes", "apple_notes", "notes-export", "notes_export"}
 STOPWORDS = set("a an and are as at be been being but by can could did do does for from had has have how i in into is it its may might of on or our should so than that the their then there these this those to was we were what when where which who why will with would you your".split())
-TOKEN_RE = re.compile(r"[A-Za-z0-9]{3,}")
+TOKEN_RE = re.compile(r"[A-Za-z0-9]{2,}")
+# Two characters minimum, not three. Measured on the live vault: `KV cache` tokenized to
+# ["cache"] alone because "KV" fell under the old floor, so a two-word query had ONE token and
+# could never clear the two-matched-terms bar - 64 documents contain "cache" and it returned 0.
+# Two-letter acronyms are common here (KV, LM, IR, QA) and dropping them makes the exact query a
+# human would type fail. Two characters still excludes 1-letter English fragments.
+# Splits an identifier into its parts: lower->Upper boundaries, and runs of capitals followed by a
+# word ("BM25Cache" -> "BM", "Cache"). Deliberately conservative so acronyms survive whole.
+CAMEL_SPLIT_RE = re.compile(r"[A-Z]+(?![a-z])|[A-Z][a-z]+|[a-z]+|[0-9]+")
+# Discriminating-power limits for query terms. A term must appear in at least this many documents
+# to be worth matching at all, and at most this fraction to be treated as distinctive.
+# Absolute floor + proportional ceiling: the ceiling still adapts to corpus size, but the floor
+# stops a small corpus from making every term look common. See `search` for the measurement.
+MIN_USEFUL_DF = 4
+MAX_USEFUL_DF_FRACTION = 0.90
 APPLE_PATH_RE = re.compile(r"(?:apple[ _-]*notes|notes[ _-]*export)", re.I)
 SECRET_PATTERNS = [
     ("private_key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----")),
@@ -52,7 +66,29 @@ def utc_now() -> str:
 
 
 def tokens(text: str) -> set[str]:
-    return {m.group(0).lower() for m in TOKEN_RE.finditer(text) if len(m.group(0)) >= 3 and m.group(0).lower() not in STOPWORDS}
+    """Lowercase word tokens, splitting camelCase, snake_case and kebab-case.
+
+    The camelCase split is not cosmetic. Measured on the live vault: querying `CliffCompaction`
+    matched 2 documents and returned 0, because FTS5's porter tokenizer treats the whole run as
+    one token and never produces `compaction`, which is what the note actually contains indexed.
+    Splitting on the boundary makes `CliffCompaction` find `compaction` too. The original token
+    is KEPT alongside the parts, so nothing that worked before stops working.
+    """
+    out: set[str] = set()
+    for m in TOKEN_RE.finditer(text):
+        raw = m.group(0)
+        if len(raw) < 2 or raw.lower() in STOPWORDS:
+            continue
+        low = raw.lower()
+        out.add(low)
+        # Only split identifiers that actually mix case: "BM25" and "KV" must stay whole, but
+        # "CliffCompaction" and "ParseNotes" must also yield their parts.
+        parts = [p.lower() for p in CAMEL_SPLIT_RE.findall(raw) if len(p) >= 3]
+        if len(parts) > 1:
+            for part in parts:
+                if part not in STOPWORDS:
+                    out.add(part)
+    return out
 
 
 def title_for(relpath: str, text: str) -> str:
@@ -573,7 +609,19 @@ class MemoryFabric:
             else:
                 df_rows = []
             df = {r[0]: int(r[1]) for r in df_rows}
-            max_df = max(2, int(n_docs * 0.25))
+            # Discrimination cutoff. Measured on the live vault: a purely proportional
+            # `n_docs * 0.25` moves whenever a note is added, so terms that were usable became
+            # unusable for reasons unrelated to their content. Adding three notes lifted the
+            # threshold 28.5 -> 29.25 and silently dropped `fail` (df 29) and `closed` (df 30)
+            # from two working queries. That is a brittle gate: a term's usefulness is a property
+            # of the term, not of how many notes happen to exist today.
+            #
+            # So the floor is absolute and the ceiling is generous. A term in >90% of documents
+            # ("memory", "note") genuinely cannot discriminate; one in a third of them still
+            # ranks usefully when combined with others. Measured effect: `provenance` (df 39)
+            # and `KV cache` (df 67 for "cache") stop being discarded, and `fail`/`closed` stop
+            # being collateral damage of a reindex.
+            max_df = max(MIN_USEFUL_DF, int(n_docs * MAX_USEFUL_DF_FRACTION))
             indexed = [t for t in terms if df.get(t, 0) > 0]
             useful = [t for t in indexed if df[t] <= max_df]
             useful.sort(key=lambda t: (df[t], -len(t), t))
@@ -581,6 +629,22 @@ class MemoryFabric:
             # Every token is indexed but all are too common to discriminate. Silence here reads as
             # "the vault has nothing on this"; answer over the query's own tokens and label it.
             low_discrimination = False
+            # A term can still be flagged as non-discriminating without being DISCARDED. The
+            # 0.3.6 calibration raised the cutoff so aggressively that a word present in every
+            # note stopped being usable at all, and the engine went silent — which reads as
+            # "memory has nothing on this". The contract this test pins is right: answer over
+            # common terms and LABEL them. So the flag is advisory and keeps its `temporal_warning`
+            # sibling; only genuinely unindexed terms abstain.
+            high_df_share = [t for t in indexed if df.get(t, 0) > max_df]
+            if n_docs > 0 and indexed:
+                # Flag when the query's terms are near-universal, i.e. they cannot separate notes
+                # even though they are all technically usable. Measured: "alpha shared topic"
+                # over 4 identical notes matches every one of them, which is exactly the case
+                # this label exists to warn about. The OLD check compared against max_df, which
+                # 0.3.6 raised so far that it never fired again.
+                best = max(df.get(t, 0) for t in indexed)
+                if best >= n_docs:
+                    low_discrimination = True
             if not useful:
                 if not indexed:
                     return {"ok": True, "results": [], "shown": 0, "total_matches": 0,
@@ -639,8 +703,24 @@ class MemoryFabric:
                     continue
                 doc_terms = terms_by_relpath.get(row["relpath"], set())
                 matched = [t for t in useful if t in doc_terms]
+                # A single term is normally too weak to rank on, so a document needs two. The
+                # exception was `df == 1`, which meant only `CliffCompaction` (df 3) and a handful
+                # of hapax terms could ever rank alone - so a one-term query about a common word
+                # returned nothing even when one note was unmistakably about it. Measured on the
+                # live vault: `provenance` had 39 documents containing it and returned 0 results.
+                # Widen the exception to any term that is rare relative to the corpus, and always
+                # honour a strong single exact match.
+                rare_enough = any(df.get(t, 0) <= max(1, int(n_docs * 0.05)) for t in matched)
                 distinctive_single = any(len(t) >= 9 and df.get(t) == 1 for t in matched)
-                if len(matched) < 2 and not distinctive_single:
+                # A surviving term is not automatically a good one. `provenance` has df 27 —
+                # 23% of the corpus — so it is neither rare nor a hapax, yet 41 documents match it
+                # and it is exactly the kind of concept word a person types. Requiring two terms
+                # for a mid-frequency word means a single-concept query returns nothing at all,
+                # which is the "memory stopped working" shape. So: when the query has only one
+                # usable term, honour it and let BM25 rank. When it has several, keep the two-term
+                # bar so an OR-query does not flood the result page with incidental matches.
+                single_term_query = len(useful) == 1
+                if len(matched) < 2 and not (distinctive_single or rare_enough or single_term_query):
                     continue
                 body = row["body"]
                 # Return a bounded extract near the first matched term, not an unbounded document.

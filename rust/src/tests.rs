@@ -50,12 +50,15 @@ fn safe_paths_reject_traversal() {
 }
 #[test]
 fn tokenization_is_casefolded_and_deduplicated() {
-    assert_eq!(
-        tokenize("SQLite sqlite FTS5 the")
-            .into_iter()
-            .collect::<Vec<_>>(),
-        vec!["fts5", "sqlite"]
-    );
+    // Verified against the Python engine: tokens("SQLite sqlite FTS5 the") == ["fts5","sqlite"].
+    // `SQLite` splits to [sq, lite] and `FTS5` to [fts, 5]; after dropping sub-3-char parts only
+    // ONE part remains in each case, so neither is compound and no partial token is indexed.
+    // That filter-then-test ordering is what keeps the engines identical - see
+    // `camel_split_matches_the_python_engine` for the cases that DO split.
+    let got: Vec<String> = tokenize("SQLite sqlite FTS5 the").into_iter().collect();
+    assert_eq!(got, vec!["fts5", "sqlite"]);
+    assert!(got.contains(&"sqlite".to_string()), "original token must survive splitting");
+    assert!(got.contains(&"fts5".to_string()), "original token must survive splitting");
 }
 #[test]
 fn secret_filter_catches_underscore_service_role_key() {
@@ -76,3 +79,19 @@ fn secret_filter_ignores_placeholder() {
 fn apple_paths_are_rejected() {
     assert!(apple_path_re().is_match("Apple Notes Export"));
 }
+
+
+#[test]
+fn camel_split_matches_the_python_engine() {
+    use crate::text::split_identifier;
+    // These are the exact expectations from the Python engine's CAMEL_SPLIT_RE, minus parts
+    // shorter than 3 characters (which the caller filters).
+    assert_eq!(split_identifier("CliffCompaction"), vec!["cliff", "compaction"]);
+    assert_eq!(split_identifier("parseNotes"), vec!["parse", "notes"]);
+    assert_eq!(split_identifier("localMemoryFabric"), vec!["local", "memory", "fabric"]);
+    assert_eq!(split_identifier("BM25Cache"), vec!["bm", "25", "cache"]);
+    assert_eq!(split_identifier("FTS5-Lite"), vec!["fts", "5", "lite"]);
+    // An acronym with no case boundary stays whole - the reason BM25 must still match BM25.
+    assert_eq!(split_identifier("KV"), vec!["kv"]);
+}
+

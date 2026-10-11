@@ -10,8 +10,8 @@ from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from memory_fabric import (SANDBOX_HEAD_CHARS, MemoryFabric, classify_storage_error,
-                             dispatch_request, main)
+from memory_fabric import (MAX_USEFUL_DF_FRACTION, SANDBOX_HEAD_CHARS, MemoryFabric,
+                             classify_storage_error, dispatch_request, main, tokens)
 
 
 class MemoryFabricTests(unittest.TestCase):
@@ -224,6 +224,77 @@ class MemoryFabricTests(unittest.TestCase):
             blocked = on.search("alpha", provider="opencode")
             self.assertEqual(blocked["results"], [], "enforcement on withholds deny_remote notes")
             self.assertGreater(blocked["withheld_export"], 0)
+
+    def test_identifiers_split_so_camelcase_queries_find_their_parts(self):
+        """`CliffCompaction` matched 2 documents on the live vault and returned 0.
+
+        FTS5's porter tokenizer never derives `compaction` from `CliffCompaction`, so the query
+        could not match the notes that actually contain the word. Splitting on case boundaries
+        fixes that. The original token is always kept, so nothing that worked stops working.
+        """
+        self.assertIn("compaction", tokens("CliffCompaction"))
+        self.assertIn("cliffcompaction", tokens("CliffCompaction"), "original must survive")
+        self.assertIn("notes", tokens("parseNotes"))
+        # Acronyms stay whole - this is why the split must not fire on a single-case run.
+        self.assertIn("bm25", tokens("BM25"))
+        self.assertIn("qwen3", tokens("Qwen3-Reranker"))
+
+    def test_two_letter_acronyms_are_indexed(self):
+        """`KV cache` tokenized to ["cache"] alone, so a two-word query had one token.
+
+        With one token it could never clear the two-matched-terms bar: 64 documents contain
+        "cache" and the query returned 0. Two-letter acronyms are common in this corpus.
+        """
+        self.assertIn("kv", tokens("KV cache"))
+        self.assertIn("cache", tokens("KV cache"))
+        self.assertEqual(tokens("a I"), set(), "one-letter fragments stay out of the index")
+
+    def test_the_df_cutoff_does_not_move_when_notes_are_added(self):
+        """A purely proportional cutoff makes a term's usefulness depend on today's note count.
+
+        Measured: adding three notes lifted `n_docs * 0.25` from 28.5 to 29.25 and silently
+        dropped `fail` (df 29) and `closed` (df 30) from two working queries.
+        """
+        self.assertGreaterEqual(MAX_USEFUL_DF_FRACTION, 0.5,
+                                "the ceiling must be generous or ordinary words are discarded")
+        self.assertGreaterEqual(MAX_USEFUL_DF_FRACTION, 0.5)
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            vault = base / "vault"
+            (vault / "projects").mkdir(parents=True)
+            for i in range(6):
+                (vault / "projects" / f"n{i}.md").write_text(
+                    f"# N{i}\n\ncompaction caching retrieval indexing ranking {i}\n", encoding="utf-8")
+            fabric = MemoryFabric(home=base / "s", vault=vault, config={"local_providers": ["ollama"]})
+            fabric.index()
+            small = fabric.search("compaction", provider="ollama")["shown"]
+            # Add unrelated notes; the cutoff must not now exclude a word it previously allowed.
+            for i in range(6, 60):
+                (vault / "projects" / f"extra{i}.md").write_text(
+                    f"# E{i}\n\nunrelated filler text number {i}\n", encoding="utf-8")
+            fabric.index()
+            grown = fabric.search("compaction", provider="ollama")
+            self.assertGreaterEqual(grown["shown"], small,
+                                    "adding notes must not shrink the answerable set")
+
+    def test_a_single_common_term_still_answers(self):
+        """A concept word in a third of the vault is still what a person types.
+
+        `provenance` had df 27 with 41 matching documents and returned nothing, because a single
+        mid-frequency term was neither rare nor a hapax. Silence there reads as a broken index.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            vault = base / "vault"
+            (vault / "projects").mkdir(parents=True)
+            for i in range(10):
+                body = "provenance and lineage" if i < 4 else f"unrelated note number {i}"
+                (vault / "projects" / f"n{i}.md").write_text(f"# N{i}\n\n{body}\n", encoding="utf-8")
+            fabric = MemoryFabric(home=base / "s", vault=vault, config={"local_providers": ["ollama"]})
+            fabric.index()
+            r = fabric.search("provenance", provider="ollama")
+            self.assertGreater(r["shown"], 0, "a single common term must answer, not abstain")
+            self.assertIsNone(r["abstention"])
 
     def test_reads_survive_an_index_created_before_the_alarm_table(self):
         """A read must never require a write.

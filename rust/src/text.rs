@@ -29,11 +29,86 @@ pub(crate) fn regex(pattern: &str) -> Regex {
 
 pub(crate) fn tokenize(text: &str) -> BTreeSet<String> {
     let stop: HashSet<&str> = STOPWORDS.split_whitespace().collect();
-    regex(r"[A-Za-z0-9]{3,}")
-        .find_iter(text)
-        .map(|m| m.as_str().to_ascii_lowercase())
-        .filter(|term| !stop.contains(term.as_str()))
-        .collect()
+    let mut out: BTreeSet<String> = BTreeSet::new();
+    for m in regex(r"[A-Za-z0-9]{2,}").find_iter(text) {
+        let raw = m.as_str();
+        if raw.len() < 2 {
+            continue;
+        }
+        let low = raw.to_ascii_lowercase();
+        if stop.contains(low.as_str()) {
+            continue;
+        }
+        out.insert(low);
+        // Split identifiers on case boundaries, keeping the original token too. Measured on the
+        // live vault: `CliffCompaction` matched 2 documents and returned 0, because FTS5 never
+        // derived `compaction` — the part the notes actually contain. Acronyms survive whole.
+        //
+        // Hand-rolled rather than a regex: the `regex` crate has no lookahead, which the obvious
+        // `[A-Z]+(?![a-z])` pattern needs. Doing it by hand also keeps the behaviour explicit.
+        let parts = split_identifier(raw);
+        // Filter FIRST, then decide whether this is a compound identifier. Matches Python's
+        // `[p for p in CAMEL_SPLIT_RE.findall(raw) if len(p) >= 3]` followed by `len(parts) > 1`.
+        // Order matters: `SQLite` splits to [sq, lite], and after dropping "sq" only one part
+        // remains, so it is NOT compound and no partial token is added. Filtering the other way
+        // round would index "lite" out of "SQLite" and diverge from the Python engine.
+        // Two characters minimum, mirroring the Python engine: `KV cache` must tokenize to
+        // two terms, not one. Sub-3-char SPLIT parts are still dropped below, which is a
+        // separate rule about decomposing an identifier rather than about word length.
+        let parts: Vec<String> = parts.into_iter().filter(|p| p.len() >= 3).collect();
+        if parts.len() > 1 {
+            for p in parts {
+                if !stop.contains(p.as_str()) {
+                    out.insert(p);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Split an identifier into lowercase parts at case boundaries.
+///
+/// `CliffCompaction` -> [cliff, compaction]; `parseNotes` -> [parse, notes];
+/// `BM25` -> [bm25] (an acronym stays whole); `BM25Cache` -> [bm, cache].
+pub(crate) fn split_identifier(raw: &str) -> Vec<String> {
+    let chars: Vec<char> = raw.chars().collect();
+    let mut parts: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for (i, &c) in chars.iter().enumerate() {
+        let prev_lower = i > 0 && chars[i - 1].is_lowercase();
+        let prev_upper = i > 0 && chars[i - 1].is_uppercase();
+        let next_lower = i + 1 < chars.len() && chars[i + 1].is_lowercase();
+        // Mirrors Python's `[A-Z]+(?![a-z])|[A-Z][a-z]+|[a-z]+|[0-9]+` exactly. Verified against it
+        // by `camel_split_matches_the_python_engine`, which pins the cases that are easy to get
+        // subtly wrong:
+        //   lower -> Upper        "parseNotes"  -> parse | Notes
+        //   digit starts a part   "BM25"       -> BM     | 25      (NOT bm25)
+        //   upper run + lower    "FTS5-Lite"  -> FTS|5   | Lite
+        // Because a digit run always begins a new part, "BM25" yields bm + 25 but the caller
+        // drops parts shorter than 3, so "25" never reaches the index and BM25 still matches.
+        let prev_digit = i > 0 && chars[i - 1].is_ascii_digit();
+        let boundary = if c.is_ascii_digit() {
+            !prev_digit
+        } else {
+            c.is_uppercase() && (prev_lower || (prev_upper && next_lower) || prev_digit)
+        } || !c.is_alphanumeric();
+
+        if !c.is_alphanumeric() {
+            if !cur.is_empty() {
+                parts.push(std::mem::take(&mut cur));
+            }
+            continue;
+        }
+        if boundary && !cur.is_empty() {
+            parts.push(std::mem::take(&mut cur));
+        }
+        cur.push(c.to_ascii_lowercase());
+    }
+    if !cur.is_empty() {
+        parts.push(cur);
+    }
+    parts
 }
 
 pub(crate) fn frontmatter_value(text: &str, key: &str) -> Option<String> {

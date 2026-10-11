@@ -8,6 +8,11 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
+/// Discriminating-power limits for query terms; mirrors the Python engine exactly.
+/// See `MIN_USEFUL_DF` / `MAX_USEFUL_DF_FRACTION` there for the measurement behind them.
+const MIN_USEFUL_DF: i64 = 4;
+const MAX_USEFUL_DF_FRACTION: f64 = 0.90;
+
 impl MemoryFabric {
     pub(crate) fn search(
         &self,
@@ -65,7 +70,11 @@ impl MemoryFabric {
                 df.insert(t, n);
             }
         }
-        let max_df = std::cmp::max(2, (n_docs as f64 * 0.25) as i64);
+        // Absolute floor + proportional ceiling. Measured on the live vault: a purely proportional
+        // cutoff moves whenever a note is added, so adding three notes lifted it 28.5 -> 29.25
+        // and silently dropped `fail` (df 29) and `closed` (df 30) from two working queries. A
+        // term's usefulness is a property of the term, not of today's note count.
+        let max_df = std::cmp::max(MIN_USEFUL_DF, (n_docs as f64 * MAX_USEFUL_DF_FRACTION) as i64);
         let rank_key = |a: &String, b: &String| {
             df[a]
                 .cmp(&df[b])
@@ -89,6 +98,19 @@ impl MemoryFabric {
         // the query's own tokens and label the result; abstention is reserved for tokens the index
         // does not contain at all.
         let mut low_discrimination = false;
+        // A term can be flagged as non-discriminating without being DISCARDED. The 0.3.6
+        // calibration raised the cutoff so aggressively that a word present in every note
+        // stopped being usable and the engine went silent, which reads as "memory has nothing
+        // on this". The contract is to answer over common terms and LABEL them; only genuinely
+        // unindexed terms abstain. Mirrors the Python engine.
+        let best_df = indexed
+            .iter()
+            .map(|t| df.get(t).copied().unwrap_or(0))
+            .max()
+            .unwrap_or(0);
+        if best_df >= n_docs as i64 {
+            low_discrimination = true;
+        }
         if useful.is_empty() {
             if indexed.is_empty() {
                 return Ok(json!({
@@ -209,7 +231,19 @@ impl MemoryFabric {
             let distinctive = matched
                 .iter()
                 .any(|t| t.len() >= 9 && df.get(t).copied() == Some(1));
-            if matched.len() < 2 && !distinctive {
+            // Mirrors the Python engine: a lone term is normally too weak to rank on, but any
+            // term that is rare relative to the corpus is enough on its own. The old rule
+            // (`df == 1` only) meant a one-term query about a moderately common word returned
+            // nothing even when one note was unmistakably about it.
+            let rare_enough = matched
+                .iter()
+                .any(|t| df.get(t).copied().unwrap_or(0) <= std::cmp::max(1, (n_docs / 20) as i64));
+            // A single-term query is honoured even when its term is mid-frequency: `provenance`
+            // (df 27) matches 41 documents and is exactly the concept word a person types, so
+            // requiring two terms made the query return nothing. With several usable terms the
+            // two-term bar is kept so an OR-query does not flood the page with incidental hits.
+            let single_term_query = useful.len() == 1;
+            if matched.len() < 2 && !(distinctive || rare_enough || single_term_query) {
                 continue;
             }
             let folded = row.body.to_lowercase();
