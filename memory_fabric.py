@@ -393,7 +393,10 @@ class MemoryFabric:
             count = con.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
             last = con.execute("SELECT value FROM metadata WHERE key='last_indexed_at'").fetchone()
         return {"ok": True, "version": VERSION, "indexed": True, "documents": count,
-                "last_indexed_at": last[0] if last else None}
+                "last_indexed_at": last[0] if last else None,
+                # Reported so the operator can see the knob without reading the config: the
+                # scrub and the export gate both change what a session receives.
+                "enforce_export_policy": bool(self.config.get("enforce_export_policy", False))}
 
     def search(self, query: str, scope: str = "all", limit: int = 5, provider: str | None = None, as_of: str | None = None,
                 loopback: bool | None = None) -> dict[str, Any]:

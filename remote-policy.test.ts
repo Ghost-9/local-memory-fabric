@@ -88,6 +88,32 @@ test("the switch parses only explicit affirmatives", () => {
 	}
 });
 
+test("an endpoint that is local-but-unrecognised is scrubbed, not mis-trusted", () => {
+	// localhost.localdomain and 0.0.0.0 resolve to this machine but are not in the loopback set,
+	// so they must be scrubbed. Accepting them would widen the deny-all; the cost of being
+	// conservative is a lost context, which the extension now announces. Never treat an
+	// unknown hostname as loopback to make a session work.
+	const model = { provider: "ollama", baseUrl: "http://localhost.localdomain:11434" };
+	assert.equal(isLoopbackModel(model, LOCAL), false);
+	assert.equal(shouldScrubContext(model, LOCAL, EXEMPT), true);
+	const bindAll = { provider: "ollama", baseUrl: "http://0.0.0.0:11434" };
+	assert.equal(isLoopbackModel(bindAll, LOCAL), false);
+	assert.equal(shouldScrubContext(bindAll, LOCAL, EXEMPT), true);
+	// Credentials embedded in a URL must not make a remote provider look local.
+	const creds = { provider: "ollama", baseUrl: "http://user:pass@127.0.0.1:11434" };
+	assert.equal(isLoopbackModel(creds, LOCAL), true, "loopback host is loopback, creds or not");
+});
+
+test("an exempted provider over plain http is exempted but never loopback", () => {
+	// The exemption is the operator's named decision, so it stands over http; what must never
+	// happen is that same URL being classified as local, which would silently drop the scrub.
+	const model = { provider: "opencode-go", baseUrl: "http://api.opencode.ai" };
+	assert.equal(isLoopbackModel(model, LOCAL), false);
+	assert.equal(isExemptedProvider(model, EXEMPT), true);
+	assert.equal(mayWriteToMemory(model, LOCAL, EXEMPT, false), false);
+	assert.equal(mayWriteToMemory(model, LOCAL, EXEMPT, true), true);
+});
+
 test("an empty provider list means nothing is allowlisted", () => {
 	assert.equal(parseProviderList("", "lmstudio").size, 0);
 	assert.equal(parseProviderList(" a , B ,, ", "x").has("b"), true);

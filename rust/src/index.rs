@@ -252,7 +252,10 @@ impl MemoryFabric {
             .optional()
             .map_err(|e| e.to_string())?;
         Ok(
-            json!({"ok":true,"version":VERSION,"indexed":true,"documents":docs,"last_indexed_at":last}),
+            json!({"ok":true,"version":VERSION,"indexed":true,"documents":docs,"last_indexed_at":last,
+                   // Reported so the operator can see the knob without reading the config:
+                   // both the scrub and the export gate change what a session receives.
+                   "enforce_export_policy":self.export_enforced()}),
         )
     }
 

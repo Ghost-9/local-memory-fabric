@@ -203,6 +203,9 @@ const LOCAL_PROVIDERS = parseProviderList(process.env.PI_MEMORY_LOCAL_PROVIDERS,
  */
 const REMOTE_ALLOWED_PROVIDERS = parseProviderList(process.env.PI_MEMORY_REMOTE_ALLOWED_PROVIDERS, "opencode-go,opencode,pi");
 const REMOTE_FULL_ACCESS = remoteFullAccessEnabled(process.env.PI_MEMORY_REMOTE_FULL_ACCESS);
+
+/** Set once a context scrub has actually removed something; see the notification below. */
+let scrubWarned = false;
 const VAULT_ROOT = resolve(process.env.MEMORY_FABRIC_VAULT || resolve(homedir(), "system-memory"));
 
 // Thin bindings so the call sites below read plainly; every decision lives in remote-policy.ts.
@@ -300,6 +303,16 @@ export default function (pi: ExtensionAPI) {
 			return true;
 		});
 		return filtered.length === messages.length ? undefined : { messages: filtered };
+		// Something was actually removed, so say so: a fail-closed policy with no message reads
+		// as "memory stopped working" with no way to tell why. Once per process, naming only
+		// the provider and the two knobs - never a path, never content.
+		if (!scrubWarned) {
+			scrubWarned = true;
+			ctx.ui.notify(
+				`Local memory withheld this request: provider "${ctx.model?.provider ?? "unknown"}" is neither loopback nor listed in PI_MEMORY_REMOTE_ALLOWED_PROVIDERS, so fabric results and injected vault context were removed before sending. Nothing left the machine.`,
+				"warning",
+			);
+		}
 	});
 
 	pi.on("tool_call", (event, ctx) => {

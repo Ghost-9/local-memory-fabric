@@ -157,6 +157,20 @@ class MemoryFabricTests(unittest.TestCase):
                     con.execute("ROLLBACK")
             self.assertTrue(fabric.index(force=True)["ok"], "retry after release must succeed")
 
+    def test_status_reports_the_export_policy_knob(self):
+        """Both the scrub and the export gate change what a session receives. If the knob is
+        invisible, an operator cannot tell why their remote provider suddenly gets nothing."""
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            vault = base / "vault"
+            (vault / "projects").mkdir(parents=True)
+            (vault / "projects" / "n.md").write_text("# N\n\nalpha\n", encoding="utf-8")
+            for cfg in ({}, {"enforce_export_policy": True}):
+                home = base / ("s-on" if cfg else "s-off")
+                fabric = MemoryFabric(home=home, vault=vault, config=cfg)
+                fabric.index()
+                self.assertEqual(fabric.status().get("enforce_export_policy"), bool(cfg))
+
     def test_as_of_filters_superseded_sources_and_preserves_provenance(self):
         current = self.fabric.search("legacy retention snapshots", scope="project:atlas", provider="ollama")
         historic = self.fabric.search("legacy retention snapshots", scope="project:atlas", provider="ollama", as_of="2023-06-01")

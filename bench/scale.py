@@ -18,6 +18,7 @@ never touches a real memory source.
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import random
@@ -26,6 +27,7 @@ import sqlite3
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -51,10 +53,20 @@ def main() -> int:
     parser.add_argument("--queries", type=int, default=200)
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--rebuild", action="store_true", help="regenerate the corpus and index")
+    parser.add_argument("--keep", action="store_true", help="keep the generated corpus for debugging")
     args = parser.parse_args()
 
-    base = Path(f"/tmp/mf-scale-{args.notes}-p{args.pool}")
+    # Each run owns its own directory. A fixed /tmp path collides when two runs overlap -
+    # one would index the other's corpus, or fail on a stale lock, and the numbers would be
+    # attributed to the wrong build.
+    base = Path(tempfile.mkdtemp(prefix=f"mf-scale-{args.notes}-p{args.pool}-"))
+    shutil.rmtree(base, ignore_errors=True)  # keep the name, drop any collision
+    base.mkdir(parents=True)
     vault, home = base / "vault", base / "state"
+    # Owned data also gets cleaned up: a benchmark that leaves a corpus behind per run turns
+    # /tmp into an archive of abandoned runs. --keep preserves it for debugging.
+    if not args.keep:
+        atexit.register(shutil.rmtree, base, True)
     env = dict(os.environ, MEMORY_FABRIC_VAULT=str(vault), MEMORY_FABRIC_HOME=str(home))
 
     if args.rebuild:
