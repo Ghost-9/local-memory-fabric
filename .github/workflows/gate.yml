@@ -1,0 +1,27 @@
+name: gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  gate:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Python + Rust engines present
+        run: |
+          python3 --version
+          cargo --version
+      - name: Build the Rust worker
+        run: ( cd rust && cargo build --release --locked )
+      - name: TypeScript + Node types for the type check
+        # The gate type-checks index.ts. Vendoring them here keeps CI independent of any
+        # sibling checkout; locally the gate borrows pi-webstack's install when present.
+        run: npm install --no-save typescript @types/node
+      - name: The gate (same one every lane runs)
+        run: ./test.sh

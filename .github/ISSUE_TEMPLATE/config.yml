@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security or confidentiality issue
+    url: https://github.com/Ghost-9/local-memory-fabric/security/advisories/new
+    about: Report privately. Never file vault content in a public issue.

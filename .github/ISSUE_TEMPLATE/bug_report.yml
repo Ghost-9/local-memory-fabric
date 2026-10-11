@@ -1,0 +1,26 @@
+name: Bug report
+description: Something is wrong. Include gate output if it is red.
+labels: [gate]
+body:
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: One sentence }
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduce
+      description: Exact commands. A command beats a description.
+      render: shell
+    validations: { required: true }
+  - type: textarea
+    id: gate
+    attributes:
+      label: ./test.sh output
+      description: Paste the tail. Do not summarise it.
+      render: shell
+    validations: { required: false }
+  - type: dropdown
+    id: engine
+    attributes: { label: Engine, options: [rust, python, both/unknown] }
+    validations: { required: true }
