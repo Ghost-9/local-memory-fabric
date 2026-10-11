@@ -6,18 +6,18 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-echo "== 1/10 python policy suite (security contract) =="
+echo "== 1/11 python policy suite (security contract) =="
 python3 test_memory_fabric.py
 
-echo "== 2/10 extension policy suite (read, scrub and write gates) =="
+echo "== 2/11 extension policy suite (read, scrub and write gates) =="
 node --experimental-strip-types --test remote-policy.test.ts
 
-echo "== 3/10 context scrub suite (what may leave the machine) =="
+echo "== 3/11 context scrub suite (what may leave the machine) =="
 # index.ts itself cannot be imported without the Pi runtime, which is why the scrub predicate
 # was extracted to scrub.ts: this suite is the first coverage that file ever had.
 node --experimental-strip-types --test scrub.test.ts
 
-echo "== 4/10 typescript parses (syntax; no type checker assumed present) =="
+echo "== 4/11 typescript parses (syntax; no type checker assumed present) =="
 node --input-type=module -e '
 import { stripTypeScriptTypes } from "node:module";
 import { readFileSync } from "node:fs";
@@ -29,18 +29,18 @@ for (const f of ["index.ts", "remote-policy.ts", "scrub.ts", "remote-policy.test
 process.exit(bad ? 1 : 0);
 '
 
-echo "== 5/10 rust unit tests =="
+echo "== 5/11 rust unit tests =="
 ( cd rust && cargo test --release --locked --quiet )
 
-echo "== 6/10 python/rust parity =="
+echo "== 6/11 python/rust parity =="
 python3 rust/tests/parity.py
 
-echo "== 7/10 retrieval determinism: identical request, identical bytes =="
+echo "== 7/11 retrieval determinism: identical request, identical bytes =="
 # A regression guard for the prefix cache, not a proof of tie ordering -- see the docstring in
 # bench/determinism.py for exactly what it can and cannot show.
 python3 bench/determinism.py
 
-echo "== 8/10 real-vault probe: the failure modes the synthetic corpus cannot see =="
+echo "== 8/11 real-vault probe: the failure modes the synthetic corpus cannot see =="
 # bench/recall.py scores 1.0 on a corpus generated from the terms it queries, so it cannot
 # detect the failures this vault actually had (over-abstention, camelCase, acronyms). This runs
 # the live vault read-only and fails if parity breaks. It reports, it does not assert a score -
@@ -57,7 +57,23 @@ else
   exit 1
 fi
 
-echo "== 9/10 benchmark harness: recall/MRR + exit-code taxonomy =="
+echo "== 9/11 gold fixture: >=100 queries, recall/MRR + no-hit precision =="
+# bench/recall.py scores 1.0 on a corpus built from the terms it queries, so it cannot detect a
+# ranking regression. bench/fixture_score.py runs 136 hand-written cases over a corpus built to
+# BREAK retrieval: camelCase, two-letter acronyms, near-universal terms, paraphrase, and decoys
+# made from each target's own words.
+#
+# The thresholds live in bench/fixture_gate.py so they are reviewable and diffable rather than
+# buried in shell quoting. It asserts FLOORS, not equality, so ordinary variance does not make it
+# flaky. no-hit precision is asserted too: a change that raises recall by answering everything is
+# not an improvement.
+if ! python3 bench/fixture_score.py --json > /tmp/mf-fixture.json 2>/dev/null; then
+  echo "  GATE FAILURE: the gold fixture could not be run" >&2
+  exit 1
+fi
+python3 bench/fixture_gate.py /tmp/mf-fixture.json
+
+echo "== 10/11 benchmark harness: recall/MRR + exit-code taxonomy =="
 # Fastest signal that retrieval quality or the exit-code contract regressed. Fails on
 # recall@5 drift, any non-ok response, or an exit code the taxonomy does not promise.
 python3 bench/recall.py | python3 -c 'import json,sys; r=json.load(sys.stdin); bad=[]; \
@@ -71,7 +87,7 @@ print("  recall@5", r.get("python_recall_at_5"), "/", r.get("rust_recall_at_5"),
       "| exit mismatches", r.get("python_spawn_exit_mismatches")); \
 sys.exit("GATE: benchmark harness regression: " + ",".join(bad) if bad else 0)'
 
-echo "== 10/10 typescript type check (types, not just syntax) =="
+echo "== 11/11 typescript type check (types, not just syntax) =="
 # index.ts, remote-policy.ts and scrub.ts are security predicate files. A type error in one
 # ships silently, so this step is not optional.
 #
