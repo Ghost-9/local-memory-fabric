@@ -49,7 +49,7 @@ Alternating A/B, n=1000 per arm, **40/40 identical result sets** between arms:
 
 | corpus | term_df rows | baseline p50 | current p50 | delta |
 |--------|-------------|--------------|-------------|-------|
-| real index, 114 docs | 11,041 | 2.75 ms | **1.11 ms** | **-59.6%** |
+| small personal corpus (banded) | ~11k | 2.75 ms | **1.11 ms** | **-59.6%** |
 | synthetic, 1,130 docs | 3,707 | 2.89 ms | 2.80 ms | -3.1% |
 | synthetic, 1,130 docs | ~40,000 | 7.57 ms | **1.11 ms** | **-85.4%** (p95 8.04 -> 1.43) |
 

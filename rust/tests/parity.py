@@ -130,6 +130,54 @@ def main() -> int:
             mismatches += int([r["source_ref"] for r in py_local["results"]] !=
                               [r["source_ref"] for r in rust_local["results"]])
             checks += 1
+            # Both engines must land a sandboxed payload identically: same handle (content
+            # addressed, so identical bytes imply an identical digest), same bounded head, and
+            # the same retrievability. A drift here would mean one engine's sandbox silently
+            # duplicates or drops payloads.
+            #
+            # Searches here assert loopback on purpose: sandboxed payloads are deny_remote, and
+            # the earlier block has export enforcement on. Storing is open to an exempted
+            # provider, but retrieving under enforcement is not - a documented limitation,
+            # not something to paper over by marking payloads allow_remote.
+            sandbox_text = "shard three replicated log lines\n" * 40
+            py_sb = py.sandbox("big tool output", sandbox_text, provider="ollama")
+            rust_sb = rust({"op": "sandbox", "title": "big tool output", "text": sandbox_text,
+                            "provider": "ollama"})
+            checks += 1
+            mismatches += int(py_sb.get("handle") != rust_sb.get("handle") or
+                              len(py_sb.get("head", "")) != len(rust_sb.get("head", "")) or
+                              py_sb.get("chars") != rust_sb.get("chars") or
+                              bool(py_sb.get("ok")) is False)
+            py_found = py.search("shard replicated", scope="all", provider="ollama", limit=5, loopback=True)
+            rust_found = rust({"op": "search", "query": "shard replicated", "scope": "all",
+                               "provider": "ollama", "limit": 5, "loopback": True})
+            checks += 1
+            mismatches += int(
+                py_sb.get("handle") not in [r["source_ref"] for r in py_found.get("results", [])] or
+                rust_sb.get("handle") not in [r["source_ref"] for r in rust_found.get("results", [])]
+            )
+            # And with enforcement on and no loopback asserted, both must withhold it.
+            # NOTE: `py` was constructed without the flag and caches its config, so it would not
+            # enforce; Rust re-reads per request and would. Using the enforcing Python instance
+            # is what makes this a comparison of engines rather than of caching policies.
+            py_held = py_export_engine.search("shard replicated", scope="all", provider="ollama", limit=5)
+            rust_held = rust({"op": "search", "query": "shard replicated", "scope": "all",
+                              "provider": "ollama", "limit": 5})
+            checks += 1
+            mismatches += int([r["source_ref"] for r in py_held.get("results", [])] !=
+                              [r["source_ref"] for r in rust_held.get("results", [])])
+            # Both engines must leave a sandboxed payload untouched by the vault sweep.
+            py.index(force=True)
+            rust({"op": "index", "force": True})
+            after_py = py.search("shard replicated", scope="all", provider="ollama", limit=5, loopback=True)
+            after_rust = rust({"op": "search", "query": "shard replicated", "scope": "all",
+                               "provider": "ollama", "limit": 5, "loopback": True})
+            checks += 1
+            mismatches += int(
+                py_sb.get("handle") not in [r["source_ref"] for r in after_py.get("results", [])] or
+                rust_sb.get("handle") not in [r["source_ref"] for r in after_rust.get("results", [])]
+            )
+            checks += 1
             # Both engines must leave a config file the other can parse. The Rust writer once
             # emitted a literal backslash-n, so a fresh state initialized once and then failed
             # to start on every later run.

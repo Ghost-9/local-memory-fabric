@@ -10,7 +10,8 @@ from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from memory_fabric import MemoryFabric, classify_storage_error, dispatch_request, main
+from memory_fabric import (SANDBOX_HEAD_CHARS, MemoryFabric, classify_storage_error,
+                             dispatch_request, main)
 
 
 class MemoryFabricTests(unittest.TestCase):
@@ -170,6 +171,57 @@ class MemoryFabricTests(unittest.TestCase):
                 fabric = MemoryFabric(home=home, vault=vault, config=cfg)
                 fabric.index()
                 self.assertEqual(fabric.status().get("enforce_export_policy"), bool(cfg))
+
+    def test_sandbox_keeps_raw_bytes_out_of_context_and_retrieves_deliberately(self):
+        """A large payload should cost a bounded slice of context, with the rest stored outside
+        the canonical memory and reached only through search or read."""
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            vault = base / "vault"
+            (vault / "projects").mkdir(parents=True)
+            (vault / "projects" / "n.md").write_text("# N\n\nalpha beta\n", encoding="utf-8")
+            fabric = MemoryFabric(home=base / "state", vault=vault)
+            self.assertTrue(fabric.index()["ok"])
+            payload = "shard three replicated log lines\n" * 400  # ~13 KB of tool output
+            result = fabric.sandbox("big tool output", payload, provider="llama.cpp")
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(result["chars"], len(payload))
+            self.assertLessEqual(len(result["head"]), SANDBOX_HEAD_CHARS)
+            self.assertEqual(result["scope"], "episodic")
+            handle = result["handle"]
+            # Raw bytes on disk, outside the canonical memory, private.
+            raw = (base / "state" / "sandbox" / handle.split("/", 1)[1]).read_text(encoding="utf-8")
+            self.assertEqual(raw, payload)
+            self.assertEqual((base / "state" / "sandbox" / handle.split("/", 1)[1]).stat().st_mode & 0o777, 0o600)
+            self.assertNotIn(handle, {str(p.relative_to(vault)) for p in vault.rglob("*.md")},
+                             "sandbox must never write into the canonical memory")
+            # Retrievable, and it survives a reindex rather than being swept as stale.
+            hits = fabric.search("shard replicated", scope="all", provider="llama.cpp")
+            self.assertIn(handle, [r["source_ref"] for r in hits["results"]])
+            fabric.index(force=True)
+            after = fabric.search("shard replicated", scope="all", provider="llama.cpp")
+            self.assertIn(handle, [r["source_ref"] for r in after["results"]],
+                         "sandboxed payload was dropped by the stale sweep")
+
+    def test_sandbox_refuses_secrets_empty_and_unknown_providers(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            vault = base / "vault"
+            (vault / "projects").mkdir(parents=True)
+            (vault / "projects" / "n.md").write_text("# N\n\nalpha\n", encoding="utf-8")
+            fabric = MemoryFabric(home=base / "state", vault=vault)
+            fabric.index()
+            secret = fabric.sandbox("x", "SUPABASE_SERVICE_ROLE_KEY=" + "CANDIDATE" + "X" * 24,
+                                    provider="llama.cpp")
+            self.assertFalse(secret["ok"])
+            self.assertEqual(secret.get("error", "").split(" ")[0], "sandbox")
+            # Nothing may have been written for a rejected payload.
+            sandbox_files = list((base / "state" / "sandbox").glob("*.md")) if (base / "state" / "sandbox").exists() else []
+            self.assertEqual(sandbox_files, [], "a rejected payload must leave no file")
+            self.assertFalse(fabric.sandbox("x", "   ", provider="llama.cpp")["ok"])
+            blocked = fabric.sandbox("x", "literature", provider="google")
+            self.assertFalse(blocked["ok"])
+            self.assertIn("blocked", blocked)
 
     def test_as_of_filters_superseded_sources_and_preserves_provenance(self):
         current = self.fabric.search("legacy retention snapshots", scope="project:atlas", provider="ollama")

@@ -203,6 +203,9 @@ impl MemoryFabric {
         let stale: Vec<String> = existing
             .keys()
             .filter(|p| !found.contains(*p))
+            // Sandboxed payloads are not in the canonical memory, so the vault scan cannot see
+            // them. Without this they would be swept as stale on every reindex.
+            .filter(|p| !p.starts_with(crate::propose::SANDBOX_PREFIX))
             .cloned()
             .collect();
         for rel in &stale {

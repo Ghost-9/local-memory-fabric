@@ -1,13 +1,23 @@
 use crate::MemoryFabric;
 use crate::paths::{now_utc, safe_relpath, set_mode, set_open_mode};
 use crate::policy::secret_signature;
-use crate::text::{json_error, regex};
+use crate::text::{json_error, regex, sha256, tokenize};
+use rusqlite::params;
 use serde_json::{Value, json};
 use similar::TextDiff;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use uuid::Uuid;
+
+/// Largest payload accepted into the sandbox. Tool output is the target, so anything
+/// materially larger than a screenful is refused rather than silently truncated.
+pub(crate) const MAX_SANDBOX_CHARS: usize = 256 * 1024;
+/// How much of the payload is returned with the handle. The point of the sandbox is that the
+/// rest is retrieved deliberately, so this stays small.
+pub(crate) const SANDBOX_HEAD_CHARS: usize = 480;
+/// Relpath prefix for sandboxed payloads. `index()` protects it from the stale sweep.
+pub(crate) const SANDBOX_PREFIX: &str = "sandbox/";
 
 impl MemoryFabric {
     pub(crate) fn propose(&self, req: &Value) -> Result<Value, String> {
@@ -133,7 +143,93 @@ impl MemoryFabric {
         Ok(out)
     }
 
-    pub(crate) fn proposal_show(&self, id: &str, provider: Option<&str>) -> Result<Value, String> {
+    /// Store a large payload outside the canonical vault and return only a bounded head plus a
+/// handle, so raw bytes never enter the context window.
+///
+/// This is the piece worth borrowing from the context-window tooling: a 315 KB tool result
+/// costs the same tokens whether or not it is useful, and pushing it through the retriever is
+/// strictly better than pushing it through the prompt. Retrieval then uses the ordinary
+/// search/read path, so there is no second ranking policy to maintain.
+pub(crate) fn sandbox(
+    &self,
+    title: &str,
+    text: &str,
+    scope: &str,
+    provider: Option<&str>,
+    loopback: Option<bool>,
+) -> Result<Value, String> {
+    // `loopback` is accepted for symmetry with the other ops and echoed back, but it
+    // deliberately does not gate this payload: a sanitised copy goes to the caller either
+    // way, and the bytes here came from the agent's own tool output rather than the
+    // canonical memory, which is what export policy protects.
+    let _ = loopback;
+    if !self.is_local_provider(provider) {
+        return Ok(
+            json!({"ok":false,"blocked":"Memory content is available only to an explicitly allowed local model provider."}),
+        );
+    }
+    if text.trim().is_empty() {
+        return Ok(json_error("sandbox payload is required"));
+    }
+    if text.chars().count() > MAX_SANDBOX_CHARS {
+        return Ok(json_error(format!(
+            "sandbox payload exceeds {MAX_SANDBOX_CHARS} characters; store a slice instead"
+        )));
+    }
+    if let Some(kind) = secret_signature(text) {
+        // Local filter, before anything is written.
+        return Ok(json_error(format!(
+            "sandbox rejected by local secret filter ({kind}); no content was stored"
+        )));
+    }
+    let digest = sha256(text);
+    let rel = format!("{SANDBOX_PREFIX}{digest}.md");
+    let sandbox_path = self.home.join("sandbox");
+    fs::create_dir_all(&sandbox_path).map_err(|e| e.to_string())?;
+    let destination = sandbox_path.join(format!("{digest}.md"));
+    if !destination.exists() {
+        let mut opts = OpenOptions::new();
+        opts.write(true).create_new(true);
+        set_open_mode(&mut opts, 0o600);
+        let mut file = opts.open(&destination).map_err(|e| e.to_string())?;
+        file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+        set_mode(&destination, 0o600);
+    }
+    let con = self.connect()?;
+    let now = now_utc();
+    let head: String = text.chars().take(SANDBOX_HEAD_CHARS).collect();
+    con.execute(
+        "INSERT INTO documents(relpath,title,scope,classification,source_status,valid_from,valid_to,superseded_by,provider_policy,export_policy,body,content_hash,mtime_ns,indexed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'loopback_allowlist_only','deny_remote',?9,?10,?11,?12) ON CONFLICT(relpath) DO UPDATE SET title=excluded.title,body=excluded.body,content_hash=excluded.content_hash,indexed_at=excluded.indexed_at",
+        params![rel, if title.trim().is_empty() { "sandbox".to_string() } else { title.to_string() },
+                if scope.trim().is_empty() { "episodic".to_string() } else { scope.trim().to_string() },
+                "local_only", "current", None::<String>, None::<String>, None::<String>,
+                text, &digest, now, now],
+    )
+    .map_err(|e| e.to_string())?;
+    con.execute("DELETE FROM doc_terms WHERE relpath=?1", [&rel])
+        .map_err(|e| e.to_string())?;
+    con.execute("DELETE FROM documents_fts WHERE relpath=?1", [&rel])
+        .map_err(|e| e.to_string())?;
+    con.execute("INSERT INTO documents_fts(relpath,title,headings,body) VALUES(?1,?2,?3,?4)",
+                params![rel, if title.trim().is_empty() { "sandbox" } else { title }, "", text])
+        .map_err(|e| e.to_string())?;
+    // Mirror index.rs exactly: doc_terms is (relpath,term) with no df column, and term_df is
+    // derived from it. Writing a df here would be a schema drift that only shows up on search.
+    for term in tokenize(text) {
+        con.execute("INSERT OR IGNORE INTO doc_terms(relpath,term) VALUES(?1,?2)", params![rel, term])
+            .map_err(|e| e.to_string())?;
+    }
+    con.execute("INSERT INTO term_df(term,df) SELECT term,COUNT(*) FROM doc_terms GROUP BY term ON CONFLICT(term) DO UPDATE SET df=excluded.df", [])
+        .map_err(|e| e.to_string())?;
+    Ok(
+        json!({"ok":true,"handle":rel,"title":if title.trim().is_empty() {"sandbox"} else {title},
+               "scope":if scope.trim().is_empty() {"episodic"} else {scope.trim()},
+               "chars":text.chars().count(),"head":head,
+               "note":"Raw payload stored outside the canonical memory at mode 0600; retrieve deliberately with search or read rather than pasting it into context."}),
+    )
+}
+
+pub(crate) fn proposal_show(&self, id: &str, provider: Option<&str>) -> Result<Value, String> {
         if !self.is_local_provider(provider) {
             return Ok(
                 json!({"ok":false,"blocked":"Proposal contents are available only to an explicitly allowed local model provider."}),

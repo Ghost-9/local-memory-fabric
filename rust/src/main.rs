@@ -52,6 +52,13 @@ fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, String> {
             req["loopback"].as_bool(),
         ),
         "propose" => fabric.propose(req),
+        "sandbox" => fabric.sandbox(
+            req["title"].as_str().unwrap_or(""),
+            req["text"].as_str().unwrap_or(""),
+            req["scope"].as_str().unwrap_or("episodic"),
+            req["provider"].as_str(),
+            req["loopback"].as_bool(),
+        ),
         "proposal-show" => fabric.proposal_show(
             req["proposal_id"].as_str().unwrap_or(""),
             req["provider"].as_str(),

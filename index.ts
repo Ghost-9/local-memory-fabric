@@ -427,7 +427,26 @@ export default function (pi: ExtensionAPI) {
 	}));
 
 	pi.registerTool(defineTool({
-		name: "memory_fabric_proposal_show",
+		name: "memory_fabric_sandbox",
+		label: "Sandbox Large Output",
+		description: "Keep a large tool result out of the context window. Stores the payload outside the canonical memory at mode 0600 and indexes it, returning only a bounded head plus a handle; retrieve deliberately later with memory_fabric_search or memory_fabric_read. Only an allowlisted provider receives the handle: a loopback provider, or one the operator exempted; an unlisted provider's call is refused.",
+		exposure: "deferred",
+		namespace,
+		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+		parameters: Type.Object({
+			title: Type.String({ description: "Short label so the payload is findable later" }),
+			text: Type.String({ description: "Raw payload; rejected locally if it matches a credential shape" }),
+			scope: Type.Optional(Type.String({ description: "Optional scope, default episodic" })),
+		}),
+		async execute(_id, params, _signal, ctx) {
+			const result = await callFabric({ op: "sandbox", title: params.title, text: params.text,
+				scope: params.scope ?? "episodic", provider: providerOf(ctx), loopback: isLoopbackModel(ctx.model) });
+			return toolResult(result);
+		},
+	}));
+
+pi.registerTool(defineTool({
+	name: "memory_fabric_proposal_show",
 		label: "Review Memory Proposal",
 		description: "Show the diff for an unapproved memory proposal. Only an allowlisted local provider may inspect proposal content. No apply operation exists in this version.",
 		exposure: "deferred",

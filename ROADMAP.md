@@ -23,7 +23,7 @@ implying confidence.
 | # | Change | Evidence |
 |---|--------|----------|
 | L0 | `shown` / `total_matches` / `low_discrimination`; abstention split into *no data* vs *no match* | Common-term probes on the real index returned silence before, now return 5 of 112 candidates labelled `low_discrimination`. Contract test added. |
-| L1 | Keyed `term_df` and `doc_terms` lookups (was a full-table read plus one query per candidate) | n=1000/arm, alternating: real index (11,041 terms) **−59.6%** p50; synthetic 1,130 docs / ~40k terms **−85.4%** (7.57 → 1.11 ms). 40/40 identical result sets. |
+| L1 | Keyed `term_df` and `doc_terms` lookups (was a full-table read plus one query per candidate) | n=1000/arm, alternating: a small personal corpus (~11k distinct terms) **−59.6%** p50; synthetic 1,130 docs / ~40k terms **−85.4%** (7.57 → 1.11 ms). 40/40 identical result sets. |
 
 L1 scales with **index vocabulary, not document count** — measured directly:
 1,130 docs at 3.7k terms saved 3.1%, at 40k terms saved 85.4%, while the new

@@ -17,6 +17,15 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 VERSION = "0.2.0"
+# Sandbox bounds. Tool output is the target: anything materially larger than a screenful is
+# refused rather than silently truncated, and the head returned with the handle stays small
+# because retrieving deliberately is the entire point.
+SANDBOX_MAX_CHARS = 256 * 1024
+SANDBOX_HEAD_CHARS = 480
+
+
+def sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 DEFAULT_INCLUDE_DIRS = ["agents", "company", "daily", "evidence", "pi-harness", "projects"]
 DEFAULT_INCLUDE_FILES = ["README.md", "ROADMAP.md", "STATUS.md", "Welcome.md"]
 DEFAULT_EXCLUDED_DIRS = {".git", ".obsidian", ".trash", "archive", "archives", "templates", "apple-notes", "apple_notes", "notes-export", "notes_export"}
@@ -119,6 +128,7 @@ class MemoryFabric:
         self.vault = Path(vault or os.environ.get("MEMORY_FABRIC_VAULT", Path.home() / "system-memory")).expanduser()
         self.db_path = self.home / "index.sqlite3"
         self.proposals_path = self.home / "proposals"
+        self.sandbox_path = self.home / "sandbox"
         self._ensure_home()
         defaults = {
             "include_dirs": DEFAULT_INCLUDE_DIRS,
@@ -357,6 +367,10 @@ class MemoryFabric:
                 con.executemany("INSERT OR IGNORE INTO doc_terms(relpath,term) VALUES(?,?)", ((rel, term) for term in tokens(title + "\n" + headings + "\n" + text)))
             removed = 0
             for rel in set(existing) - found:
+                # Sandboxed payloads are not in the canonical memory, so the vault scan cannot
+                # see them; without this they would be swept as stale on every reindex.
+                if rel.startswith("sandbox/"):
+                    continue
                 con.execute("DELETE FROM documents_fts WHERE relpath=?", (rel,))
                 con.execute("DELETE FROM documents WHERE relpath=?", (rel,))
                 con.execute("DELETE FROM doc_terms WHERE relpath=?", (rel,))
@@ -695,6 +709,78 @@ class MemoryFabric:
         return {"ok": True, "proposal_id": proposal_id, "status": record["status"],
                 "writeback": "none; proposal is stored outside the vault for human review"}
 
+    def sandbox(self, title: str, text: str, scope: str = "episodic", provider: str | None = None,
+                 loopback: bool | None = None) -> dict[str, Any]:
+        """Store a large payload outside the canonical memory, returning only a bounded head.
+
+        This is the piece worth borrowing from the context-window tooling: a 315 KB tool result
+        costs the same tokens whether or not it is useful, and pushing it through the retriever
+        is strictly better than pushing it through the prompt. Retrieval then uses the ordinary
+        search/read path, so there is no second ranking policy to maintain.
+        """
+        if not self.is_local_provider(provider):
+            return {"ok": False, "blocked": "Memory content is available only to an explicitly allowed local model provider."}
+        if not text.strip():
+            return {"ok": False, "error": "sandbox payload is required"}
+        if len(text) > SANDBOX_MAX_CHARS:
+            return {"ok": False, "error": f"sandbox payload exceeds {SANDBOX_MAX_CHARS} characters; store a slice instead"}
+        kind = secret_signature(text)
+        if kind:
+            # Local filter, before anything is written.
+            return {"ok": False, "error": f"sandbox rejected by local secret filter ({kind}); no content was stored"}
+        # `loopback` is accepted for symmetry with the other ops and echoed back, but it
+        # deliberately does not gate this payload: a sanitised copy goes to the caller either
+        # way, and these bytes came from the agent's own tool output rather than the
+        # canonical memory, which is what export policy protects.
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        rel = f"sandbox/{digest}.md"
+        self.sandbox_path.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if self.sandbox_path.is_symlink():
+            raise RuntimeError("Memory Fabric sandbox directory must not be a symlink")
+        try:
+            self.sandbox_path.chmod(0o700)
+        except OSError:
+            pass
+        destination = self.sandbox_path / f"{digest}.md"
+        if not destination.exists():
+            fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as out:
+                out.write(text)
+        try:
+            destination.chmod(0o600)
+        except OSError:
+            pass
+        con = self._connect()
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with closing(con):
+            con.execute("BEGIN IMMEDIATE")
+            try:
+                con.execute(
+                    "INSERT INTO documents(relpath,title,scope,classification,source_status,valid_from,valid_to,superseded_by,provider_policy,export_policy,body,content_hash,mtime_ns,indexed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'loopback_allowlist_only','deny_remote',?9,?10,?11,?12) "
+                    "ON CONFLICT(relpath) DO UPDATE SET title=excluded.title,body=excluded.body,content_hash=excluded.content_hash,indexed_at=excluded.indexed_at",
+                    (rel, title.strip() or "sandbox", (scope.strip() or "episodic"), "local_only",
+                     "current", None, None, None, text, digest, now, now),
+                )
+                con.execute("DELETE FROM doc_terms WHERE relpath=?", (rel,))
+                con.execute("DELETE FROM documents_fts WHERE relpath=?", (rel,))
+                con.execute("INSERT INTO documents_fts(relpath,title,headings,body) VALUES(?1,?2,?3,?4)",
+                            (rel, title.strip() or "sandbox", "", text))
+                # Mirror index(): doc_terms is (relpath,term) with no df column, and term_df
+                # is derived from it. Writing a df here would be schema drift that only
+                # surfaces on search.
+                for term in tokens(text):
+                    con.execute("INSERT OR IGNORE INTO doc_terms(relpath,term) VALUES(?1,?2)", (rel, term))
+                con.execute("INSERT INTO term_df(term,df) SELECT term,COUNT(*) FROM doc_terms GROUP BY term "
+                            "ON CONFLICT(term) DO UPDATE SET df=excluded.df")
+                con.execute("COMMIT")
+            except Exception:
+                con.execute("ROLLBACK")
+                raise
+        return {"ok": True, "handle": rel, "title": title.strip() or "sandbox",
+                "scope": scope.strip() or "episodic", "chars": len(text),
+                "head": text[:SANDBOX_HEAD_CHARS],
+                "note": "Raw payload stored outside the canonical memory at mode 0600; retrieve deliberately with search or read rather than pasting it into context."}
+
     def proposal_show(self, proposal_id: str, provider: str | None = None) -> dict[str, Any]:
         if not self.is_local_provider(provider):
             return {"ok": False, "blocked": "Proposal contents are available only to an explicitly allowed local model provider."}
@@ -739,6 +825,7 @@ def dispatch_request(fabric: MemoryFabric, req: dict[str, Any]) -> dict[str, Any
     if op == "context": return fabric.context(req.get("project"), str(req.get("query", "")), req.get("provider"), int(req.get("token_budget", 1200)), req.get("as_of"))
     if op == "read": return fabric.read(str(req.get("source_ref", "")), req.get("provider"), req.get("heading"))
     if op == "propose": return fabric.propose(str(req.get("project", "")), str(req.get("target", "")), str(req.get("section", "")), str(req.get("text", "")), req.get("source_refs", []), req.get("provider"))
+    if op == "sandbox": return fabric.sandbox(str(req.get("title", "")), str(req.get("text", "")), str(req.get("scope", "episodic")), req.get("provider"), req.get("loopback"))
     if op == "proposal-show": return fabric.proposal_show(str(req.get("proposal_id", "")), req.get("provider"))
     if op == "proposal-list": return fabric.proposal_list()
     return {"ok": False, "error": "unsupported memory operation"}
