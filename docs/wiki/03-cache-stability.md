@@ -19,9 +19,15 @@ break costs far more than the token it saves: the whole prefix is re-billed.
 
 ## How to check
 
-`bench/ab.py` runs both engines against one index and asserts 40/40 identical result sets. A
-response that differs byte-for-byte between two identical requests is a cache break waiting to
-happen, and it will show up there.
+`bench/ab.py` runs both engines against one index and asserts identical result sets, and
+`bench/determinism.py` replays each of four engineered-tie queries 25 times in both engines and
+requires byte-identical payloads.
+
+**Read that for what it is.** It is a regression guard, not a proof of tie ordering. It passes
+with *or* without the `ORDER BY rank, relpath` tiebreak, because FTS5 happens to walk rows in
+relpath order on this corpus — so removing the tiebreak would not be caught. Keep the
+tiebreak anyway: it makes ordering a contract rather than an accident of the current query
+plan, at zero cost. But do not cite the green gate as evidence that tie order is guaranteed.
 
 When adding a field to a response, ask: *does this value change when nothing else did?* If yes, it
 does not belong in the default payload.

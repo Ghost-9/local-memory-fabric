@@ -6,13 +6,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-echo "== 1/7 python policy suite (security contract) =="
+echo "== 1/8 python policy suite (security contract) =="
 python3 test_memory_fabric.py
 
-echo "== 2/7 extension policy suite (read, scrub and write gates) =="
+echo "== 2/8 extension policy suite (read, scrub and write gates) =="
 node --experimental-strip-types --test remote-policy.test.ts
 
-echo "== 3/7 typescript parses (syntax; no type checker assumed present) =="
+echo "== 3/8 typescript parses (syntax; no type checker assumed present) =="
 node --input-type=module -e '
 import { stripTypeScriptTypes } from "node:module";
 import { readFileSync } from "node:fs";
@@ -24,13 +24,18 @@ for (const f of ["index.ts", "remote-policy.ts", "remote-policy.test.ts"]) {
 process.exit(bad ? 1 : 0);
 '
 
-echo "== 4/7 rust unit tests =="
+echo "== 4/8 rust unit tests =="
 ( cd rust && cargo test --release --locked --quiet )
 
-echo "== 5/7 python/rust parity =="
+echo "== 5/8 python/rust parity =="
 python3 rust/tests/parity.py
 
-echo "== 6/7 benchmark harness: recall/MRR + exit-code taxonomy =="
+echo "== 6/8 retrieval determinism: identical request, identical bytes =="
+# A regression guard for the prefix cache, not a proof of tie ordering -- see the docstring in
+# bench/determinism.py for exactly what it can and cannot show.
+python3 bench/determinism.py
+
+echo "== 7/8 benchmark harness: recall/MRR + exit-code taxonomy =="
 # Fastest signal that retrieval quality or the exit-code contract regressed. Fails on
 # recall@5 drift, any non-ok response, or an exit code the taxonomy does not promise.
 python3 bench/recall.py | python3 -c 'import json,sys; r=json.load(sys.stdin); bad=[]; \
@@ -44,7 +49,7 @@ print("  recall@5", r.get("python_recall_at_5"), "/", r.get("rust_recall_at_5"),
       "| exit mismatches", r.get("python_spawn_exit_mismatches")); \
 sys.exit("GATE: benchmark harness regression: " + ",".join(bad) if bad else 0)'
 
-echo "== 7/7 typescript type check (types, not just syntax) =="
+echo "== 8/8 typescript type check (types, not just syntax) =="
 # index.ts is a security predicate file. A type error there ships silently, and no checker
 # is installed in this repo, so borrow pi-webstack's TypeScript. The tsconfig and ambient
 # stubs for Pi's modules live in /tmp, so the repo gains no node_modules and Pi's loader

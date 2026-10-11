@@ -465,7 +465,7 @@ class MemoryFabric:
             rows = con.execute(f"""SELECT d.relpath,d.title,d.scope,d.classification,d.source_status,d.valid_from,d.valid_to,d.superseded_by,
                 d.provider_policy,d.export_policy,d.body,d.indexed_at,bm25(documents_fts,0.0,4.0,1.5,1.0) AS rank
                 FROM documents_fts JOIN documents d ON d.relpath=documents_fts.relpath
-                WHERE {' AND '.join(where)} ORDER BY rank LIMIT ?""", page_params).fetchall()
+                WHERE {' AND '.join(where)} ORDER BY rank, documents_fts.relpath LIMIT ?""", page_params).fetchall()
             # One lookup for every candidate instead of one query per candidate.
             terms_by_relpath: dict[str, set[str]] = {}
             if rows:
