@@ -57,6 +57,17 @@ parse; that check was confirmed failing against the pre-fix binary.
 An empty search result is deliberately **exit 1, not 0**, so `if memory-fabric ...; then` cannot read
 "no match" as success. `--serve` never exits on a per-request outcome.
 
+### Repository hygiene (blocks "any agent can pick this up")
+
+| # | Change | Status |
+|---|--------|--------|
+| H1 | `LICENSE` (MIT) — a public repo without one is all-rights-reserved | done |
+| H2 | CI runs the gate on every PR and push, vendoring TypeScript | done |
+| H3 | Issue templates requiring the failing command and the raw gate tail | done |
+| H4 | `AGENTS.md`, the agent-facing contribution guide | done |
+| H5 | `docs/wiki/` — wiki content, kept in-repo because the wiki git remote cannot be created over the API | done, sync documented |
+| H6 | GitHub Project board with the backlog, statuses set | done |
+
 ### Next, in priority order
 
 | # | Change | Why | Expected metric (unmeasured until run) |
