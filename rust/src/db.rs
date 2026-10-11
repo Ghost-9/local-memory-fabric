@@ -188,6 +188,18 @@ impl MemoryFabric {
             CREATE INDEX IF NOT EXISTS doc_terms_by_term ON doc_terms(term);
             CREATE TABLE IF NOT EXISTS term_df(term TEXT PRIMARY KEY,df INTEGER NOT NULL) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL) WITHOUT ROWID;
+            -- Credential exposure alarms: mirrors the Python engine. A note matching the secret
+            -- filter is excluded from the index, which is safe but silent; this is how the owner
+            -- finds out. Stores a FINGERPRINT, never the value: telling the user which key to
+            -- rotate must not mean copying that key somewhere readable a second time.
+            CREATE TABLE IF NOT EXISTS secret_alarms(
+                alarm_id TEXT PRIMARY KEY,
+                relpath TEXT NOT NULL,
+                secret_kind TEXT NOT NULL,
+                fingerprint TEXT NOT NULL,
+                detected_at TEXT NOT NULL,
+                resolved_at TEXT);
+            CREATE INDEX IF NOT EXISTS secret_alarms_unresolved ON secret_alarms(resolved_at);
         ").map_err(|e| e.to_string())?;
         let version: Option<String> = con
             .query_row(

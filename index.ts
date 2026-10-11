@@ -455,6 +455,34 @@ pi.registerTool(defineTool({
 		},
 	}));
 
+	pi.registerTool(defineTool({
+		name: "memory_fabric_alarms",
+		label: "Check Credential Alarms",
+		description: "List unresolved credential-exposure alarms: vault notes the secret filter excluded because they contain a key. Returns the note path, the KIND of secret and a non-reversible fingerprint - never the value. Use this to tell the user which key still needs rotating, then call memory_fabric_resolve once they confirm it is changed.",
+		exposure: "deferred",
+		namespace,
+		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+		parameters: Type.Object({}),
+		async execute(_id, _params, _signal, _onUpdate, _ctx) {
+			return toolResult(await callFabric({ op: "alarms" }));
+		},
+	}));
+
+	pi.registerTool(defineTool({
+		name: "memory_fabric_resolve",
+		label: "Resolve Credential Alarm",
+		description: "Mark one credential-exposure alarm as done, which stops the reminder that appears on every memory fetch. ONLY call this after the user states they have rotated or removed the key - resolving does not verify anything and does not change the vault. Use memory_fabric_alarms to obtain the alarm id.",
+		exposure: "deferred",
+		namespace,
+		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+		parameters: Type.Object({
+			alarm_id: Type.String({ description: "12-character alarm id from memory_fabric_alarms" }),
+		}),
+		async execute(_id, params, _signal, _onUpdate, _ctx) {
+			return toolResult(await callFabric({ op: "resolve", alarm_id: params.alarm_id }));
+		},
+	}));
+
 	pi.registerCommand("memory-fabric", {
 		description: "Local memory index: status, index, or proposals. Indexing is explicit and never writes to the vault.",
 		handler: async (args, ctx) => {
@@ -468,17 +496,28 @@ pi.registerTool(defineTool({
 				ctx.ui.notify(`backend=${backend}; indexed=${engineStatus.indexed === true}; documents=${engineStatus.documents ?? 0}; configured=${allTools.length}; memory_fabric=${tools.length}; active=${active.length}; ${tools.join(", ")}`, "info");
 				return;
 			}
-			if (!["status", "index", "proposals"].includes(action)) {
-				ctx.ui.notify("Usage: /memory-fabric [status|index|proposals|tools]", "warning");
+			if (!["status", "index", "proposals", "alarms"].includes(action)) {
+				ctx.ui.notify("Usage: /memory-fabric [status|index|proposals|alarms|resolve <id>|tools]", "warning");
 				return;
 			}
+			const resolveMatch = /^resolve\s+([0-9a-f]{4,16})$/i.exec(action);
 			const op = action === "proposals" ? "proposal-list" : action;
-			const result = await callFabric({ op });
+			const result = resolveMatch
+				? await callFabric({ op: "resolve", alarm_id: resolveMatch[1] })
+				: await callFabric({ op });
+			const alarms = Array.isArray(result.alarms) ? result.alarms : [];
 			const summary = action === "index"
 				? `Indexed local source set: ${result.documents ?? 0} documents; added ${result.added ?? 0}, updated ${result.updated ?? 0}, removed from index ${result.removed_from_index ?? 0}. Vault files were not modified.`
 				: action === "proposals"
 					? `Review-only proposals: ${Array.isArray(result.proposals) ? result.proposals.length : 0}. Inspect proposal files locally; none has been applied.`
-					: `Local memory index: ${result.indexed ? `${result.documents} documents` : "not initialized"}.`;
+					: action === "alarms"
+						? alarms.length === 0
+							? "No credential alarms. No key is known to be sitting in an indexed note."
+							: `${alarms.length} credential alarm(s): ${alarms.map((a: { relpath: string; secret_kind: string; alarm_id: string }) => `${a.relpath} (${a.secret_kind}, id ${a.alarm_id})`).join("; ")}. Values are never shown. Rotate the key, then: /memory-fabric resolve ${alarms[0].alarm_id}`
+						: resolveMatch
+							? `Alarm ${result.alarm_id ?? resolveMatch[1]} marked resolved (${result.already_resolved ? "already was" : "now"}); ${result.unresolved_remaining ?? 0} still open.`
+							: `Local memory index: ${result.indexed ? `${result.documents} documents` : "not initialized"}.`
+								+ (result.secret_alarms ? ` CREDENTIAL ALARM: ${result.secret_alarms} note(s) contain a key - run /memory-fabric alarms.` : "");
 			ctx.ui.notify(result.ok ? summary : "Local memory operation failed; see local diagnostics.", result.ok ? "info" : "error");
 		},
 	});

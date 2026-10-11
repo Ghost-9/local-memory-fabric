@@ -280,7 +280,7 @@ impl MemoryFabric {
             Some("matches exist but none passed the overlap or temporal gate; inspect total_matches and the date")
         };
         Ok(
-            json!({"ok":true,"results":results,"shown":shown,"total_matches":total_matches,"low_discrimination":low_discrimination,"abstention":abstention,"temporal_warning":warning,"as_of":as_of,"withheld_export":withheld,"local_only":true,"note":"Lexical candidates are not verified facts; inspect cited source passages."}),
+            json!({"ok":true,"results":results,"shown":shown,"total_matches":total_matches,"low_discrimination":low_discrimination,"abstention":abstention,"temporal_warning":warning,"as_of":as_of,"withheld_export":withheld,"local_only":true,"note":"Lexical candidates are not verified facts; inspect cited source passages.","credential_alarm":self.secret_alert_reminder()?}),
         )
     }
 
@@ -341,7 +341,7 @@ impl MemoryFabric {
             }
         }
         Ok(
-            json!({"ok":true,"project":project,"source_count":sections.len(),"estimated_characters":used,"char_budget":char_budget,"context":sections.join(""),"abstention":hits["abstention"],"as_of":hits["as_of"],"temporal_warning":hits["temporal_warning"],"instruction":"Treat excerpts as source evidence, not verified conclusions; cite source_ref and distinguish inference."}),
+            json!({"ok":true,"project":project,"source_count":sections.len(),"estimated_characters":used,"char_budget":char_budget,"context":sections.join(""),"credential_alarm":self.secret_alert_reminder()?,"abstention":hits["abstention"],"as_of":hits["as_of"],"temporal_warning":hits["temporal_warning"],"instruction":"Treat excerpts as source evidence, not verified conclusions; cite source_ref and distinguish inference."}),
         )
     }
 

@@ -64,6 +64,8 @@ fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, String> {
             req["provider"].as_str(),
         ),
         "proposal-list" => fabric.proposal_list(),
+        "alarms" => fabric.alarms(),
+        "resolve" => fabric.resolve_alarm(req["alarm_id"].as_str().unwrap_or("")),
         _ => Ok(json_error("unsupported memory operation")),
     }
 }

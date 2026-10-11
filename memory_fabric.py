@@ -115,6 +115,31 @@ def secret_signature(text: str) -> str | None:
     return None
 
 
+def secret_fingerprint(text: str) -> str | None:
+    """A stable, non-reversible id for the secret in `text`, or None if there is none.
+
+    Used to tell the owner WHICH key to rotate without ever copying that key anywhere. The
+    id is derived from the matched value, so the same key in two notes produces the same
+    fingerprint and rotates as one problem, while two different keys never collide.
+    """
+    for kind, pattern in SECRET_PATTERNS:
+        match = pattern.search(text)
+        if not match:
+            continue
+        value = match.group(match.lastindex or 0)
+        if kind == "credential_assignment":
+            value = match.group(2)
+            stripped = value.strip("'\" ").casefold()
+            if any(marker in stripped for marker in ("placeholder", "redacted", "example", "sample",
+                                                      "change-me", "changeme", "your_", "your-",
+                                                      "insert_", "replace_", "not-a-real",
+                                                      "not_a_real", "dummy", "fake")) \
+                    or re.fullmatch(r"<[^>]+>", stripped):
+                continue
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    return None
+
+
 def safe_relpath(value: str) -> str:
     p = PurePosixPath(value.replace("\\", "/"))
     if p.is_absolute() or not p.parts or any(part in {"", ".", ".."} for part in p.parts):
@@ -227,6 +252,25 @@ class MemoryFabric:
             CREATE INDEX IF NOT EXISTS doc_terms_by_term ON doc_terms(term);
             CREATE TABLE IF NOT EXISTS term_df (term TEXT PRIMARY KEY, df INTEGER NOT NULL) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+            -- Credential exposure alarms. A note matching the secret filter is excluded from
+            -- the index, which is correct for safety but SILENT: the owner never learns a key is
+            -- sitting in their vault. This table is how they find out, and how the reminder
+            -- survives until they say they rotated it.
+            --
+            -- It stores a FINGERPRINT (truncated sha256 of the matched value), never the value
+            -- and never a slice of the note. The fingerprint tells the user WHICH key to rotate;
+            -- storing the key here would only move the secret somewhere it could be read twice.
+            -- `relpath` is stored because the alarm is local-only and the owner needs to find
+            -- the note; reads still pass `is_local_provider`.
+            CREATE TABLE IF NOT EXISTS secret_alarms (
+                alarm_id TEXT PRIMARY KEY,
+                relpath TEXT NOT NULL,
+                secret_kind TEXT NOT NULL,
+                fingerprint TEXT NOT NULL,
+                detected_at TEXT NOT NULL,
+                resolved_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS secret_alarms_unresolved ON secret_alarms(resolved_at);
         """)
         version = con.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
         migrated = version is None or version[0] != "2"
@@ -332,6 +376,19 @@ class MemoryFabric:
                 classification = (frontmatter_value(text, "classification") or "local_only").lower()
                 if classification in {"secret", "restricted", "excluded"} or secret_signature(text):
                     excluded_sensitive += 1
+                    # Excluding it is correct; saying nothing is not. A key sitting in the vault is
+                    # the owner's problem to fix, and only they can rotate it. Record an alarm
+                    # (fingerprint only, never the value) so `status` can report it and the reminder
+                    # keeps returning until they confirm it is done.
+                    kind = secret_signature(text) or f"classification:{classification}"
+                    fingerprint = secret_fingerprint(text) or "n/a"
+                    con.execute(
+                        "INSERT INTO secret_alarms(alarm_id,relpath,secret_kind,fingerprint,detected_at,resolved_at) "
+                        "VALUES(?1,?2,?3,?4,?5,NULL) "
+                        "ON CONFLICT(alarm_id) DO UPDATE SET relpath=excluded.relpath, "
+                        "secret_kind=excluded.secret_kind, detected_at=excluded.detected_at, resolved_at=NULL",
+                        (hashlib.sha256(f"{rel}:{fingerprint}".encode("utf-8")).hexdigest()[:12],
+                         rel, kind, fingerprint, utc_now()))
                     if rel in existing:
                         con.execute("DELETE FROM documents_fts WHERE relpath=?", (rel,))
                         con.execute("DELETE FROM documents WHERE relpath=?", (rel,))
@@ -392,7 +449,67 @@ class MemoryFabric:
         with closing(sqlite3.connect(self.db_path)) as stats:
             document_count = int(stats.execute("SELECT COUNT(*) FROM documents").fetchone()[0])
         return {"ok": True, "version": VERSION, "added": added, "updated": updated, "unchanged": unchanged,
-                "removed_from_index": removed, "excluded_sensitive": excluded_sensitive, "documents": document_count}
+                "removed_from_index": removed, "excluded_sensitive": excluded_sensitive, "documents": document_count,
+                "secret_alarms": len(self.unresolved_alarms())}
+
+    # --- credential exposure alarms -------------------------------------------------
+    # A note matching the secret filter is excluded from the index. That is the safe default,
+    # but it is silent: the owner does not learn a credential is sitting in their vault, and
+    # only they can rotate it. These three operations close that loop -
+    #   detect (at index time) -> remind (on every fetch, until resolved) -> resolve (by the owner).
+
+    def unresolved_alarms(self) -> list[dict[str, Any]]:
+        if not self.db_path.exists():
+            return []
+        with closing(self._connect()) as con:
+            rows = con.execute(
+                "SELECT alarm_id,relpath,secret_kind,fingerprint,detected_at FROM secret_alarms "
+                "WHERE resolved_at IS NULL ORDER BY detected_at").fetchall()
+        return [{"alarm_id": r[0], "relpath": r[1], "secret_kind": r[2],
+                 "fingerprint": r[3], "detected_at": r[4]} for r in rows]
+
+    def secret_alert_reminder(self) -> str | None:
+        """One line to append to any memory payload while an alarm is open.
+
+        Deliberately names the note and the KIND of secret but never the value and never a
+        snippet: the whole point is that the owner is told, and a reminder that repeated the
+        key into every prompt would be its own leak. Returns None when nothing is open, so
+        the overwhelmingly common case costs zero bytes and does not perturb the payload.
+        """
+        alarms = self.unresolved_alarms()
+        if not alarms:
+            return None
+        if len(alarms) == 1:
+            a = alarms[0]
+            return (f"[memory: CREDENTIAL ALARM] A key of type '{a['secret_kind']}' was found in "
+                    f"{a['relpath']} on {a['detected_at']}. That note is excluded from the index and the "
+                    f"value was never copied anywhere. Rotate it, then run "
+                    f"'memory-fabric resolve {a['alarm_id']}' to stop this reminder.")
+        kinds = sorted({a["secret_kind"] for a in alarms})
+        return (f"[memory: CREDENTIAL ALARM x{len(alarms)}] {len(alarms)} vault notes contain credentials "
+                f"(types: {', '.join(kinds)}) and are excluded from the index. Values were never copied. "
+                f"Rotate them, then run 'memory-fabric resolve <alarm_id>' per alarm "
+                f"({', '.join(a['alarm_id'] for a in alarms[:3])}{'...' if len(alarms) > 3 else ''}).")
+
+    def resolve_alarm(self, alarm_id: str) -> dict[str, Any]:
+        """Mark one alarm done. The owner's call: this tool never assumes a key was rotated."""
+        if not re.fullmatch(r"[0-9a-f]{4,16}", (alarm_id or "").strip()):
+            return {"ok": False, "error": "alarm id must be a short hex id"}
+        with closing(self._connect()) as con:
+            row = con.execute("SELECT alarm_id,relpath,resolved_at FROM secret_alarms WHERE alarm_id=?",
+                              (alarm_id.strip(),)).fetchone()
+            if row is None:
+                return {"ok": False, "error": "no such alarm; run 'memory-fabric alarms' to list them"}
+            already = row[2] is not None
+            con.execute("UPDATE secret_alarms SET resolved_at=? WHERE alarm_id=? AND resolved_at IS NULL",
+                        (utc_now(), alarm_id.strip()))
+            con.commit()
+        return {"ok": True, "alarm_id": row[0], "relpath": row[1], "already_resolved": already,
+                "unresolved_remaining": len(self.unresolved_alarms())}
+
+    def alarms(self) -> dict[str, Any]:
+        return {"ok": True, "alarms": self.unresolved_alarms(),
+                "note": "Values are never stored here - only a fingerprint. Rotate the key, then resolve."}
 
     def is_local_provider(self, provider: str | None) -> bool:
         if not provider:
@@ -406,11 +523,15 @@ class MemoryFabric:
         with closing(self._connect()) as con:
             count = con.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
             last = con.execute("SELECT value FROM metadata WHERE key='last_indexed_at'").fetchone()
+            open_alarms = int(con.execute(
+                "SELECT COUNT(*) FROM secret_alarms WHERE resolved_at IS NULL").fetchone()[0])
         return {"ok": True, "version": VERSION, "indexed": True, "documents": count,
                 "last_indexed_at": last[0] if last else None,
                 # Reported so the operator can see the knob without reading the config: the
                 # scrub and the export gate both change what a session receives.
-                "enforce_export_policy": bool(self.config.get("enforce_export_policy", False))}
+                "enforce_export_policy": bool(self.config.get("enforce_export_policy", False)),
+                # Non-zero means a credential is sitting in the vault and needs rotating.
+                "secret_alarms": open_alarms}
 
     def search(self, query: str, scope: str = "all", limit: int = 5, provider: str | None = None, as_of: str | None = None,
                 loopback: bool | None = None) -> dict[str, Any]:
@@ -551,7 +672,11 @@ class MemoryFabric:
         return {"ok": True, "results": results, "shown": shown, "total_matches": total_matches,
                 "low_discrimination": low_discrimination, "abstention": abstention,
                 "temporal_warning": warning, "as_of": as_of, "withheld_export": withheld,
-                "local_only": True, "note": "Lexical candidates are not verified facts; inspect cited source passages."}
+                "local_only": True, "note": "Lexical candidates are not verified facts; inspect cited source passages.",
+                # Present ONLY while a credential alarm is open. Absent (None) otherwise, so the
+                # normal payload is byte-identical to before and nothing about the cached prefix
+                # changes for the overwhelmingly common case. See `secret_alert_reminder`.
+                "credential_alarm": self.secret_alert_reminder()}
 
     def context(self, project: str | None, query: str, provider: str | None, token_budget: int = 1200, as_of: str | None = None,
                 loopback: bool | None = None) -> dict[str, Any]:
@@ -584,6 +709,7 @@ class MemoryFabric:
             used += len(block)
         return {"ok": True, "project": project, "source_count": len(sections), "estimated_characters": used,
                 "char_budget": char_budget, "context": "\n".join(sections),
+                "credential_alarm": self.secret_alert_reminder(),
                 "abstention": hits.get("abstention"), "as_of": hits.get("as_of"),
                 "temporal_warning": hits.get("temporal_warning"),
                 "instruction": "Treat excerpts as source evidence, not verified conclusions; cite source_ref and distinguish inference."}
@@ -832,6 +958,8 @@ def dispatch_request(fabric: MemoryFabric, req: dict[str, Any]) -> dict[str, Any
     if op == "sandbox": return fabric.sandbox(str(req.get("title", "")), str(req.get("text", "")), str(req.get("scope", "episodic")), req.get("provider"), req.get("loopback"))
     if op == "proposal-show": return fabric.proposal_show(str(req.get("proposal_id", "")), req.get("provider"))
     if op == "proposal-list": return fabric.proposal_list()
+    if op == "alarms": return fabric.alarms()
+    if op == "resolve": return fabric.resolve_alarm(str(req.get("alarm_id", "")))
     return {"ok": False, "error": "unsupported memory operation"}
 
 
@@ -920,6 +1048,9 @@ def main(argv: list[str] | None = None) -> int:
     p_show.add_argument("proposal_id")
     p_show.add_argument("--provider", default="")
     sub.add_parser("proposal-list")
+    sub.add_parser("alarms")
+    p_resolve = sub.add_parser("resolve")
+    p_resolve.add_argument("alarm_id")
     args = parser.parse_args(argv)
     try:
         fabric = MemoryFabric(home=args.home, vault=args.vault)
@@ -935,6 +1066,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "propose": result = fabric.propose(args.project, args.target, args.section, args.text, args.source, args.provider)
         elif args.command == "proposal-show": result = fabric.proposal_show(args.proposal_id, args.provider)
         elif args.command == "proposal-list": result = fabric.proposal_list()
+        elif args.command == "alarms": result = fabric.alarms()
+        elif args.command == "resolve": result = fabric.resolve_alarm(args.alarm_id)
         else: raise AssertionError("unhandled command")
         _emit(result)
         return exit_code_for(result)

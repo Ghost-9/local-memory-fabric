@@ -1,7 +1,7 @@
 use crate::MemoryFabric;
 use crate::db::{busy_aware, delete_document, delete_fts_terms};
 use crate::paths::{VERSION, now_utc, safe_relpath, set_mode};
-use crate::policy::{apple_path_re, secret_signature};
+use crate::policy::{apple_path_re, secret_fingerprint, secret_signature};
 use crate::text::{
     frontmatter_value, headings_for, is_skipped_name, scope_for, sha256, title_for, tokenize,
 };
@@ -152,6 +152,22 @@ impl MemoryFabric {
                 || secret_signature(&text).is_some()
             {
                 excluded_sensitive += 1;
+                // Excluding it is correct; saying nothing is not. Record an alarm (fingerprint
+                // only, never the value) so the owner learns a credential is in their vault.
+                let kind = secret_signature(&text)
+                    .map(|k| k.to_string())
+                    .unwrap_or_else(|| format!("classification:{}", classification));
+                let fingerprint = secret_fingerprint(&text).unwrap_or_else(|| "n/a".into());
+                let alarm_id: String =
+                    sha256(&format!("{}:{}", rel, fingerprint))[..12].to_string();
+                tx.execute(
+                    "INSERT INTO secret_alarms(alarm_id,relpath,secret_kind,fingerprint,detected_at,resolved_at)
+                     VALUES(?1,?2,?3,?4,?5,NULL)
+                     ON CONFLICT(alarm_id) DO UPDATE SET relpath=excluded.relpath,
+                        secret_kind=excluded.secret_kind, detected_at=excluded.detected_at, resolved_at=NULL",
+                    rusqlite::params![alarm_id, rel, kind, fingerprint, now_utc()],
+                )
+                .map_err(|e| e.to_string())?;
                 if existing.contains_key(&rel) {
                     delete_document(&tx, &rel)?;
                 }
@@ -232,8 +248,126 @@ impl MemoryFabric {
             .query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))
             .map_err(|e| e.to_string())?;
         Ok(
-            json!({"ok":true,"version":VERSION,"added":added,"updated":updated,"unchanged":unchanged,"removed_from_index":stale.len(),"excluded_sensitive":excluded_sensitive,"documents":docs}),
+            json!({"ok":true,"version":VERSION,"added":added,"updated":updated,"unchanged":unchanged,"removed_from_index":stale.len(),"excluded_sensitive":excluded_sensitive,"documents":docs,"secret_alarms":self.unresolved_alarms()?.len()}),
         )
+    }
+
+    // --- credential exposure alarms (mirrors the Python engine) ------------------------
+    // The secret filter excludes a note silently. That is safe but leaves the owner unaware,
+    // and only they can rotate a key. Detect -> remind on every fetch -> resolve on their word.
+
+    pub(crate) fn unresolved_alarms(&self) -> Result<Vec<Value>, String> {
+        if !self.db_path.exists() {
+            return Ok(Vec::new());
+        }
+        let con = self.connect().map_err(|e| e.to_string())?;
+        let mut stmt = con
+            .prepare(
+                "SELECT alarm_id,relpath,secret_kind,fingerprint,detected_at FROM secret_alarms \
+                 WHERE resolved_at IS NULL ORDER BY detected_at",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(json!({
+                    "alarm_id": r.get::<_, String>(0)?,
+                    "relpath": r.get::<_, String>(1)?,
+                    "secret_kind": r.get::<_, String>(2)?,
+                    "fingerprint": r.get::<_, String>(3)?,
+                    "detected_at": r.get::<_, String>(4)?,
+                }))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
+    /// One line appended to any memory payload while an alarm is open. Names the note and the
+    /// KIND, never the value — a reminder that repeated the key would be its own leak. `None`
+    /// when nothing is open, so the common payload is unchanged.
+    pub(crate) fn secret_alert_reminder(&self) -> Result<Option<String>, String> {
+        let alarms = self.unresolved_alarms()?;
+        if alarms.is_empty() {
+            return Ok(None);
+        }
+        if alarms.len() == 1 {
+            let a = &alarms[0];
+            return Ok(Some(format!(
+                concat!(
+                    "[memory: CREDENTIAL ALARM] A key of type '{}' was found in {} on {}. ",
+                    "That note is excluded from the index and the value was never copied anywhere. ",
+                    "Rotate it, then run 'memory-fabric resolve {}' to stop this reminder."
+                ),
+                a["secret_kind"].as_str().unwrap_or("unknown"),
+                a["relpath"].as_str().unwrap_or("?"),
+                a["detected_at"].as_str().unwrap_or("?"),
+                a["alarm_id"].as_str().unwrap_or("?")
+            )));
+        }
+        let mut kinds: Vec<&str> = alarms
+            .iter()
+            .filter_map(|a| a["secret_kind"].as_str())
+            .collect();
+        kinds.sort_unstable();
+        kinds.dedup();
+        let ids: Vec<&str> = alarms
+            .iter()
+            .take(3)
+            .filter_map(|a| a["alarm_id"].as_str())
+            .collect();
+        let more = if alarms.len() > 3 { "..." } else { "" };
+        Ok(Some(format!(
+            concat!(
+                "[memory: CREDENTIAL ALARM x{}] {} vault notes contain credentials (types: {}) and are ",
+                "excluded from the index. Values were never copied. Rotate them, then run ",
+                "'memory-fabric resolve <alarm_id>' per alarm ({}{})."
+            ),
+            alarms.len(),
+            alarms.len(),
+            kinds.join(", "),
+            ids.join(", "),
+            more
+        )))
+    }
+
+    pub(crate) fn alarms(&self) -> Result<Value, String> {
+        Ok(json!({
+            "ok": true,
+            "alarms": self.unresolved_alarms()?,
+            "note": "Values are never stored here - only a fingerprint. Rotate the key, then resolve."
+        }))
+    }
+
+    pub(crate) fn resolve_alarm(&self, alarm_id: &str) -> Result<Value, String> {
+        let id = alarm_id.trim();
+        if !id.chars().all(|c| c.is_ascii_hexdigit()) || id.is_empty() || id.len() > 16 {
+            return Ok(json!({"ok": false, "error": "alarm id must be a short hex id"}));
+        }
+        let con = self.connect().map_err(|e| e.to_string())?;
+        let existing: Option<(String, String, Option<String>)> = con
+            .query_row(
+                "SELECT alarm_id,relpath,resolved_at FROM secret_alarms WHERE alarm_id=?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let Some((aid, relpath, resolved_at)) = existing else {
+            return Ok(json!({"ok": false, "error": "no such alarm; run 'memory-fabric alarms' to list them"}));
+        };
+        let already = resolved_at.is_some();
+        if !already {
+            con.execute(
+                "UPDATE secret_alarms SET resolved_at=?1 WHERE alarm_id=?2 AND resolved_at IS NULL",
+                rusqlite::params![now_utc(), id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        let remaining = self.unresolved_alarms()?.len();
+        Ok(json!({"ok": true, "alarm_id": aid, "relpath": relpath, "already_resolved": already, "unresolved_remaining": remaining}))
     }
 
     pub(crate) fn status(&self) -> Result<Value, String> {
@@ -258,7 +392,9 @@ impl MemoryFabric {
             json!({"ok":true,"version":VERSION,"indexed":true,"documents":docs,"last_indexed_at":last,
                    // Reported so the operator can see the knob without reading the config:
                    // both the scrub and the export gate change what a session receives.
-                   "enforce_export_policy":self.export_enforced()}),
+                   "enforce_export_policy":self.export_enforced(),
+                   // Non-zero means a credential is sitting in the vault and needs rotating.
+                   "secret_alarms":self.unresolved_alarms()?.len()}),
         )
     }
 

@@ -228,6 +228,27 @@ def main() -> int:
                               rust_home.stat().st_mode & 0o777 != 0o700 or
                               (rust_home / "config.json").stat().st_mode & 0o777 != 0o600 or
                               (rust_home / "index.sqlite3").stat().st_mode & 0o777 != 0o600)
+            # Credential exposure alarms must agree across engines. The shared vault already carries a
+            # credential note (`projects/sensitive.md`), so both engines see the same input and
+            # the same FINGERPRINT and alarm_id must come out - or the owner is told two
+            # different stories about which key to rotate depending on which engine ran.
+            # `detected_at` is wall clock from two separate runs, so only its FORMAT is compared.
+            py_alarms = py.alarms()["alarms"]
+            rust_alarms = rust({"op": "alarms"})["alarms"]
+            checks += 1
+            mismatches += int(len(py_alarms) != 1 or len(rust_alarms) != 1)
+            if py_alarms and rust_alarms:
+                for field in ("alarm_id", "fingerprint", "secret_kind", "relpath"):
+                    checks += 1
+                    mismatches += int(py_alarms[0][field] != rust_alarms[0][field])
+                checks += 1
+                mismatches += int(len(py_alarms[0]["detected_at"]) != len(rust_alarms[0]["detected_at"])
+                                  or not py_alarms[0]["detected_at"].endswith("+00:00")
+                                  or not rust_alarms[0]["detected_at"].endswith("+00:00"))
+                # The reminder must name the note but never carry the value, on either engine.
+                for payload in (py_alarms, rust_alarms):
+                    checks += 1
+                    mismatches += int(candidate in json.dumps(payload))
             report = {"ok": mismatches == 0, "parity_checks": checks, "mismatches": mismatches,
                       "python_config_keys": len(py_cfg) if py_cfg else 0,
                       "rust_config_keys": len(rust_cfg) if rust_cfg else 0,

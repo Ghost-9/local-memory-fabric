@@ -1,4 +1,4 @@
-use chrono::{NaiveDate, SecondsFormat, Utc};
+use chrono::{Datelike, NaiveDate, Timelike, Utc};
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::path::{Component, Path, PathBuf};
@@ -7,8 +7,23 @@ pub(crate) const VERSION: &str = "0.2.0";
 pub(crate) const MAX_REQUEST_BYTES: usize = 131_072;
 pub(crate) const MAX_RESULT_CHARS_DEFAULT: usize = 6_000;
 
+/// UTC timestamp, byte-identical to the Python engine's `utc_now()`.
+///
+/// Python emits `isoformat(timespec="seconds")`, which renders the offset as `+00:00`;
+/// Rust's `to_rfc3339_opts` renders `Z`. Both are valid ISO 8601, but the two engines must
+/// agree byte-for-byte or every stored timestamp is a parity mismatch waiting to be found.
+/// Formatted manually rather than via `format!` gymnastics on a chrono type.
 pub(crate) fn now_utc() -> String {
-    Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
+    let now = Utc::now();
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}+00:00",
+        now.year(),
+        now.month(),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+    )
 }
 
 pub(crate) fn safe_relpath(value: &str) -> Result<String, String> {

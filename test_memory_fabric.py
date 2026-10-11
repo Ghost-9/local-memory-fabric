@@ -225,6 +225,108 @@ class MemoryFabricTests(unittest.TestCase):
             self.assertEqual(blocked["results"], [], "enforcement on withholds deny_remote notes")
             self.assertGreater(blocked["withheld_export"], 0)
 
+    def test_credential_alarm_detects_reminds_and_resolves_without_leaking(self):
+        """A key in the vault must be announced, kept out of the index, and never copied.
+
+        The secret filter already excluded such a note, but silently: the owner never learned a
+        credential was sitting in their vault, and only they can rotate it. This pins the whole
+        loop - detect, remind on every fetch, resolve on the owner's word - and asserts the
+        reminder never repeats the value, which would be its own leak.
+        """
+        FAKE = "ghp_" + "A" * 36
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            vault = base / "vault"
+            (vault / "projects").mkdir(parents=True)
+            (vault / "projects" / "creds.md").write_text(
+                f"# Deploy\n\nSet GITHUB_TOKEN={FAKE} before CI.\n", encoding="utf-8")
+            (vault / "projects" / "ok.md").write_text(
+                "# Edge\n\nedge compaction needs care.\n", encoding="utf-8")
+            fabric = MemoryFabric(home=base / "h", vault=vault, config={"local_providers": ["ollama"]})
+            fabric.index()
+
+            # Detected, and the note is NOT retrievable.
+            alarms = fabric.unresolved_alarms()
+            self.assertEqual(len(alarms), 1, "one note carries a credential")
+            self.assertEqual(alarms[0]["secret_kind"], "github_token")
+            self.assertEqual(alarms[0]["relpath"], "projects/creds.md")
+            hits = fabric.search("edge compaction", provider="ollama")
+            self.assertTrue(all("creds" not in r["source_ref"] for r in hits["results"]),
+                            "the credential note must stay out of results")
+
+            # Reported by status, so it is visible without a dedicated call.
+            self.assertEqual(fabric.status().get("secret_alarms"), 1)
+
+            # Reminded on every fetch, and the reminder never contains the secret.
+            for payload in (fabric.search("edge compaction", provider="ollama"),
+                            fabric.context(None, "edge compaction", "ollama")):
+                reminder = payload.get("credential_alarm")
+                self.assertTrue(reminder, "every fetch must carry the reminder")
+                self.assertIn("projects/creds.md", reminder)
+                self.assertNotIn(FAKE, reminder, "the reminder must never repeat the value")
+
+            # The alarm row itself must not hold the value either.
+            self.assertNotIn(FAKE, json.dumps(fabric.alarms()))
+
+            # The owner's word closes it; nothing else does.
+            resolved = fabric.resolve_alarm(alarms[0]["alarm_id"])
+            self.assertTrue(resolved["ok"])
+            self.assertEqual(resolved["unresolved_remaining"], 0)
+            self.assertIsNone(fabric.search("edge compaction", provider="ollama").get("credential_alarm"),
+                              "no reminder once resolved")
+            self.assertEqual(fabric.status().get("secret_alarms"), 0)
+
+    def test_alarm_id_input_is_validated_and_resolution_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            vault = base / "vault"
+            (vault / "projects").mkdir(parents=True)
+            (vault / "projects" / "c.md").write_text(
+                "# C\n\nAKIA" + "B" * 16 + " is the key\n", encoding="utf-8")
+            fabric = MemoryFabric(home=base / "h", vault=vault, config={"local_providers": ["ollama"]})
+            fabric.index()
+            alarm_id = fabric.unresolved_alarms()[0]["alarm_id"]
+
+            for bad in ("", "../../etc/passwd", "'; DROP TABLE secret_alarms;--", "ZZZZ", None):
+                self.assertFalse(fabric.resolve_alarm(bad)["ok"], f"{bad!r} must be refused")
+
+            self.assertTrue(fabric.resolve_alarm(alarm_id)["ok"])
+            again = fabric.resolve_alarm(alarm_id)
+            self.assertTrue(again["ok"], "resolving twice is not an error")
+            self.assertTrue(again["already_resolved"], "the second call reports it was already done")
+
+    def test_no_alarm_means_no_reminder_field_and_no_payload_change(self):
+        """The common case must cost nothing: no alarms -> the key is absent, not empty.
+
+        A stable payload matters for the prefix cache, so the reminder is None rather than an
+        empty string when nothing is open.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            vault = base / "vault"
+            (vault / "projects").mkdir(parents=True)
+            (vault / "projects" / "ok.md").write_text("# A\n\nalpha beta\n", encoding="utf-8")
+            fabric = MemoryFabric(home=base / "h", vault=vault, config={"local_providers": ["ollama"]})
+            fabric.index()
+            self.assertEqual(fabric.unresolved_alarms(), [])
+            self.assertIsNone(fabric.secret_alert_reminder())
+            self.assertIsNone(fabric.search("alpha", provider="ollama").get("credential_alarm"))
+            self.assertEqual(fabric.status().get("secret_alarms"), 0)
+
+    def test_placeholder_credentials_do_not_raise_an_alarm(self):
+        """A documented example must not cry wolf - that is how a real alarm gets ignored."""
+        for body in ("api_key: <your-key-here>", "token = REPLACE_ME",
+                     "password: not-a-real-secret", "secret: placeholder-value"):
+            with tempfile.TemporaryDirectory() as temp:
+                base = Path(temp)
+                vault = base / "vault"
+                (vault / "projects").mkdir(parents=True)
+                (vault / "projects" / "d.md").write_text(f"# D\n\n{body}\n", encoding="utf-8")
+                fabric = MemoryFabric(home=base / "h", vault=vault,
+                                      config={"local_providers": ["ollama"]})
+                fabric.index()
+                self.assertEqual(fabric.unresolved_alarms(), [], f"{body!r} must not alarm")
+
     def test_sandbox_keeps_raw_bytes_out_of_context_and_retrieves_deliberately(self):
         """A large payload should cost a bounded slice of context, with the rest stored outside
         the canonical memory and reached only through search or read."""
