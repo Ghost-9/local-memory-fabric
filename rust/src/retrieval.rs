@@ -16,6 +16,7 @@ impl MemoryFabric {
         limit: usize,
         provider: Option<&str>,
         as_of: Option<&str>,
+        loopback: Option<bool>,
     ) -> Result<Value, String> {
         if !self.is_local_provider(provider) {
             return Ok(
@@ -155,6 +156,17 @@ impl MemoryFabric {
         let mut results = Vec::new();
         let mut excluded_temporal = 0;
         let mut temporal_without_as_of = false;
+        // Per-note export policy. Off by default so the operator's blanket read exemption keeps
+        // working; when on, a note must be marked allow_remote before a non-loopback caller may
+        // see it, and the count is reported.
+        let mut withheld = 0u64;
+        if self.export_enforced() && loopback != Some(true) {
+            withheld = candidates
+                .iter()
+                .filter(|c| c.export_policy != "allow_remote")
+                .count() as u64;
+            candidates.retain(|c| c.export_policy == "allow_remote");
+        }
         for row in candidates {
             let valid_from = match parse_optional_date(row.valid_from.as_deref()) {
                 Ok(x) => x,
@@ -268,7 +280,7 @@ impl MemoryFabric {
             Some("matches exist but none passed the overlap or temporal gate; inspect total_matches and the date")
         };
         Ok(
-            json!({"ok":true,"results":results,"shown":shown,"total_matches":total_matches,"low_discrimination":low_discrimination,"abstention":abstention,"temporal_warning":warning,"as_of":as_of,"local_only":true,"note":"Lexical candidates are not verified facts; inspect cited source passages."}),
+            json!({"ok":true,"results":results,"shown":shown,"total_matches":total_matches,"low_discrimination":low_discrimination,"abstention":abstention,"temporal_warning":warning,"as_of":as_of,"withheld_export":withheld,"local_only":true,"note":"Lexical candidates are not verified facts; inspect cited source passages."}),
         )
     }
 
@@ -279,6 +291,7 @@ impl MemoryFabric {
         provider: Option<&str>,
         budget: usize,
         as_of: Option<&str>,
+        loopback: Option<bool>,
     ) -> Result<Value, String> {
         if !self.is_local_provider(provider) {
             return Ok(
@@ -288,7 +301,7 @@ impl MemoryFabric {
         let scope = project
             .map(|p| format!("project:{p}"))
             .unwrap_or_else(|| "all".into());
-        let hits = self.search(query, &scope, 10, provider, as_of)?;
+        let hits = self.search(query, &scope, 10, provider, as_of, loopback)?;
         if !hits["ok"].as_bool().unwrap_or(false) {
             return Ok(hits);
         }
@@ -337,6 +350,7 @@ impl MemoryFabric {
         source_ref: &str,
         provider: Option<&str>,
         heading: Option<&str>,
+        loopback: Option<bool>,
     ) -> Result<Value, String> {
         if !self.is_local_provider(provider) {
             return Ok(
@@ -348,6 +362,16 @@ impl MemoryFabric {
             Ok(v) => v,
             Err(e) => return Ok(json_error(e)),
         };
+        // Same per-note rule as search: without it, `read` would be a hole straight through the
+        // gate that search enforces.
+        if self.export_enforced()
+            && loopback != Some(true)
+            && row["export_policy"].as_str().unwrap_or("deny_remote") != "allow_remote"
+        {
+            return Ok(
+                json!({"ok":false,"blocked":"This source is not approved for export to a non-local model provider; nothing was returned."}),
+            );
+        }
         let body = row["body"].as_str().unwrap_or("");
         let current = fs::read_to_string(self.vault.join(safe_relpath(source_ref)?));
         if current

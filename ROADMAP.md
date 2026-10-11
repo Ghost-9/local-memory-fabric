@@ -34,7 +34,18 @@ a newline, so a fresh state initialized once and then failed on every later
 start. `parity.py` now fails if either engine leaves a config the other cannot
 parse; that check was confirmed failing against the pre-fix binary.
 
-### Landed (2026-10-11)
+### Landed (2026-10-11, second pass: the review fixes)
+
+| # | Change | Evidence |
+|---|--------|----------|
+| - | **Config-cached policy was stale.** The Rust `--serve` process read `enforce_export_policy` once at startup, so flipping it did nothing until a restart — a silent no-op in a security control. The config is now re-read per request, with the cached value as fallback. | Verified live: `enforce=False → (1 shown, 0 withheld)`, flip to true with **no restart** → `(0 shown, 1 withheld)`, flip back → `(1 shown, 0 withheld)`. |
+| - | **Per-note `export_policy` and `provider_policy` were never enforced.** They were written and echoed on every read but compared nowhere. Now enforced, opt-in via `enforce_export_policy`, applied identically in both engines to `search`, `context` and `read`, counting what was withheld. Deliberately **off by default**: enabling it overrides the operator's live read exemption, so it is a deliberate act, not a default. | Parity gained 2 checks (15 total): both engines return identical results and identical withheld counts, and `read` cannot be used to walk around the gate. Python policy tests assert fail-closed on a missing `loopback` assertion. |
+| - | **Lock contention was indistinguishable from a broken index.** A locked DB surfaced the raw SQLite string. Both engines now say `local memory index is busy; retry shortly [...]`, and a genuinely malformed index is *not* dressed up as transient. | Rust unit test; Python `classify_storage_error` unit test; end-to-end under an `EXCLUSIVE` lock in both one-shot and `--serve` modes, with the retry succeeding after release. |
+| - | **The legacy harness counted a no-match as a protocol error.** It classified `returncode != 0` as failure, so the two negative fixture cases reported `python_spawn_protocol_errors: 2` forever after the exit-code taxonomy landed. It now classifies on the response body and separately checks that the exit code is one the taxonomy actually promises. | Before: `protocol_errors: 2`. After: `0`, plus `exit_mismatches: 0` as a real new signal. |
+| - | **Engine stderr was discarded.** Both spawn paths used `stdio: [..., "ignore"]` for stderr, and Rust's `serve` swallowed the init error with `.ok()` — the shape that hid the one-character `b"\\n"` config bug. stderr is now captured (capped, credential-shaped assignments redacted) and the real init cause is returned. | With a deliberately broken `config.json`, the engine now reports `Memory Fabric config must be valid JSON` instead of a bare `could not initialize`. |
+| - | **Four benchmark harnesses, none gated.** Consolidated to one location: `bench/recall.py` (was `rust/benchmark.py`), `bench/synthetic_vault.py` (its fixture generator, previously mis-filed and at risk of deletion), and the `bench/` latency trio. Unused duplicates removed. `bench/recall.py` and a real TypeScript type check added to the gate. | Gate now runs the recall harness (`protocol_errors 0`, `exit_mismatches 0`) and `tsc --noEmit` clean over `index.ts` + `remote-policy.ts`. |
+
+### Landed (2026-10-11, first pass)
 
 | # | Change | Evidence |
 |---|--------|----------|
@@ -61,13 +72,17 @@ isLoopbackModel(ctx.model)`, and the engine drops any result whose `export_polic
 `allow_remote` whenever `loopback` is not true, reporting how many were withheld. A **missing**
 `loopback` field withholds (fail closed). Roughly 40 lines per engine plus parity coverage.
 
-### Rejected
+### Rejected on evidence (a review needs to be able to retract its own findings)
 
-- **Local reranker.** Already measured and rejected before this work: Recall@5
-  0.90 but it fired on 2/2 no-hit queries (no abstention), 837 MB RSS, 12.4 GB
-  peak. Do not re-propose without new evidence.
-- **Remote serving / MCP-by-default / tabular record mapping** (from the
-  Leviathan survey): ~640 tokens per session for MCP against 0 deferred tools
+- **Scope as an indexed token.** Recommended in review on the reasoning that scope filters *after*
+  matching, so N scopes means N× candidate work. **Measured, and wrong**: the filter is pushed into
+  the SQL `WHERE` clause *before* `ORDER BY ... LIMIT`, so it removes rows. On the real index the
+  scoped query is **8.5× faster** than the unscoped one (`project:local-memory-fabric` 1.125 ms vs
+  `all` 9.613 ms, 36 distinct scopes present). Pre-filtering would have pessimised the common path.
+- **Rust not setting `journal_mode=WAL`.** Claimed in review; the Rust engine does set it, in
+  `index()` (`index.rs`), exactly as Python does in its `index()`. Retracted.
+- **Local reranker.** Already measured and rejected before this work: Recall@5 0.90 but it fired on 2/2 no-hit queries (no abstention), 837 MB RSS, 12.4 GB peak. Do not re-propose without new evidence.
+- **Remote serving / MCP-by-default / tabular record mapping** (Leviathan): ~640 tokens per session for MCP against 0 deferred tools here.
   here, and the other two solve problems this design does not have.
 
 ---

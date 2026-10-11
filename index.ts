@@ -64,10 +64,15 @@ function callRust(request: Response): Promise<Response> {
 			return;
 		}
 		if (!rustChild || rustChild.killed) {
-			const child = spawn(RUST_BIN, ["--serve"], { stdio: ["pipe", "pipe", "ignore"], windowsHide: true, env: process.env });
+			const child = spawn(RUST_BIN, ["--serve"], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true, env: process.env });
 			rustChild = child;
-			child.on("error", () => failRustWorker(child, "Rust memory engine could not start."));
-			child.on("close", () => failRustWorker(child, "Rust memory engine stopped."));
+			let stderr = "";
+			child.stderr?.setEncoding("utf8");
+			child.stderr?.on("data", (chunk: string) => {
+				stderr = (stderr + chunk).slice(-8192);
+			});
+			child.on("error", () => failRustWorker(child, stderrHint(stderr) ?? "Rust memory engine could not start."));
+			child.on("close", () => failRustWorker(child, stderrHint(stderr) ?? "Rust memory engine stopped."));
 			const lines = createInterface({ input: child.stdout });
 			lines.on("line", (line) => {
 				if (Buffer.byteLength(line, "utf8") > MAX_STDOUT) {
@@ -89,14 +94,36 @@ function callRust(request: Response): Promise<Response> {
 	});
 }
 
+/**
+ * Last line of a child process's stderr, capped and lightly redacted.
+ *
+ * Engines used to discard stderr entirely, so a startup failure arrived as "could not start"
+ * with the cause on a stream nobody read - the shape that hid a one-character config bug for
+ * weeks. Keep the window small and strip credential-shaped assignments, because an error from
+ * a memory tool is still memory-adjacent text.
+ */
+function stderrHint(stream: string | null | undefined): string | undefined {
+	if (!stream) return undefined;
+	const line = stream
+		.split("\n")
+		.map((l) => l.trim())
+		.filter(Boolean)
+		.pop();
+	if (!line) return undefined;
+	// KEY=value / "key": "value" shapes could carry a secret; keep the label only.
+	const redacted = line.replace(/([A-Za-z0-9_.-]*(?:key|token|secret|password|authorization)[A-Za-z0-9_.-]*)\s*[=:]\s*["']?[^"'\s]+["']?/gi, "$1=<redacted>");
+	return redacted.length > 400 ? `${redacted.slice(0, 400)}...` : redacted;
+}
+
 function callPythonFabric(request: Response): Promise<Response> {
 	return new Promise((resolve) => {
 		const child = spawn(PYTHON, [SCRIPT, "--json-stdin"], {
-			stdio: ["pipe", "pipe", "ignore"],
+			stdio: ["pipe", "pipe", "pipe"],
 			windowsHide: true,
 			env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
 		});
 		let stdout = "";
+		let stderr = "";
 		let settled = false;
 		const finish = (value: Response) => {
 			if (settled) return;
@@ -104,12 +131,20 @@ function callPythonFabric(request: Response): Promise<Response> {
 			clearTimeout(timer);
 			resolve(value);
 		};
+		const failWithHint = (message: string) => {
+			const hint = stderrHint(stderr);
+			return hint ? `${message} [engine stderr: ${hint}]` : message;
+		};
 		const timeoutMs = request.op === "index" ? 120000 : 15000;
 		const timer = setTimeout(() => {
 			child.kill();
-			finish({ ok: false, error: "Local memory operation timed out." });
+			finish({ ok: false, error: failWithHint("Local memory operation timed out.") });
 		}, timeoutMs);
-		child.on("error", () => finish({ ok: false, error: "Local memory service could not start." }));
+		child.on("error", () => finish({ ok: false, error: failWithHint("Local memory service could not start.") }));
+		child.stderr?.setEncoding("utf8");
+		child.stderr?.on("data", (chunk: string) => {
+			stderr = (stderr + chunk).slice(-8192);
+		});
 		child.stdout.setEncoding("utf8");
 		child.stdout.on("data", (chunk: string) => {
 			stdout += chunk;
@@ -124,7 +159,7 @@ function callPythonFabric(request: Response): Promise<Response> {
 				const result = JSON.parse(stdout.trim()) as Response;
 				finish(result);
 			} catch {
-				finish({ ok: false, error: "Local memory service returned an invalid response." });
+				finish({ ok: false, error: failWithHint("Local memory service returned an invalid response.") });
 			}
 		});
 		child.stdin.end(JSON.stringify(request));
@@ -316,7 +351,7 @@ export default function (pi: ExtensionAPI) {
 			token_budget: Type.Optional(Type.Integer({ description: "Maximum context budget, 100-6000; default 1200" })),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
-			const result = await callFabric({ op: "context", query: params.query, project: params.project, as_of: params.as_of, token_budget: params.token_budget, provider: providerOf(ctx) });
+			const result = await callFabric({ op: "context", query: params.query, project: params.project, as_of: params.as_of, token_budget: params.token_budget, provider: providerOf(ctx), loopback: isLoopbackModel(ctx.model) });
 			return toolResult(result);
 		},
 	}));
@@ -335,7 +370,7 @@ export default function (pi: ExtensionAPI) {
 			as_of: Type.Optional(Type.String({ description: "Optional ISO date (YYYY-MM-DD) for temporal filtering" })),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
-			const result = await callFabric({ op: "search", query: params.query, scope: params.scope ?? "all", limit: params.limit ?? 5, as_of: params.as_of, provider: providerOf(ctx) });
+			const result = await callFabric({ op: "search", query: params.query, scope: params.scope ?? "all", limit: params.limit ?? 5, as_of: params.as_of, provider: providerOf(ctx), loopback: isLoopbackModel(ctx.model) });
 			return toolResult(result);
 		},
 	}));
@@ -352,7 +387,7 @@ export default function (pi: ExtensionAPI) {
 			heading: Type.Optional(Type.String({ description: "Optional exact Markdown heading to read" })),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
-			const result = await callFabric({ op: "read", source_ref: params.source_ref, heading: params.heading, provider: providerOf(ctx) });
+			const result = await callFabric({ op: "read", source_ref: params.source_ref, heading: params.heading, provider: providerOf(ctx), loopback: isLoopbackModel(ctx.model) });
 			return toolResult(result);
 		},
 	}));

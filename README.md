@@ -8,7 +8,8 @@ A local-only memory API over approved Markdown sources. Obsidian remains canonic
 - `memory_fabric.py` — Python reference/fallback implementation; standard library plus SQLite FTS5.
 - `index.ts` — Pi adapter. Five collision-resistant `memory_fabric_*` tools are deferred; Rust is selected by default when the release binary exists, otherwise Python is used. Requests use JSON over stdin, never shell interpolation.
 - `test_memory_fabric.py` and `rust/tests/parity.py` — isolated policy tests and Python/Rust parity checks using synthetic Markdown fixtures.
-- `rust/benchmark.py` and `benchmark_fixture.py` — aggregate-only evaluators on a generated synthetic 12-case, 111-document corpus; no personal vault data is used.
+- `bench/recall.py` — aggregate-only evaluators on a generated synthetic 12-case, 111-document corpus; no personal vault data is used. Also checks the CLI exit-code taxonomy. Run by `test.sh`.
+- `bench/ab.py`, `bench/scale.py`, `bench/baseline.sh` — the A/B latency harness. `baseline.sh` builds a baseline binary from any git ref so a performance claim can be re-measured without the author's `/tmp` copy.
 
 ## Scope and data flow
 
@@ -103,6 +104,33 @@ The memory tools are deferred to avoid default prompt overhead; Pi's `tool_searc
 operator exempted in `PI_MEMORY_REMOTE_ALLOWED_PROVIDERS`. Writing to the vault is gate 3 and stays
 loopback-only unless `PI_MEMORY_REMOTE_FULL_ACCESS=1`. The company scope is available for future curated `company/` Markdown; no company facts are invented or added here.
 
+## Per-note export policy
+
+Every row records `export_policy`, defaulting to `deny_remote`, and `provider_policy`
+(`loopback_allowlist_only`). These were written and returned on every read but **compared nowhere**,
+which made them a promise the engine did not keep. They are now enforced, but only when you turn it
+on, because enabling it overrides an operator exemption that is currently in use:
+
+| `enforce_export_policy` | non-loopback caller | loopback caller |
+|-------------------------|---------------------|-----------------|
+| unset / `false` (default) | receives everything, exactly as the exemption grants | receives everything |
+| `true` | receives only notes marked `allow_remote`; the rest are withheld and counted in `withheld_export` | unaffected |
+
+Turn it on with `"enforce_export_policy": true` in the engine config, or a
+`config: {"enforce_export_policy": True}` argument to the Python `MemoryFabric`. It takes effect on
+the next request in both engines - the Rust engine re-reads the config file per request, so a
+long-lived `--serve` process cannot answer from a stale policy decision. A caller that asserts no
+`loopback` at all is treated as non-loopback and withheld.
+
+The Pi adapter always asserts `loopback` from the model's configured endpoint, so the decision is
+driven by real configuration rather than by a claim the model makes. Until you mark notes
+`allow_remote`, enforcement hides the whole vault from a non-loopback provider - enable it
+purposefully, not as a default.
+
+Because every note is `deny_remote`, enabling this makes a remote provider's retrieval return nothing
+and `memory_fabric_read` refuse with a `blocked` response. That is the intended per-content control
+from the design; the blanket exemption is the coarser mechanism that sits in front of it today.
+
 ## Portable local API / other clients
 
 The Python reference API accepts one JSON request on stdin. The Rust engine accepts newline-delimited JSON on stdin in `--serve` mode and returns one JSON response per line. Neither API makes network calls. Non-Pi adapters must provide trusted provider identity and enforce their own endpoint policy; the Rust core alone cannot identify the active model provider.
@@ -148,15 +176,33 @@ The first invocation writes a mode-0600 `config.json` under the generated-state 
 
 ## Verification
 
-Run tests from this directory:
+The single entry point is `./test.sh`, which every lane and reviewer runs. It must pass on stock
+macOS `python3` (3.9): the Python engine avoids 3.10-only APIs, so no version pinning is required.
 
 ```sh
-python3.13 test_memory_fabric.py -v
-(cd rust && cargo test --locked)
-python3.14 rust/tests/parity.py
-python3.14 rust/benchmark.py
+./test.sh
 ```
 
-The Rust benchmark reports Python/Rust ranking parity, fresh-index times, persistent-query latency, and worker RSS using generated synthetic content. Its 12 cases remain too small to establish production-grade recall or abstention.
+Seven steps, cheapest and most decisive first:
 
-The fixture benchmark prints aggregate metrics only. Do not send fixture text, source passages, local proposals, or vault contents to a remote model, search engine, or MCP server.
+1. **Python policy suite** — the security contract: scope isolation, exclusion of the private-notes
+   exports, the credential filter, temporal semantics, export policy, and busy-index classification.
+2. **Extension policy suite** — `remote-policy.test.ts` asserts the read / scrub / write decision
+   matrix, including that an unlisted provider is granted nothing whatever the switch says.
+3. **TypeScript parses** — syntax check; no type checker is assumed present.
+4. **Rust unit tests** — path/symlink safety, tokenization, exit-code taxonomy, busy messages.
+5. **Python/Rust parity** — cross-engine agreement, including that both engines withhold and count
+   identically when export policy is enforced.
+6. **Benchmark harness** — recall@5 / MRR@5 on a synthetic 12-case, 111-document corpus plus the
+   CLI exit-code taxonomy. Its 12 cases remain too small to establish production-grade recall or
+   abstention.
+7. **TypeScript type check** — real types, using the TypeScript install in a sibling extension and a
+   tsconfig in `/tmp`. Skipped with a message if either is absent, never silently passed.
+
+For latency work, use `bench/` rather than the recall harness: `bench/baseline.sh <ref>` builds a
+baseline binary from any commit, then `bench/ab.py` runs the alternating real-index A/B and
+`bench/scale.py` varies index vocabulary at fixed document count. Always report the median of round
+medians, and remember that the retrieval win scales with term-table size, not document count.
+
+Prints aggregate metrics only. Do not send fixture text, source passages, local proposals, or vault
+contents to a remote model, search engine, or MCP server.

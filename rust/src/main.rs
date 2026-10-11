@@ -35,6 +35,7 @@ fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, String> {
             req["limit"].as_u64().unwrap_or(5) as usize,
             req["provider"].as_str(),
             req["as_of"].as_str(),
+            req["loopback"].as_bool(),
         ),
         "context" => fabric.context(
             req["project"].as_str(),
@@ -42,11 +43,13 @@ fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, String> {
             req["provider"].as_str(),
             req["token_budget"].as_u64().unwrap_or(1200) as usize,
             req["as_of"].as_str(),
+            req["loopback"].as_bool(),
         ),
         "read" => fabric.read(
             req["source_ref"].as_str().unwrap_or(""),
             req["provider"].as_str(),
             req["heading"].as_str(),
+            req["loopback"].as_bool(),
         ),
         "propose" => fabric.propose(req),
         "proposal-show" => fabric.proposal_show(
@@ -79,11 +82,25 @@ fn serve() -> Result<(), String> {
                 if !req.is_object() {
                     json_error("request must be a JSON object")
                 } else {
-                    if fabric.is_none() {
-                        fabric = MemoryFabric::new().ok();
+                if fabric.is_none() {
+                    let outcome = MemoryFabric::new();
+                    match outcome {
+                        Ok(f) => fabric = Some(f),
+                        // Surface the real cause instead of a bare "could not initialize":
+                        // that message hid a one-character config-writing bug for weeks.
+                        Err(e) => {
+                            let response = json_error(&e);
+                            serde_json::to_writer(&mut stdout, &response)
+                                .map_err(|e| e.to_string())?;
+                            stdout.write_all(b"\n").map_err(|e| e.to_string())?;
+                            stdout.flush().map_err(|e| e.to_string())?;
+                            continue;
+                        }
                     }
+                }
                     match fabric.as_ref() {
-                        Some(f) => dispatch(f, &req).unwrap_or_else(json_error),
+                        Some(f) => dispatch(f, &req)
+                            .unwrap_or_else(|e| json_error(&crate::db::busy_message(&e, "dispatch"))),
                         None => json_error("Memory Fabric could not initialize"),
                     }
                 }
@@ -148,7 +165,7 @@ fn one_shot(quiet: bool) -> Result<i32, String> {
             Ok(req) if !req.is_object() => json_error("request must be a JSON object"),
             Ok(req) => MemoryFabric::new()
                 .and_then(|f| dispatch(&f, &req))
-                .unwrap_or_else(json_error),
+                .unwrap_or_else(|e| json_error(&crate::db::busy_message(&e, "dispatch"))),
         }
     };
     if !quiet {

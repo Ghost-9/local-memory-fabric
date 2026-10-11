@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -9,7 +10,7 @@ from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from memory_fabric import MemoryFabric, main
+from memory_fabric import MemoryFabric, classify_storage_error, dispatch_request, main
 
 
 class MemoryFabricTests(unittest.TestCase):
@@ -94,6 +95,67 @@ class MemoryFabricTests(unittest.TestCase):
             self.assertEqual(absent["total_matches"], 0)
             self.assertFalse(absent["low_discrimination"])
             self.assertEqual(absent["abstention"], "no indexed source contains these terms")
+
+    def test_export_policy_gates_notes_for_non_loopback_callers_when_enforced(self):
+        """Every note is deny_remote by default, so enforcement must withhold everything from a
+        non-loopback caller and report how many were held back - and must not withhold from a
+        loopback one. A missing `loopback` assertion fails closed."""
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            vault = base / "vault"
+            (vault / "projects").mkdir(parents=True)
+            for i in range(3):
+                (vault / "projects" / f"n{i}.md").write_text(
+                    f"# Note {i}\n\nalpha shared topic body number {i}\n", encoding="utf-8")
+            # enforce_export_policy is opt-in: turning it on overrides the operator's
+            # blanket read exemption, so it must be an explicit decision, not a default.
+            fabric = MemoryFabric(home=base / "state", vault=vault,
+                                   config={"enforce_export_policy": True})
+            self.assertTrue(fabric.index()["ok"])
+
+            remote = fabric.search("alpha shared topic", provider="llama.cpp")
+            self.assertTrue(remote["ok"])
+            self.assertEqual(remote["results"], [], "non-loopback caller saw a deny_remote note")
+            self.assertGreater(remote["withheld_export"], 0, "withheld count must be reported")
+
+            missing_assertion = fabric.search("alpha shared topic", provider="llama.cpp")
+            self.assertEqual(missing_assertion["results"], [], "missing loopback must fail closed")
+
+            local = fabric.search("alpha shared topic", provider="llama.cpp", loopback=True)
+            self.assertEqual(len(local["results"]), 3, "loopback caller must not be withheld")
+            self.assertEqual(local["withheld_export"], 0)
+
+    def test_busy_index_is_reported_as_transient_not_as_corruption(self):
+        """A locked index must say so, so retrying is possible: 'database is locked' on its own
+        says nothing about whether a retry will help, and a malformed index must not be
+        dressed up as transient contention."""
+        locked = classify_storage_error(sqlite3.OperationalError("database is locked"))
+        self.assertIn("busy", locked.lower())
+        self.assertIn("retry shortly", locked)
+        self.assertIn("database is locked", locked, "the underlying detail must survive")
+
+        self.assertEqual(classify_storage_error(sqlite3.OperationalError("no such table: documents")),
+                         "no such table: documents")
+        self.assertEqual(classify_storage_error(sqlite3.OperationalError(
+            "database disk image is malformed")), "database disk image is malformed")
+
+        # And end to end: hold an exclusive lock and confirm the CLI reports it as busy.
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            vault = base / "vault"
+            (vault / "projects").mkdir(parents=True)
+            (vault / "projects" / "n.md").write_text("# N\n\nalpha beta\n", encoding="utf-8")
+            fabric = MemoryFabric(home=base / "state", vault=vault)
+            self.assertTrue(fabric.index()["ok"])
+            with closing(fabric._connect()) as con:
+                con.execute("PRAGMA journal_mode=WAL")
+                con.execute("BEGIN EXCLUSIVE")
+                try:
+                    with self.assertRaises(sqlite3.OperationalError):
+                        fabric.index(force=True)
+                finally:
+                    con.execute("ROLLBACK")
+            self.assertTrue(fabric.index(force=True)["ok"], "retry after release must succeed")
 
     def test_as_of_filters_superseded_sources_and_preserves_provenance(self):
         current = self.fabric.search("legacy retention snapshots", scope="project:atlas", provider="ollama")

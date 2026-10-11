@@ -4,6 +4,24 @@ use crate::policy::{
     DEFAULT_EXCLUDED_DIRS, DEFAULT_INCLUDE_DIRS, DEFAULT_INCLUDE_FILES, apple_path_re,
 };
 use rusqlite::{Connection, OptionalExtension, Row};
+
+/// Distinguish "another writer holds the index" from "the index is broken". Retrying is
+/// the right response to the first and pointless for the second, so a caller must be able
+/// to tell them apart without parsing a free-text SQLite message.
+pub(crate) fn busy_aware(action: &str, err: rusqlite::Error) -> String {
+    busy_message(&err.to_string(), action)
+}
+
+/// Same classification, for an error that has already been flattened to a string on its way
+/// out of a transaction. Applied at the dispatch funnel so no call site is missed.
+pub(crate) fn busy_message(detail: &str, action: &str) -> String {
+    let lowered = detail.to_ascii_lowercase();
+    if lowered.contains("database is locked") || lowered.contains("database is busy") || lowered.contains("locked") {
+        format!("local memory index is busy (during {action}); retry shortly [{detail}]")
+    } else {
+        detail.to_string()
+    }
+}
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use std::env;
@@ -52,6 +70,7 @@ impl MemoryFabric {
                 json!(["lmstudio", "llama.cpp", "ollama"]),
             );
             m.insert("max_result_chars".into(), json!(MAX_RESULT_CHARS_DEFAULT));
+            m.insert("enforce_export_policy".into(), json!(false));
             Value::Object(m)
         };
         if !config_value.is_object() {
@@ -111,6 +130,10 @@ impl MemoryFabric {
                     .map(|s| s.to_ascii_lowercase())
                     .collect(),
                 max_result_chars,
+                enforce_export_policy: config_value
+                    .get("enforce_export_policy")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
             },
         })
     }
@@ -124,14 +147,31 @@ impl MemoryFabric {
                 "Memory index is not initialized; run the explicit 'index' command first".into(),
             );
         }
-        let connection = Connection::open(&self.db_path).map_err(|e| e.to_string())?;
+        let connection = Connection::open(&self.db_path).map_err(|e| busy_aware("open", e))?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| busy_aware("lock", e))?;
         connection
             .pragma_update(None, "foreign_keys", "ON")
             .map_err(|e| e.to_string())?;
         Ok(connection)
+    }
+
+    /// Whether per-note export policy is enforced.
+    ///
+    /// Re-read on every call rather than served from the value cached at startup: a
+    /// long-lived `--serve` process must not answer from a stale policy, or the operator
+    /// flipping `enforce_export_policy` would silently do nothing until a restart. The
+    /// file is tiny and any read failure falls back to the cached value, so a transient
+    /// config problem cannot break retrieval.
+    pub(crate) fn export_enforced(&self) -> bool {
+        match fs::read_to_string(self.home.join("config.json")) {
+            Ok(raw) => serde_json::from_str::<Value>(&raw)
+                .ok()
+                .and_then(|v| v.get("enforce_export_policy").and_then(Value::as_bool))
+                .unwrap_or_else(|| self.config.enforce_export_policy),
+            Err(_) => self.config.enforce_export_policy,
+        }
     }
 
     pub(crate) fn init_db(&self, con: &Connection) -> Result<bool, String> {
@@ -200,6 +240,7 @@ pub(crate) struct Config {
     pub(crate) excluded_dirs: HashSet<String>,
     pub(crate) local_providers: HashSet<String>,
     pub(crate) max_result_chars: usize,
+    pub(crate) enforce_export_policy: bool,
 }
 
 fn string_list(value: &Value, key: &str, default: &[&str]) -> Result<Vec<String>, String> {

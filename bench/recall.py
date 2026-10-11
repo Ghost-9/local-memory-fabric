@@ -13,10 +13,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from benchmarks.synthetic import create_synthetic_vault  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from synthetic_vault import create_synthetic_vault  # noqa: E402
 from memory_fabric import MemoryFabric  # noqa: E402
 
-BINARY = Path(__file__).resolve().parent / "target" / "release" / "memory-fabric"
+BINARY = Path(__file__).resolve().parents[1] / "rust" / "target" / "release" / "memory-fabric"
 
 
 def percentile(values: list[float], p: float) -> float:
@@ -44,6 +45,16 @@ def metrics(results: list[list[str]], cases: list[dict[str, object]]) -> tuple[f
             false_positives)
 
 
+def expected_exit_code(response: dict) -> int:
+    """The exit code the CLI contract promises for this response body."""
+    if not response.get("ok"):
+        return 2 if response.get("blocked") else 3
+    results = response.get("results")
+    if isinstance(results, list):
+        return 0 if results else 1
+    return 0
+
+
 def main() -> int:
     if not BINARY.exists():
         print(json.dumps({"ok": False, "error": "Build rust/ with cargo build --release --locked first."}))
@@ -65,6 +76,7 @@ def main() -> int:
         py_latency: list[float] = []
         py_spawn_latency: list[float] = []
         py_spawn_errors = 0
+        py_spawn_exit_mismatches = 0
         py_spawn_mismatches = 0
         for case in cases:
             start = time.perf_counter()
@@ -79,8 +91,14 @@ def main() -> int:
             py_spawn_latency.append((time.perf_counter() - start) * 1000)
             try:
                 spawned = json.loads(process.stdout)
-                if process.returncode != 0 or not spawned.get("ok"):
+                if not isinstance(spawned, dict) or not spawned.get("ok"):
                     py_spawn_errors += 1
+                elif process.returncode != expected_exit_code(spawned):
+                    # The CLI promises 0 content / 1 no-result / 2 policy refusal / 3 error.
+                    # Treating any non-zero code as an error made the two negative fixture
+                    # cases report as protocol errors forever, because exit 1 means
+                    # "nothing to return", not "broken". Mismatches are a real finding.
+                    py_spawn_exit_mismatches += 1
                 elif [item["source_ref"] for item in spawned.get("results", [])] != refs:
                     py_spawn_mismatches += 1
             except (ValueError, TypeError):
@@ -129,6 +147,7 @@ def main() -> int:
                 "python_spawned_api_ms_p50": round(statistics.median(py_spawn_latency), 3),
                 "python_spawned_api_ms_p95": round(percentile(py_spawn_latency, 0.95), 3),
                 "python_spawn_protocol_errors": py_spawn_errors,
+                "python_spawn_exit_mismatches": py_spawn_exit_mismatches,
                 "python_spawn_result_mismatches": py_spawn_mismatches,
                 "rust_persistent_api_ms_p50": round(statistics.median(rust_latency), 3),
                 "rust_persistent_api_ms_p95": round(percentile(rust_latency, 0.95), 3),

@@ -126,6 +126,7 @@ class MemoryFabric:
             "excluded_dirs": sorted(DEFAULT_EXCLUDED_DIRS),
             "local_providers": ["lmstudio", "llama.cpp", "ollama"],
             "max_result_chars": 6000,
+            "enforce_export_policy": False,
         }
         config_path = self.home / "config.json"
         if config_path.is_symlink():
@@ -394,7 +395,8 @@ class MemoryFabric:
         return {"ok": True, "version": VERSION, "indexed": True, "documents": count,
                 "last_indexed_at": last[0] if last else None}
 
-    def search(self, query: str, scope: str = "all", limit: int = 5, provider: str | None = None, as_of: str | None = None) -> dict[str, Any]:
+    def search(self, query: str, scope: str = "all", limit: int = 5, provider: str | None = None, as_of: str | None = None,
+                loopback: bool | None = None) -> dict[str, Any]:
         if not self.is_local_provider(provider):
             return {"ok": False, "blocked": "Memory content is available only to an explicitly allowed local model provider."}
         if not query or not query.strip():
@@ -457,6 +459,16 @@ class MemoryFabric:
             results = []
             excluded_temporal = 0
             temporal_without_as_of = False
+            # Per-note export policy. Off by default so the operator's blanket read
+            # exemption keeps working; when on, a note must be marked allow_remote
+            # before a non-loopback caller may see it, and the count is reported.
+            withheld = 0
+            enforcing_export = bool(self.config.get("enforce_export_policy", False))
+            if enforcing_export and loopback is not True:
+                for row in rows:
+                    if str(row["export_policy"]) != "allow_remote":
+                        withheld += 1
+                rows = [r for r in rows if str(r["export_policy"]) == "allow_remote"]
             for row in rows:
                 try:
                     valid_from = date.fromisoformat(row["valid_from"]) if row["valid_from"] else None
@@ -521,7 +533,7 @@ class MemoryFabric:
             abstention = "matches exist but none passed the overlap or temporal gate; inspect total_matches and the date"
         return {"ok": True, "results": results, "shown": shown, "total_matches": total_matches,
                 "low_discrimination": low_discrimination, "abstention": abstention,
-                "temporal_warning": warning, "as_of": as_of,
+                "temporal_warning": warning, "as_of": as_of, "withheld_export": withheld,
                 "local_only": True, "note": "Lexical candidates are not verified facts; inspect cited source passages."}
 
     def context(self, project: str | None, query: str, provider: str | None, token_budget: int = 1200, as_of: str | None = None) -> dict[str, Any]:
@@ -747,6 +759,17 @@ def exit_code_for(result: dict[str, Any]) -> int:
     return 0
 
 
+def classify_storage_error(exc: Exception) -> str:
+    """Say whether a storage failure is transient contention or genuine breakage.
+    Retrying helps only the first, so the caller has to be able to tell them apart.
+    """
+    if isinstance(exc, sqlite3.OperationalError):
+        detail = str(exc).lower()
+        if "locked" in detail or "busy" in detail:
+            return f"local memory index is busy; retry shortly [{exc}]"
+    return str(exc)
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv == ["--json-stdin"]:
@@ -763,6 +786,9 @@ def main(argv: list[str] | None = None) -> int:
             result = dispatch_request(fabric, request)
             _emit(result)
             return exit_code_for(result)
+        except sqlite3.OperationalError as exc:
+            _emit({"ok": False, "error": classify_storage_error(exc)})
+            return 3
         except (OSError, ValueError, TypeError, json.JSONDecodeError, sqlite3.Error, RuntimeError) as exc:
             _emit({"ok": False, "error": str(exc)})
             return 3
@@ -818,6 +844,9 @@ def main(argv: list[str] | None = None) -> int:
         else: raise AssertionError("unhandled command")
         _emit(result)
         return exit_code_for(result)
+    except sqlite3.OperationalError as exc:
+        _emit({"ok": False, "error": classify_storage_error(exc)})
+        return 3
     except (OSError, sqlite3.Error, RuntimeError, ValueError) as exc:
         _emit({"ok": False, "error": str(exc)})
         return 3

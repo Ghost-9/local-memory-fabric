@@ -1,8 +1,21 @@
+use crate::db::busy_message;
 use crate::exit_code_for;
 use crate::paths::safe_relpath;
 use crate::policy::{apple_path_re, secret_signature};
 use crate::text::tokenize;
 use serde_json::json;
+
+#[test]
+fn busy_messages_are_told_apart_from_broken_indexes() {
+    // Retry is right for the first, pointless for the second; both must be greppable.
+    assert!(busy_message("database is locked", "dispatch").contains("busy"));
+    assert!(busy_message("database is locked", "dispatch").contains("retry shortly"));
+    assert!(busy_message("database is busy", "dispatch").contains("busy"));
+    // A genuinely broken index must NOT be dressed up as transient contention.
+    let broken = busy_message("database disk image is malformed", "dispatch");
+    assert!(!broken.contains("busy"), "malformed index misreported as busy");
+    assert_eq!(broken, "database disk image is malformed");
+}
 
 #[test]
 fn exit_codes_separate_a_result_from_no_result_and_from_an_error() {

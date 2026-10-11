@@ -1,5 +1,5 @@
 use crate::MemoryFabric;
-use crate::db::{delete_document, delete_fts_terms};
+use crate::db::{busy_aware, delete_document, delete_fts_terms};
 use crate::paths::{VERSION, now_utc, safe_relpath, set_mode};
 use crate::policy::{apple_path_re, secret_signature};
 use crate::text::{
@@ -104,11 +104,11 @@ impl MemoryFabric {
         if self.db_path.is_symlink() {
             return Err("Memory index must not be a symlink".into());
         }
-        let con = Connection::open(&self.db_path).map_err(|e| e.to_string())?;
+        let con = Connection::open(&self.db_path).map_err(|e| busy_aware("open", e))?;
         con.pragma_update(None, "journal_mode", "WAL")
             .map_err(|e| e.to_string())?;
         con.busy_timeout(std::time::Duration::from_secs(5))
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| busy_aware("lock", e))?;
         let migrated = self.init_db(&con)?;
         let existing: HashMap<String, String> = {
             let mut stmt = con

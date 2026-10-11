@@ -103,6 +103,33 @@ def main() -> int:
             after = {str(p.relative_to(vault)): p.read_bytes() for p in vault.rglob("*.md")}
             checks += 1
             mismatches += int(before != after)
+            # Per-note export policy must behave identically in both engines. Every note here
+            # is deny_remote, so a non-loopback caller must see nothing and get a withheld
+            # count; the same query asserting loopback must see everything.
+            for home in (py_home, rust_home):
+                cfg = home / "config.json"
+                data = json.loads(cfg.read_text(encoding="utf-8"))
+                data["enforce_export_policy"] = True
+                cfg.write_text(json.dumps(data), encoding="utf-8")
+            # A fresh Python engine for the enforcing phase: the one above read its config at
+            # construction. Rust re-reads the file per request, which is the point.
+            py_export_engine = MemoryFabric(home=py_home, vault=vault,
+                                            config={"enforce_export_policy": True})
+            py_export = py_export_engine.search("retention snapshots", scope="all", provider="ollama", limit=5)
+            rust_export = rust({"op": "search", "query": "retention snapshots", "scope": "all",
+                                "provider": "ollama", "limit": 5})
+            checks += 1
+            mismatches += int(py_export.get("results") != rust_export.get("results") or
+                              py_export.get("withheld_export") != rust_export.get("withheld_export") or
+                              bool(py_export.get("results")))
+            py_local = py_export_engine.search("retention snapshots", scope="all", provider="ollama",
+                                               limit=5, loopback=True)
+            rust_local = rust({"op": "search", "query": "retention snapshots", "scope": "all",
+                               "provider": "ollama", "limit": 5, "loopback": True})
+            checks += 1
+            mismatches += int([r["source_ref"] for r in py_local["results"]] !=
+                              [r["source_ref"] for r in rust_local["results"]])
+            checks += 1
             # Both engines must leave a config file the other can parse. The Rust writer once
             # emitted a literal backslash-n, so a fresh state initialized once and then failed
             # to start on every later run.
@@ -125,6 +152,7 @@ def main() -> int:
             report = {"ok": mismatches == 0, "parity_checks": checks, "mismatches": mismatches,
                       "python_config_keys": len(py_cfg) if py_cfg else 0,
                       "rust_config_keys": len(rust_cfg) if rust_cfg else 0,
+                      "export_policy_enforced": True,
                       "python_documents": py_index.get("documents"), "rust_documents": rust_index.get("documents"),
                       "rust_excluded_sensitive": rust_index.get("excluded_sensitive"),
                       "python_state_mode": oct(py_home.stat().st_mode & 0o777),

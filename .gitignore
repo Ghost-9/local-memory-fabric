@@ -9,5 +9,10 @@ __pycache__/
 *.sqlite3-wal
 proposals/
 
+# engine state written at the engine's home; holds local paths, not content, but it is
+# generated, environment-specific and must never be versioned
+/config.json
+/index.sqlite3
+
 # os noise
 .DS_Store
