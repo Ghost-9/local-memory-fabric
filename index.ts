@@ -16,6 +16,12 @@ import {
 	shouldScrubContext as shouldScrubContextFor,
 	type Model,
 } from "./remote-policy.ts";
+import {
+	createScrubState,
+	MAX_TRACKED_IDS,
+	scrubMessages,
+	trackVaultToolCalls,
+} from "./scrub.ts";
 
 const SCRIPT = fileURLToPath(new URL("./memory_fabric.py", import.meta.url));
 const PYTHON = process.env.MEMORY_FABRIC_PYTHON || "python3";
@@ -204,7 +210,11 @@ const LOCAL_PROVIDERS = parseProviderList(process.env.PI_MEMORY_LOCAL_PROVIDERS,
 const REMOTE_ALLOWED_PROVIDERS = parseProviderList(process.env.PI_MEMORY_REMOTE_ALLOWED_PROVIDERS, "opencode-go,opencode,pi");
 const REMOTE_FULL_ACCESS = remoteFullAccessEnabled(process.env.PI_MEMORY_REMOTE_FULL_ACCESS);
 
-/** Set once a context scrub has actually removed something; see the notification below. */
+/**
+ * Set once a context scrub has actually removed something, so the notice below fires exactly
+ * once per process. Previously this flag guarded a block that sat AFTER an unconditional
+ * `return`, so the notice could never fire at all — see CHANGELOG 0.3.4.
+ */
 let scrubWarned = false;
 const VAULT_ROOT = resolve(process.env.MEMORY_FABRIC_VAULT || resolve(homedir(), "system-memory"));
 
@@ -253,15 +263,14 @@ function fingerprint(message: unknown): string {
 	return createHash("sha256").update(JSON.stringify(message) ?? "").digest("hex");
 }
 
-function isLocalProviderId(provider: unknown): boolean {
-	return typeof provider === "string" && LOCAL_PROVIDERS.has(provider.toLowerCase());
-}
-
 export default function (pi: ExtensionAPI) {
 	if (process.env.PI_MEMORY_FABRIC === "0") return;
 
+	// The scrub predicate and its bounded-memory tracking live in `scrub.ts`, pure and
+	// unit-tested. They used to live inline here, where no test could reach them — which is how
+	// a dead notification and an evicting tracker both shipped green.
 	const localMessageHashes = new Set<string>();
-	const localToolCallIds = new Set<string>();
+	const scrubState = createScrubState();
 	pi.on("message_end", (event, ctx) => {
 		if (!isLoopbackModel(ctx.model)) return;
 		const message = event.message as Record<string, unknown>;
@@ -269,40 +278,20 @@ export default function (pi: ExtensionAPI) {
 		if (role !== "assistant") return;
 		try {
 			localMessageHashes.add(fingerprint(message));
-			if (localMessageHashes.size > 4096) localMessageHashes.delete(localMessageHashes.values().next().value!);
+			// Same fail-closed rule as the tool-id set: past the cap, stop trusting the set so
+			// the scrub withholds rather than admits. An unhashable message is simply not
+			// remembered, which is not evidence that anything may be sent.
+			if (localMessageHashes.size > MAX_TRACKED_IDS) scrubState.overflowed = true;
 		} catch { /* A non-serializable extension message is not retained for this guard. */ }
 	});
 
 	pi.on("context", (event, ctx) => {
 		if (!shouldScrubContext(ctx.model)) return;
 		const messages = event.messages as Array<Record<string, unknown>>;
-		for (const message of messages) {
-			if (message.role !== "assistant" || !isLocalProviderId(message.provider)) continue;
-			if (!Array.isArray(message.content)) continue;
-			for (const part of message.content as Array<Record<string, unknown>>) {
-				if (part.type !== "toolCall" || typeof part.id !== "string") continue;
-				const toolName = String(part.name ?? "");
-				const args = part.arguments ?? part.input;
-				if (toolName.startsWith("memory_fabric_") || inputTargetsVault(args, ctx.cwd) || inputTouchesAppleNotes(args)) {
-					localToolCallIds.add(part.id);
-					if (localToolCallIds.size > 4096) localToolCallIds.delete(localToolCallIds.values().next().value!);
-				}
-			}
-		}
-		const filtered = messages.filter((message) => {
-			const customType = typeof message.customType === "string" ? message.customType : "";
-			if (customType.startsWith("vault-context")) return false;
-			if (message.role === "assistant" && isLocalProviderId(message.provider)) return false;
-			if (message.role === "toolResult") {
-				const name = String(message.toolName ?? "");
-				if (name.startsWith("memory_fabric_") || localToolCallIds.has(String(message.toolCallId ?? ""))) return false;
-			}
-			if (message.role === "assistant") {
-				try { if (localMessageHashes.has(fingerprint(message))) return false; } catch { /* Keep unhashable messages. */ }
-			}
-			return true;
-		});
-		return filtered.length === messages.length ? undefined : { messages: filtered };
+		trackVaultToolCalls(messages, scrubState, LOCAL_PROVIDERS,
+			(args) => inputTargetsVault(args, ctx.cwd), inputTouchesAppleNotes);
+		const filtered = scrubMessages(messages, scrubState, LOCAL_PROVIDERS, localMessageHashes, fingerprint);
+		if (filtered.length === messages.length) return undefined;
 		// Something was actually removed, so say so: a fail-closed policy with no message reads
 		// as "memory stopped working" with no way to tell why. Once per process, naming only
 		// the provider and the two knobs - never a path, never content.
@@ -313,6 +302,7 @@ export default function (pi: ExtensionAPI) {
 				"warning",
 			);
 		}
+		return { messages: filtered };
 	});
 
 	pi.on("tool_call", (event, ctx) => {

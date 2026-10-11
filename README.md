@@ -209,21 +209,31 @@ macOS `python3` (3.9): the Python engine avoids 3.10-only APIs, so no version pi
 ./test.sh
 ```
 
-Seven steps, cheapest and most decisive first:
+Nine steps, cheapest and most decisive first:
 
 1. **Python policy suite** — the security contract: scope isolation, exclusion of the private-notes
    exports, the credential filter, temporal semantics, export policy, and busy-index classification.
 2. **Extension policy suite** — `remote-policy.test.ts` asserts the read / scrub / write decision
    matrix, including that an unlisted provider is granted nothing whatever the switch says.
-3. **TypeScript parses** — syntax check; no type checker is assumed present.
-4. **Rust unit tests** — path/symlink safety, tokenization, exit-code taxonomy, busy messages.
-5. **Python/Rust parity** — cross-engine agreement, including that both engines withhold and count
+3. **Context scrub suite** — `scrub.test.ts` pins what may leave the machine: vault and private-notes
+   tool results are withheld, and the bounded tracking set fails **closed** on overflow rather than
+   admitting content it can no longer vouch for.
+4. **TypeScript parses** — syntax check; no type checker is assumed present.
+5. **Rust unit tests** — path/symlink safety, tokenization, exit-code taxonomy, busy messages.
+6. **Python/Rust parity** — cross-engine agreement, including that both engines withhold and count
    identically when export policy is enforced.
-6. **Benchmark harness** — recall@5 / MRR@5 on a synthetic 12-case, 111-document corpus plus the
+7. **Retrieval determinism** — identical requests must return byte-identical payloads in both engines.
+   A regression guard, **not** a proof of tie ordering; see `docs/wiki/03-cache-stability.md`.
+8. **Benchmark harness** — recall@5 / MRR@5 on a synthetic 12-case, 111-document corpus plus the
    CLI exit-code taxonomy. Its 12 cases remain too small to establish production-grade recall or
    abstention.
-7. **TypeScript type check** — real types, using the TypeScript install in a sibling extension and a
-   tsconfig in `/tmp`. Skipped with a message if either is absent, never silently passed.
+9. **TypeScript type check** — real types over `index.ts`, `remote-policy.ts` and `scrub.ts`, using
+   the toolchain vendored in `package.json`. Run `npm install` once in a fresh clone. If the checker
+   is missing the step **fails**; it is never skipped (0.3.4 removed a `/tmp`-based path that
+   printed `SKIPPED` and still exited 0).
+
+The extension itself has **no runtime dependency** — `node_modules/` holds the type checker only,
+and Pi skips it when scanning for extensions.
 
 For latency work, use `bench/` rather than the recall harness: `bench/baseline.sh <ref>` builds a
 baseline binary from any commit, then `bench/ab.py` runs the alternating real-index A/B and

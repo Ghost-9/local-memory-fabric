@@ -1,0 +1,18 @@
+{
+  "name": "local-memory-fabric",
+  "version": "0.3.4",
+  "private": true,
+  "description": "Local-first memory fabric pi extension. Dev-only toolchain; the extension itself has no runtime dependencies.",
+  "type": "module",
+  "pi": {
+    "extensions": ["index.ts"]
+  },
+  "scripts": {
+    "gate": "./test.sh",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

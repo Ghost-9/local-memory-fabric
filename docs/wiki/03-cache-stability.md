@@ -32,8 +32,23 @@ plan, at zero cost. But do not cite the green gate as evidence that tie order is
 When adding a field to a response, ask: *does this value change when nothing else did?* If yes, it
 does not belong in the default payload.
 
+## The context scrub is cache-stable (measured 2026-10-12)
+
+The scrub filters the message list before each request, so it is a candidate for rule 2. Replaying
+the exact predicate over a simulated 30-turn transcript, turn over turn: **60 turns, 0 prefix
+shifts.** The filtered view grows append-only, because the same messages are dropped every turn. It
+returns `undefined` when nothing was removed, so an unchanged transcript is untouched.
+
+Two cases do move the prefix, and both are correct rather than incidental:
+
+| Case | Effect | Why it is acceptable |
+|---|---|---|
+| Switching to a non-allowlisted provider mid-session | one-time prefix break | The scrub starts removing earlier local-only material. Unavoidable: that is the gate working. |
+| Tracking-set overflow (>4,096 vault-touching tool calls) | every tool result withheld | Fails **closed** on purpose — see `02-access-gates`. Costs context, never secrecy. |
+
 ## Not yet measured
 
 The prefix-cache hit rate itself is only observable on a real session, and no gate currently
 tracks it. That is a known gap, tracked as an audit item — do not claim a cache hit rate from
-this repo's numbers.
+this repo's numbers. The scrub's *stability* above is a property of the predicate under simulation,
+not a measured hit rate on a live provider.

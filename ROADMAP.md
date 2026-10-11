@@ -63,6 +63,7 @@ An empty search result is deliberately **exit 1, not 0**, so `if memory-fabric .
 |---|--------|--------|
 | H1 | `LICENSE` (MIT) — a public repo without one is all-rights-reserved | done |
 | H2 | CI runs the gate on every PR and push, vendoring TypeScript | done |
+| H7 | The gate's type check could vanish behind a green build: it borrowed `tsc` from a sibling extension with config in `/tmp`, and printed `SKIPPED` while exiting 0. Toolchain now vendored via `package.json` + committed `tsconfig.json`; a missing checker is a hard failure. Verified by removing it (exit 1) and restoring it (exit 0) | done |
 | H3 | Issue templates requiring the failing command and the raw gate tail | done |
 | H4 | `AGENTS.md`, the agent-facing contribution guide | done |
 | H5 | `docs/wiki/` — wiki content, kept in-repo because the wiki git remote cannot be created over the API | done, sync documented |

@@ -3,6 +3,11 @@ rust/target/
 __pycache__/
 *.py[cod]
 
+# dev toolchain only (typescript + @types/node). Vendored so the type check cannot vanish
+# behind a /tmp path; installed, never committed. The extension has no runtime dependency.
+# package-lock.json IS committed, so the gate type-checks against a pinned checker version.
+node_modules/
+
 # generated memory state — never commit a copy of the vault or its index
 *.sqlite3
 *.sqlite3-shm

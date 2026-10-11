@@ -4,6 +4,48 @@ All notable changes to `local-memory-fabric`. The project is pre-1.0; anything m
 gate (`./test.sh`) must be green before a change lands, and every performance claim carries its
 measurement.
 
+## [0.3.4] — 2026-10-12
+
+Three defects in the context scrub and the gate that guards it. All were found by reading the
+code against the Pi runtime contract rather than by reading the docs, and **all three shipped
+behind a green gate** — which is the finding worth recording, not just the fixes.
+
+### Fixed
+- **The scrub notice could never fire.** `index.ts` ended its `context` hook with an
+  unconditional `return`, and the `ctx.ui.notify` announcing the scrub sat *below* it. The block
+  was dead on arrival in the same commit that added it (`389eee3`), so the claim in 0.3.0 — "the
+  extension now announces it once per process" — was never true. The provider it was written for
+  (`localhost.localdomain`, `0.0.0.0` — local endpoints that are not in the loopback set) still
+  gets scrubbed in silence, which is indistinguishable from memory being broken. The notice now
+  runs before the return.
+- **Overflow in the tracking set failed OPEN.** Past 4,096 tracked tool-call ids the set evicted
+  its oldest entry. An evicted id makes an old tool result *untrackable*, which made it look safe,
+  so content the policy had just decided to withhold was sent. Measured by replaying the hook: a
+  session with 4,100 vault-touching tool calls leaked the 4 oldest results, and 4,146 leaked 50 —
+  always at the front of the payload, so it invalidated the cached prefix too. The cap now trips
+  a sticky `overflowed` flag and the scrub drops every tool result it cannot positively clear.
+  Bounded memory costs some unrelated context; it never costs secrecy.
+- **The type check could vanish behind a green gate.** Step 8 borrowed `tsc` from a sibling
+  extension with its config in `/tmp`, and printed `SKIPPED` while still exiting 0 and printing
+  `ALL GATES OK`. `/tmp` is cleared on reboot, so the type check on the security predicate files
+  could disappear with nothing on screen saying so. The toolchain is now vendored
+  (`package.json` + committed `tsconfig.json`), and a checker that cannot run is a hard failure.
+
+### Added
+- **`scrub.ts` + `scrub.test.ts`** — the scrub predicate, extracted into a pure module with 10
+  tests. `index.ts` had **zero** test coverage: `remote-policy.test.ts` covers the gates, but the
+  hook that *calls* them was unreachable from any suite. That gap is how all three defects above
+  shipped green. The regression test was seen failing against the old evicting code before the fix.
+- The scrub's contract, stated in one line and pinned by tests: **withhold more, never less.**
+
+### Notes for reviewers
+- The `context` hook is still cache-safe: it returns `undefined` when nothing was removed, and the
+  filtered view grows append-only (60 simulated turns, 0 prefix shifts). The one prefix break is
+  switching to a non-allowlisted provider mid-session, which is security-correct and unavoidable.
+- `package.json` declares `pi.extensions: ["index.ts"]` so adding npm metadata cannot change how
+  Pi discovers this extension. Pi skips `node_modules` when scanning, so the vendored dev
+  dependencies are inert at runtime. The extension still has **no runtime dependency**.
+
 ## [0.3.0] — 2026-10-11
 
 Beta-candidate release. The three access gates are explicit and tested, per-note export policy is
@@ -42,6 +84,9 @@ used to be silent now say so.
   a local endpoint named outside the loopback set (`localhost.localdomain`, `0.0.0.0`), which looks
   exactly like "memory stopped working". The extension now announces it once per process. The
   loopback set is deliberately **not** widened: an unknown hostname is never treated as local to make
+  a session work.
+  > **Corrected in 0.3.4:** the notice never actually fired — it sat below an unconditional
+  > `return`. The scrub behaviour described above was real; the announcement was not.
   a session work.
 - **`status` reports the live policy knobs** (`enforce_export_policy`) in both engines, so a
   configuration decision that changes what a session receives is visible.
