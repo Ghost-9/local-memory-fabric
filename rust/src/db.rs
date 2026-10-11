@@ -154,6 +154,24 @@ impl MemoryFabric {
         connection
             .pragma_update(None, "foreign_keys", "ON")
             .map_err(|e| e.to_string())?;
+        // Additive-only forward migration for READ paths. Mirrors the Python engine exactly.
+        //
+        // 0.3.6 added `secret_alarms` and left every pre-existing index without it, so search,
+        // context, status and alarms all failed with "no such table" until a re-index. A read
+        // must never require a write. Additive and idempotent, so it is safe on every connect;
+        // anything needing a rebuild belongs in index(), not here.
+        connection
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS secret_alarms(
+                    alarm_id TEXT PRIMARY KEY,
+                    relpath TEXT NOT NULL,
+                    secret_kind TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    detected_at TEXT NOT NULL,
+                    resolved_at TEXT);
+                 CREATE INDEX IF NOT EXISTS secret_alarms_unresolved ON secret_alarms(resolved_at);",
+            )
+            .map_err(|e| format!("could not apply the additive index migration: {e}"))?;
         Ok(connection)
     }
 

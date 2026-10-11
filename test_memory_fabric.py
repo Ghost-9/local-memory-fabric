@@ -225,6 +225,48 @@ class MemoryFabricTests(unittest.TestCase):
             self.assertEqual(blocked["results"], [], "enforcement on withholds deny_remote notes")
             self.assertGreater(blocked["withheld_export"], 0)
 
+    def test_reads_survive_an_index_created_before_the_alarm_table(self):
+        """A read must never require a write.
+
+        0.3.6 added `secret_alarms` but only created it during index(), so every pre-existing
+        index — i.e. every user's index on upgrade — failed `search`, `context`, `status` and
+        `alarms` with "no such table" until they happened to re-index. Every test here builds a
+        FRESH database, which is exactly why the suite stayed green while the live index was
+        broken. This test therefore constructs the OLD shape explicitly.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            vault = base / "vault"
+            (vault / "projects").mkdir(parents=True)
+            (vault / "projects" / "n.md").write_text("# N\n\nedge compaction needs care.\n",
+                                                      encoding="utf-8")
+            home = base / "h"
+            fabric = MemoryFabric(home=home, vault=vault, config={"local_providers": ["ollama"]})
+            fabric.index()
+            # Simulate the pre-0.3.6 on-disk shape: drop only the new table.
+            with closing(sqlite3.connect(fabric.db_path)) as con:
+                con.execute("DROP TABLE secret_alarms")
+                con.commit()
+            self.assertFalse(self._table_exists(fabric.db_path, "secret_alarms"),
+                             "precondition: the old index shape must be in place")
+
+            for label, payload in (
+                ("status", fabric.status()),
+                ("search", fabric.search("edge compaction", provider="ollama")),
+                ("context", fabric.context(None, "edge compaction", "ollama")),
+                ("alarms", fabric.alarms()),
+            ):
+                self.assertTrue(payload.get("ok"), f"{label} must work on a pre-alarm index")
+            self.assertGreater(fabric.search("edge compaction", provider="ollama")["shown"], 0,
+                               "search must actually return results, not merely not error")
+
+    @staticmethod
+    def _table_exists(db_path, name: str) -> bool:
+        with closing(sqlite3.connect(db_path)) as con:
+            row = con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                              (name,)).fetchone()
+        return row is not None
+
     def test_credential_alarm_detects_reminds_and_resolves_without_leaking(self):
         """A key in the vault must be announced, kept out of the index, and never copied.
 

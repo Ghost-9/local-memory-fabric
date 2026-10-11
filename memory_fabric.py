@@ -219,6 +219,22 @@ class MemoryFabric:
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA busy_timeout=5000")
         con.execute("PRAGMA foreign_keys=ON")
+        # Additive-only forward migration for READ paths. Every read op queries schema that may
+        # be newer than the on-disk index — 0.3.6 added `secret_alarms` and left every existing
+        # index without it, so `search`, `context`, `status` and `alarms` all failed with
+        # "no such table" until the user happened to re-index. A read must never require a write.
+        #
+        # Deliberately additive and idempotent only: nothing here drops or rewrites data, so it
+        # is safe to run on every connection. Anything requiring a rebuild belongs in index().
+        try:
+            con.execute("CREATE TABLE IF NOT EXISTS secret_alarms ("
+                        "alarm_id TEXT PRIMARY KEY, relpath TEXT NOT NULL, secret_kind TEXT NOT NULL, "
+                        "fingerprint TEXT NOT NULL, detected_at TEXT NOT NULL, resolved_at TEXT)")
+            con.execute("CREATE INDEX IF NOT EXISTS secret_alarms_unresolved ON secret_alarms(resolved_at)")
+            con.commit()
+        except sqlite3.Error as exc:
+            con.rollback()
+            raise RuntimeError(f"could not apply the additive index migration: {exc}") from exc
         return con
 
     def _init_db(self, con: sqlite3.Connection) -> None:
