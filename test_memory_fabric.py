@@ -172,6 +172,59 @@ class MemoryFabricTests(unittest.TestCase):
                 fabric.index()
                 self.assertEqual(fabric.status().get("enforce_export_policy"), bool(cfg))
 
+    def test_export_policy_default_is_off_and_stays_reported(self):
+        """Issue #8 decision, recorded as a test so it cannot drift silently.
+
+        `enforce_export_policy` defaults to OFF and that is a deliberate operator decision for
+        1.0, not an oversight. Reason, measured on this machine: every indexed note carries
+        `deny_remote`, so turning enforcement on hands an exempted provider NOTHING - it does
+        not tighten a boundary, it removes the operator's blanket read exemption wholesale.
+        Turning it on properly requires a per-note `allow_remote` marking convention, and
+        which notes may leave this machine is the operator's call, never an agent's.
+
+        So the default must stay off, must be visible in `status`, and must not be flipped by
+        an unrelated code change.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            vault = base / "vault"
+            (vault / "projects").mkdir(parents=True)
+            (vault / "projects" / "n.md").write_text("# N\n\nalpha\n", encoding="utf-8")
+
+            # No config at all: the default must be off.
+            default_home = base / "default"
+            MemoryFabric(home=default_home, vault=vault).index()
+            self.assertFalse(MemoryFabric(home=default_home, vault=vault).status()
+                             .get("enforce_export_policy"),
+                             "enforce_export_policy must default to OFF")
+
+            # Explicitly off is still off - the switch only ever turns it ON.
+            off = MemoryFabric(home=base / "off", vault=vault,
+                               config={"enforce_export_policy": False})
+            off.index()
+            self.assertFalse(off.status().get("enforce_export_policy"))
+
+            # And the documented consequence: with it off, an exempted provider still reads.
+            # `local_providers` is the engine's own allowlist; an exempted provider must be
+            # listed there or it is refused before the export gate is ever reached.
+            off2 = MemoryFabric(home=base / "off2", vault=vault,
+                                config={"local_providers": ["opencode"],
+                                        "enforce_export_policy": False})
+            off2.index()
+            remote = off2.search("alpha", provider="opencode")
+            self.assertTrue(remote["ok"])
+            self.assertEqual(remote.get("withheld_export"), 0,
+                             "enforcement off means the read exemption stands")
+
+            # With it on, the same caller gets nothing - the reason the default stays off.
+            on = MemoryFabric(home=base / "on", vault=vault,
+                              config={"local_providers": ["opencode"],
+                                      "enforce_export_policy": True})
+            on.index()
+            blocked = on.search("alpha", provider="opencode")
+            self.assertEqual(blocked["results"], [], "enforcement on withholds deny_remote notes")
+            self.assertGreater(blocked["withheld_export"], 0)
+
     def test_sandbox_keeps_raw_bytes_out_of_context_and_retrieves_deliberately(self):
         """A large payload should cost a bounded slice of context, with the rest stored outside
         the canonical memory and reached only through search or read."""

@@ -205,6 +205,38 @@ The first invocation writes a mode-0600 `config.json` under the generated-state 
 The single entry point is `./test.sh`, which every lane and reviewer runs. It must pass on stock
 macOS `python3` (3.9): the Python engine avoids 3.10-only APIs, so no version pinning is required.
 
+## Install, update, remove
+
+```sh
+./install.sh              # install or update (idempotent)
+./install.sh status       # what is installed, which engine is live
+./install.sh rollback     # restore the previous version
+./install.sh uninstall    # remove the extension — KEEPS your memory
+./install.sh uninstall --purge   # also move the index aside (backs up, never deletes)
+```
+
+`install.sh` builds the Rust engine and installs the dev toolchain the gate needs. The extension
+itself has **no runtime dependency**; `npm install` exists only so `./test.sh` step 9 can run.
+
+Three rules the script holds to:
+
+- **Uninstall never deletes memory.** The index, proposals, and config are your data. Plain
+  uninstall leaves the state directory untouched; `--purge` *moves* it to a timestamped sibling
+  and tells you to delete it yourself.
+- **Rollback needs no network.** `update` keeps the previous tree, so `rollback` restores it.
+  Installing over a git checkout uses git as the rollback story instead.
+- **A missing Rust engine is reported, never silently accepted.** Without it the extension falls
+  back to Python (~6x slower per query). `install.sh` says so, and `status` shows it.
+
+## Engines
+
+Both engines implement all nine operations and are checked against each other by
+`rust/tests/parity.py`. `index.ts` prefers Rust whenever the binary exists; Python is the
+fallback. Measured on this machine, one `search`: **Rust 12.9 ms vs Python 78.4 ms** (Python
+runs as a cold process per call, which is what the fallback path does) — roughly 6x.
+
+## The gate
+
 ```sh
 ./test.sh
 ```

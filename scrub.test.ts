@@ -14,8 +14,11 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
 	createScrubState,
+	DEFAULT_SCRUB_NOTICE_INTERVAL_MS,
 	MAX_TRACKED_IDS,
+	parseNoticeInterval,
 	scrubMessages,
+	shouldNotifyScrub,
 	trackVaultToolCalls,
 	type ScrubMessage,
 } from "./scrub.ts";
@@ -169,4 +172,56 @@ test("nothing is removed when the transcript holds no memory-derived content", (
 	trackVaultToolCalls(messages, state, LOCAL, touchesVault, touchesAppleNotes);
 	const kept = scrubMessages(messages, state, LOCAL, new Set(), fingerprint);
 	assert.equal(kept.length, messages.length, "an unrelated transcript passes through untouched");
+});
+// --- Scrub notice cadence (issue #10) -------------------------------------------------
+// The decision the issue asked for: NOT once per process (too little — reopen a scrubbed
+// session and you saw it once, then silence, which is the symptom it exists to remove) and
+// NOT per request (noise people learn to dismiss). First scrub, then rate-limited per session.
+
+test("the first scrub notice always fires", () => {
+	assert.equal(shouldNotifyScrub({}, 1_000, DEFAULT_SCRUB_NOTICE_INTERVAL_MS), true);
+});
+
+test("a repeat inside the interval is suppressed, and the interval is honoured", () => {
+	const state: { lastNotifiedAt?: number } = { lastNotifiedAt: 1_000 };
+	const interval = DEFAULT_SCRUB_NOTICE_INTERVAL_MS;
+	assert.equal(shouldNotifyScrub(state, 1_001, interval), false, "immediately after: quiet");
+	assert.equal(shouldNotifyScrub(state, 1_000 + interval - 1, interval), false, "one ms early: quiet");
+	assert.equal(shouldNotifyScrub(state, 1_000 + interval, interval), true, "exactly at the interval: due");
+	assert.equal(shouldNotifyScrub(state, 1_000 + interval * 3, interval), true, "well past it: due");
+});
+
+test("a long scrubbed session is reminded periodically, not every turn", () => {
+	const state: { lastNotifiedAt?: number } = {};
+	const interval = DEFAULT_SCRUB_NOTICE_INTERVAL_MS;
+	let fired = 0;
+	// 200 requests, one every 30s — a long session being scrubbed continuously.
+	for (let i = 0; i < 200; i++) {
+		const now = i * 30_000;
+		if (shouldNotifyScrub(state, now, interval)) {
+			state.lastNotifiedAt = now;
+			fired++;
+		}
+	}
+	assert.ok(fired > 1, `expected periodic reminders, got ${fired}`);
+	assert.ok(fired < 20, `must not be per-request; got ${fired} notices in 200 requests`);
+});
+
+test("interval 0 silences the reminder but keeps the first notice; negative repeats always", () => {
+	const state: { lastNotifiedAt?: number } = {};
+	assert.equal(shouldNotifyScrub(state, 1_000, 0), true, "first notice still fires");
+	state.lastNotifiedAt = 1_000;
+	assert.equal(shouldNotifyScrub(state, 1_001, 0), false);
+	assert.equal(shouldNotifyScrub(state, 99_999_999, 0), false);
+	assert.equal(shouldNotifyScrub(state, 1_001, -1), true, "negative = every request");
+});
+
+test("the interval parser accepts explicit integers and rejects junk", () => {
+	assert.equal(parseNoticeInterval(undefined), DEFAULT_SCRUB_NOTICE_INTERVAL_MS);
+	assert.equal(parseNoticeInterval(" 60000 "), 60_000);
+	assert.equal(parseNoticeInterval("0"), 0);
+	assert.equal(parseNoticeInterval("-1"), -1);
+	for (const junk of ["", "  ", "abc", "10s", "1.5", "1e3", "NaN"]) {
+		assert.equal(parseNoticeInterval(junk), DEFAULT_SCRUB_NOTICE_INTERVAL_MS, `${junk} must fall back`);
+	}
 });

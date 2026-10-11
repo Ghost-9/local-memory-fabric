@@ -122,3 +122,43 @@ export function scrubMessages(
 	state.removedAnything = filtered.length !== messages.length;
 	return filtered;
 }
+
+/**
+ * How often to repeat the scrub notice, and why not more often.
+ *
+ * The notice answers "why is memory missing?". Once per process was too little: reopen a
+ * session that is still being scrubbed and you saw it once, then silence — which is the
+ * symptom the notice exists to remove. Per request is worse: it fires on every turn of a long
+ * session and becomes noise people learn to dismiss, losing the signal entirely.
+ *
+ * So: first scrub, then at most one reminder per interval, per session. Operators who want
+ * the reminder silenced set `MEMORY_FABRIC_SCRUB_NOTICE_MS=0`; to repeat every turn, negative.
+ */
+export const DEFAULT_SCRUB_NOTICE_INTERVAL_MS = 10 * 60 * 1000;
+
+/** `0` disables the reminder (the first notice still fires); negative repeats on every request. */
+export function parseNoticeInterval(value: string | undefined, fallback = DEFAULT_SCRUB_NOTICE_INTERVAL_MS): number {
+	if (value === undefined) return fallback;
+	const trimmed = value.trim();
+	if (!/^[+-]?\d+$/.test(trimmed)) return fallback;
+	return Number(trimmed);
+}
+
+/**
+ * Whether to show the scrub notice now.
+ *
+ * The first notice always fires. After that a reminder is due only once the interval has
+ * elapsed, so a long session gets a periodic reminder instead of a per-turn nag.
+ * `lastNotifiedAt` is `undefined` until the first notice, which is what makes "always announce
+ * the first one" work.
+ */
+export function shouldNotifyScrub(
+	state: { lastNotifiedAt?: number },
+	now: number,
+	intervalMs: number,
+): boolean {
+	if (state.lastNotifiedAt === undefined) return true;
+	if (intervalMs < 0) return true;
+	if (intervalMs === 0) return false;
+	return now - state.lastNotifiedAt >= intervalMs;
+}

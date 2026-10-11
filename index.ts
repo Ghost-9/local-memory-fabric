@@ -19,7 +19,9 @@ import {
 import {
 	createScrubState,
 	MAX_TRACKED_IDS,
+	parseNoticeInterval,
 	scrubMessages,
+	shouldNotifyScrub,
 	trackVaultToolCalls,
 } from "./scrub.ts";
 
@@ -211,11 +213,12 @@ const REMOTE_ALLOWED_PROVIDERS = parseProviderList(process.env.PI_MEMORY_REMOTE_
 const REMOTE_FULL_ACCESS = remoteFullAccessEnabled(process.env.PI_MEMORY_REMOTE_FULL_ACCESS);
 
 /**
- * Set once a context scrub has actually removed something, so the notice below fires exactly
- * once per process. Previously this flag guarded a block that sat AFTER an unconditional
- * `return`, so the notice could never fire at all — see CHANGELOG 0.3.4.
+ * Per-process scrub-notice state. Previously a bare boolean guarded a block that sat AFTER an
+ * unconditional `return`, so the notice could never fire at all (CHANGELOG 0.3.4). It is now a
+ * timestamp, so the reminder can repeat per session without becoming a per-turn nag (#10).
  */
-let scrubWarned = false;
+const scrubNotice: { lastNotifiedAt?: number } = {};
+const SCRUB_NOTICE_INTERVAL = parseNoticeInterval(process.env.MEMORY_FABRIC_SCRUB_NOTICE_MS);
 const VAULT_ROOT = resolve(process.env.MEMORY_FABRIC_VAULT || resolve(homedir(), "system-memory"));
 
 // Thin bindings so the call sites below read plainly; every decision lives in remote-policy.ts.
@@ -293,10 +296,13 @@ export default function (pi: ExtensionAPI) {
 		const filtered = scrubMessages(messages, scrubState, LOCAL_PROVIDERS, localMessageHashes, fingerprint);
 		if (filtered.length === messages.length) return undefined;
 		// Something was actually removed, so say so: a fail-closed policy with no message reads
-		// as "memory stopped working" with no way to tell why. Once per process, naming only
-		// the provider and the two knobs - never a path, never content.
-		if (!scrubWarned) {
-			scrubWarned = true;
+		// as "memory stopped working" with no way to tell why. The first scrub always announces;
+		// after that a reminder repeats at most once per interval, per session (#10) - per request
+		// would be noise people learn to dismiss. Names only the provider and the two knobs,
+		// never a path, never content.
+		const now = Date.now();
+		if (shouldNotifyScrub(scrubNotice, now, SCRUB_NOTICE_INTERVAL)) {
+			scrubNotice.lastNotifiedAt = now;
 			ctx.ui.notify(
 				`Local memory withheld this request: provider "${ctx.model?.provider ?? "unknown"}" is neither loopback nor listed in PI_MEMORY_REMOTE_ALLOWED_PROVIDERS, so fabric results and injected vault context were removed before sending. Nothing left the machine.`,
 				"warning",

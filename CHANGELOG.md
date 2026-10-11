@@ -4,6 +4,57 @@ All notable changes to `local-memory-fabric`. The project is pre-1.0; anything m
 gate (`./test.sh`) must be green before a change lands, and every performance claim carries its
 measurement.
 
+## [0.3.5] — 2026-10-12
+
+Operator decisions recorded, beta blocker #9 closed, and the answer to "port it to Rust" —
+which turned out to be mostly a misunderstanding worth writing down.
+
+### Decisions (recorded, not just defaults)
+- **`enforce_export_policy` stays OFF for 1.0**, and that is now a decision pinned by a test
+  rather than an untested default. The reason is measured on this machine: **every** indexed note
+  carries `deny_remote`, so turning enforcement on does not tighten a boundary — it hands an
+  exempted provider **nothing at all**, removing the blanket read exemption wholesale. Doing it
+  properly needs a per-note `allow_remote` convention, and which notes may leave this machine is
+  the operator's decision, never an agent's. A test now asserts the default, the off-state, and
+  both consequences. (#8)
+- **The scrub notice repeats per session, rate-limited** (#10). Once per process was too little —
+  reopen a scrubbed session and you saw it once, then silence, which is the symptom the notice
+  exists to remove. Per request is worse: it becomes noise people dismiss. Now: the first scrub
+  always announces, then at most one reminder per 10 minutes. `MEMORY_FABRIC_SCRUB_NOTICE_MS=0`
+  silences the reminder; a negative value repeats every request. Five new tests, including one
+  that simulates 200 requests over a long scrubbed session and asserts the count is periodic
+  rather than per-turn.
+
+### Fixed
+- **The Python engine never received `loopback`** (commit `ae85f4a`). Found while writing the #8
+  explanation above — immediately before the flag would have been flipped. With
+  `enforce_export_policy` on, Python withheld `deny_remote` notes from **local** providers
+  (shown=0, withheld=49) while Rust returned everything. Parity missed it because the test called
+  the Python *method* directly, bypassing `dispatch_request`. Parity now exercises both `search`
+  and `context` through the real JSON dispatch. 20 → 24 checks.
+
+### Added
+- **`install.sh`** — install / update / status / rollback / uninstall. Uninstall **never deletes
+  memory**: plain uninstall leaves the state directory untouched, and `--purge` *moves* it to a
+  timestamped sibling rather than deleting. Rollback keeps the previous tree and needs no network.
+  Verified against a sandbox state directory, including that a purge leaves a readable backup.
+- **Local version control for the vault** — the P0 gate for #11. The vault had no revert path; it
+  now has a local git repo with **no remote**: a revert mechanism, not a publishing one, since the
+  contract forbids sync and publish for this vault. Revert proven byte-identical on a real note.
+
+### The Rust port: already done, and the real gap is elsewhere
+Requested as "port the whole extension to Rust". Measured before acting: **all nine operations
+already exist in Rust**, and the extension already uses that engine. Rust 12.9 ms vs Python 78.4 ms
+per `search` on this machine — **6.2x** — because the Python path spawns a cold process per call
+while Rust runs a persistent worker.
+
+What is genuinely missing is not a port but **visibility**: `rust/target/` is gitignored, so a
+fresh clone has no binary and `index.ts` **silently** falls back to the ~6x-slower engine. Same
+silent-degradation shape as the type-check skip fixed in 0.3.4. `install.sh` now builds it and
+says so on failure, and `status` names the live engine. The Pi-facing layer (`index.ts`) cannot be
+ported to Rust — Pi loads TypeScript extensions — and does not need to be: it is a thin bridge that
+spawns the engine.
+
 ## [0.3.4] — 2026-10-12
 
 Three defects in the context scrub and the gate that guards it. All were found by reading the
