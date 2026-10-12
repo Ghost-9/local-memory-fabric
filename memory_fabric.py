@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 # Sandbox bounds. Tool output is the target: anything materially larger than a screenful is
 # refused rather than silently truncated, and the head returned with the handle stays small
 # because retrieving deliberately is the entire point.
@@ -1214,6 +1214,66 @@ class MemoryFabric:
             "note": "Proposal reverted. Changes restored in vault git repository."
         }
 
+    def sections(self, source_ref: str, provider: str | None = None) -> dict[str, Any]:
+        if not self.is_local_provider(provider):
+            return {"ok": False, "blocked": "Memory content is available only to an explicitly allowed local model provider."}
+        safe_ref = safe_relpath(source_ref)
+        with closing(self._connect()) as con:
+            row = con.execute("SELECT relpath,title,scope,body,export_policy FROM documents WHERE relpath=?", (safe_ref,)).fetchone()
+            if not row:
+                return {"ok": False, "error": f"no indexed document matches {safe_ref}"}
+            relpath, title, scope, body, export_policy = row
+            if self.export_enforced and export_policy != "allow_remote":
+                return {"ok": False, "blocked": "This source is not approved for export to a non-local model provider; nothing was returned."}
+            lines = body.splitlines()
+            sections_list = []
+            heading_re = re.compile(r"^(#{1,6})\s+(.+?)\s*#*$")
+            current_heading = title
+            current_level = 0
+            current_anchor = "overview"
+            current_breadcrumbs = [title]
+            current_start = 1
+            stack = []
+            for idx, line in enumerate(lines):
+                line_num = idx + 1
+                m = heading_re.match(line)
+                if m:
+                    if sections_list or current_level > 0:
+                        sections_list.append({
+                            "heading": current_heading,
+                            "level": current_level,
+                            "anchor": current_anchor,
+                            "breadcrumbs": list(current_breadcrumbs),
+                            "line_start": current_start,
+                            "line_end": line_num - 1,
+                        })
+                    hashes = len(m.group(1))
+                    h_text = m.group(2).strip()
+                    current_heading = h_text
+                    current_level = hashes
+                    current_anchor = re.sub(r"[^a-z0-9-]", "", h_text.lower().replace(" ", "-"))
+                    current_start = line_num
+                    while stack and stack[-1][0] >= hashes:
+                        stack.pop()
+                    stack.append((hashes, h_text))
+                    current_breadcrumbs = [title] + [s[1] for s in stack]
+            sections_list.append({
+                "heading": current_heading,
+                "level": current_level,
+                "anchor": current_anchor,
+                "breadcrumbs": list(current_breadcrumbs),
+                "line_start": current_start,
+                "line_end": len(lines),
+            })
+            return {
+                "ok": True,
+                "source_ref": safe_ref,
+                "title": title,
+                "scope": scope,
+                "section_count": len(sections_list),
+                "sections": sections_list,
+            }
+
     def proposal_list(self) -> dict[str, Any]:
         if not self.proposals_path.exists():
             return {"ok": True, "proposals": []}
@@ -1246,6 +1306,7 @@ def dispatch_request(fabric: MemoryFabric, req: dict[str, Any]) -> dict[str, Any
     if op == "search": return fabric.search(str(req.get("query", "")), str(req.get("scope", "all")), int(req.get("limit", 5)), req.get("provider"), req.get("as_of"), req.get("loopback"), int(req["token_budget"]) if req.get("token_budget") is not None else None)
     if op == "audit": return fabric.audit()
     if op == "links": return fabric.links(str(req.get("source_ref", "")))
+    if op == "sections": return fabric.sections(str(req.get("source_ref") or req.get("target") or ""), req.get("provider"))
     if op == "proposal-history": return fabric.proposal_history()
     if op == "proposal-revert": return fabric.proposal_revert(str(req.get("proposal_id", "")), req.get("provider"))
     if op == "apply": return fabric.proposal_apply(str(req.get("proposal_id", "")), req.get("provider"))

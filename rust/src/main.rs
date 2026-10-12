@@ -13,9 +13,19 @@ use crate::db::Config;
 use crate::paths::MAX_REQUEST_BYTES;
 use crate::text::json_error;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::env;
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static CACHE_GEN: AtomicU64 = AtomicU64::new(1);
+static QUERY_CACHE: OnceLock<Mutex<HashMap<String, (u64, Value)>>> = OnceLock::new();
+
+fn invalidate_cache() {
+    CACHE_GEN.fetch_add(1, Ordering::Release);
+}
 
 pub(crate) struct MemoryFabric {
     pub(crate) home: PathBuf,
@@ -26,20 +36,59 @@ pub(crate) struct MemoryFabric {
 }
 
 fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, String> {
-    match req["op"].as_str().unwrap_or("") {
+    let op = req["op"].as_str().unwrap_or("");
+    if ["index", "propose", "apply", "sandbox", "resolve", "proposal-revert"].contains(&op) {
+        invalidate_cache();
+    }
+    match op {
         "status" => fabric.status(),
         "index" => fabric.index(req["force"].as_bool().unwrap_or(false)),
-        "search" => fabric.search(
-            req["query"].as_str().unwrap_or(""),
-            req["scope"].as_str().unwrap_or("all"),
-            req["limit"].as_u64().unwrap_or(5) as usize,
-            req["provider"].as_str(),
-            req["as_of"].as_str(),
-            req["loopback"].as_bool(),
-            req["token_budget"].as_u64().map(|b| b as usize),
-        ),
+        "search" => {
+            let key = format!(
+                "search:{}:{}:{}:{}:{}:{}:{}",
+                req["query"].as_str().unwrap_or(""),
+                req["scope"].as_str().unwrap_or("all"),
+                req["limit"].as_u64().unwrap_or(5),
+                req["provider"].as_str().unwrap_or(""),
+                req["as_of"].as_str().unwrap_or(""),
+                req["loopback"].as_bool().unwrap_or(false),
+                req["token_budget"].as_u64().unwrap_or(0),
+            );
+            let cur_gen = CACHE_GEN.load(Ordering::Acquire);
+            if let Some(cache_map) = QUERY_CACHE.get() {
+                if let Ok(guard) = cache_map.lock() {
+                    if let Some((cached_gen, val)) = guard.get(&key) {
+                        if *cached_gen == cur_gen {
+                            return Ok(val.clone());
+                        }
+                    }
+                }
+            }
+            let res = fabric.search(
+                req["query"].as_str().unwrap_or(""),
+                req["scope"].as_str().unwrap_or("all"),
+                req["limit"].as_u64().unwrap_or(5) as usize,
+                req["provider"].as_str(),
+                req["as_of"].as_str(),
+                req["loopback"].as_bool(),
+                req["token_budget"].as_u64().map(|b| b as usize),
+            )?;
+            let cache_map = QUERY_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+            if let Ok(mut guard) = cache_map.lock() {
+                if guard.len() >= 1024 {
+                    guard.clear();
+                }
+                guard.insert(key, (cur_gen, res.clone()));
+            }
+            Ok(res)
+        }
         "audit" => fabric.audit(),
         "links" => fabric.links(req["source_ref"].as_str().unwrap_or("")),
+        "sections" => fabric.sections(
+            req["source_ref"].as_str().or_else(|| req["target"].as_str()).unwrap_or(""),
+            req["provider"].as_str(),
+            req["loopback"].as_bool(),
+        ),
         "proposal-history" => fabric.proposal_history(),
         "proposal-revert" => fabric.proposal_revert(
             req["proposal_id"].as_str().unwrap_or(""),
@@ -107,8 +156,6 @@ fn serve() -> Result<(), String> {
                     let outcome = MemoryFabric::new();
                     match outcome {
                         Ok(f) => fabric = Some(f),
-                        // Surface the real cause instead of a bare "could not initialize":
-                        // that message hid a one-character config-writing bug for weeks.
                         Err(e) => {
                             let response = json_error(&e);
                             serde_json::to_writer(&mut stdout, &response)
@@ -134,16 +181,6 @@ fn serve() -> Result<(), String> {
     Ok(())
 }
 
-/// Exit-code taxonomy for one-shot use, so a caller can branch without parsing prose.
-///
-/// 0  succeeded and returned content
-/// 1  succeeded, but there is nothing to return (no match, or an abstention)
-/// 2  refused by policy (the response carries `blocked`)
-/// 3  error: invalid request, engine failure, or a rejected proposal
-///
-/// The engine never guesses between these: an empty result is 1, not an error, and
-/// an abstention is never reported as a success. `--serve` does not use this, because
-/// a long-running protocol cannot exit on a per-request outcome.
 fn exit_code_for(response: &Value) -> i32 {
     if response.get("blocked").is_some() {
         return 2;
@@ -270,6 +307,17 @@ fn serve_mcp() -> Result<(), String> {
                                 "name": "memory_fabric_audit",
                                 "description": "Audit memory vault for stale notes, contradictions, duplicates, and broken links.",
                                 "inputSchema": { "type": "object", "properties": {} }
+                            },
+                            {
+                                "name": "memory_fabric_sections",
+                                "description": "Extract hierarchical Markdown sections with breadcrumbs and line bounds.",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "source_ref": { "type": "string" }
+                                    },
+                                    "required": ["source_ref"]
+                                }
                             }
                         ]
                     }
@@ -302,6 +350,12 @@ fn serve_mcp() -> Result<(), String> {
                     op_req = json!({ "op": "status" });
                 } else if name == "memory_fabric_audit" {
                     op_req = json!({ "op": "audit" });
+                } else if name == "memory_fabric_sections" {
+                    op_req = json!({
+                        "op": "sections",
+                        "source_ref": args["source_ref"].as_str().unwrap_or(""),
+                        "provider": "ollama"
+                    });
                 }
                 let res = dispatch(&fabric, &op_req).unwrap_or_else(|e| json_error(&e));
                 let resp = json!({

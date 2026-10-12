@@ -277,7 +277,29 @@ impl MemoryFabric {
             if loopback != Some(true) {
                 excerpt = crate::policy::sanitize_remote_excerpt(&excerpt);
             }
-            results.push(json!({"source_ref":row.relpath,"title":row.title,"scope":row.scope,"classification":row.classification,"source_status":row.source_status,"valid_from":row.valid_from,"valid_to":row.valid_to,"superseded_by":row.superseded_by,"provider_policy":row.provider_policy,"export_policy":row.export_policy,"excerpt":excerpt,"matched_terms":matched,"bm25_rank":(row.rank*1_000_000.0).round()/1_000_000.0,"indexed_at":row.indexed_at}));
+            let doc_sections = crate::text::parse_sections(&row.body, &row.title);
+            let matched_sec = crate::text::find_section_for_offset(&doc_sections, start);
+            let section_anchor = matched_sec.map(|s| s.anchor.clone()).unwrap_or_else(|| "overview".to_string());
+            let section_breadcrumb = matched_sec.map(|s| s.breadcrumbs.join(" > ")).unwrap_or_else(|| row.title.clone());
+
+            results.push(json!({
+                "source_ref": row.relpath,
+                "title": row.title,
+                "scope": row.scope,
+                "classification": row.classification,
+                "source_status": row.source_status,
+                "valid_from": row.valid_from,
+                "valid_to": row.valid_to,
+                "superseded_by": row.superseded_by,
+                "provider_policy": row.provider_policy,
+                "export_policy": row.export_policy,
+                "excerpt": excerpt,
+                "matched_terms": matched,
+                "section_anchor": section_anchor,
+                "section_breadcrumb": section_breadcrumb,
+                "bm25_rank": (row.rank * 1_000_000.0).round() / 1_000_000.0,
+                "indexed_at": row.indexed_at
+            }));
             if results.len() >= limit.clamp(1, 20) {
                 break;
             }
@@ -448,7 +470,7 @@ impl MemoryFabric {
             let lines: Vec<&str> = body.lines().collect();
             let start = lines.iter().position(|line| {
                 regex(&format!(
-                    r"(?i)^#{{1,6}}\s+{}\s*#*\s*$",
+                    r"(?i)^#{{1,6}}\s+{}\s*#*$",
                     regex::escape(wanted)
                 ))
                 .is_match(line.trim())
@@ -501,6 +523,44 @@ impl MemoryFabric {
             "source_ref": safe_ref,
             "outlinks": outlinks,
             "backlinks": backlinks
+        }))
+    }
+
+    pub(crate) fn sections(
+        &self,
+        source_ref: &str,
+        provider: Option<&str>,
+        loopback: Option<bool>,
+    ) -> Result<Value, String> {
+        if !self.is_local_provider(provider) {
+            return Ok(
+                json!({"ok":false,"blocked":"Memory content is available only to an explicitly allowed local model provider."}),
+            );
+        }
+        let con = self.connect()?;
+        let safe_ref = safe_relpath(source_ref)?;
+        let row = match self.indexed_doc(&safe_ref, &con) {
+            Ok(v) => v,
+            Err(e) => return Ok(json_error(e)),
+        };
+        if self.export_enforced()
+            && loopback != Some(true)
+            && row["export_policy"].as_str().unwrap_or("deny_remote") != "allow_remote"
+        {
+            return Ok(
+                json!({"ok":false,"blocked":"This source is not approved for export to a non-local model provider; nothing was returned."}),
+            );
+        }
+        let body = row["body"].as_str().unwrap_or("");
+        let title = row["title"].as_str().unwrap_or(&safe_ref);
+        let parsed = crate::text::parse_sections(body, title);
+        Ok(json!({
+            "ok": true,
+            "source_ref": safe_ref,
+            "title": title,
+            "scope": row["scope"],
+            "section_count": parsed.len(),
+            "sections": parsed,
         }))
     }
 }

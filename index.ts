@@ -558,6 +558,21 @@ export default function (pi: ExtensionAPI) {
 		},
 	}));
 	pi.registerTool(defineTool({
+		name: "memory_fabric_sections",
+		label: "Extract Markdown Sections & Breadcrumbs",
+		description: "Extract hierarchical Markdown sections with breadcrumb paths, anchors, and line bounds for an indexed note. Only an allowlisted local provider receives section data.",
+		exposure: "deferred",
+		namespace,
+		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+		parameters: Type.Object({
+			source_ref: Type.String({ description: "Exact relative path of the note, e.g. projects/local-memory-agent.md" }),
+		}),
+		async execute(_id, params, _signal, _onUpdate, ctx) {
+			return toolResult(await callFabric({ op: "sections", source_ref: params.source_ref, provider: providerOf(ctx), loopback: isLoopbackModel(ctx.model) }));
+		},
+	}));
+
+	pi.registerTool(defineTool({
 		name: "memory_fabric_sync_agency",
 		label: "Sync Agency Episodic Session",
 		description: "Propose an episodic memory record into vault/episodic/squad-sessions.md from the most recent active agency session in ~/.cache/agency-skills/active_session.json.",
@@ -714,8 +729,8 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(`backend=${backend}; indexed=${engineStatus.indexed === true}; documents=${engineStatus.documents ?? 0}; configured=${allTools.length}; memory_fabric=${tools.length}; active=${active.length}; ${tools.join(", ")}`, "info");
 				return;
 			}
-			if (!["status", "index", "proposals", "alarms", "audit", "history", "sync-agency"].includes(action) && !action.startsWith("resolve") && !action.startsWith("apply") && !action.startsWith("revert") && !action.startsWith("links") && !action.startsWith("mode") && !action.startsWith("project")) {
-				ctx.ui.notify("Usage: /memory-fabric [status|index|proposals|alarms|audit|history|sync-agency|mode [local|remote]|project <act> <name>|resolve <id>|apply <id>|revert <id>|links <ref>|tools]", "warning");
+			if (!["status", "index", "proposals", "alarms", "audit", "history", "sync-agency"].includes(action) && !action.startsWith("resolve") && !action.startsWith("apply") && !action.startsWith("revert") && !action.startsWith("links") && !action.startsWith("sections") && !action.startsWith("mode") && !action.startsWith("project")) {
+				ctx.ui.notify("Usage: /memory-fabric [status|index|proposals|alarms|audit|history|sync-agency|mode [local|remote]|project <act> <name>|resolve <id>|apply <id>|revert <id>|links <ref>|sections <ref>|tools]", "warning");
 				return;
 			}
 			const applyMatch = /^apply\s+([0-9a-f]{12})$/i.exec(action);
@@ -798,6 +813,13 @@ export default function (pi: ExtensionAPI) {
 			if (revertMatch) {
 				const res = await callFabric({ op: "proposal-revert", proposal_id: revertMatch[1], provider: providerOf(ctx) });
 				ctx.ui.notify(res.ok ? `Proposal ${revertMatch[1]} reverted successfully.` : `Revert failed: ${res.error ?? res.blocked}`, res.ok ? "info" : "error");
+				return;
+			}
+			const sectionsMatch = /^sections\s+(.+)$/i.exec(action);
+			if (sectionsMatch) {
+				const res = await callFabric({ op: "sections", source_ref: sectionsMatch[1].trim(), provider: providerOf(ctx), loopback: isLoopbackModel(ctx.model) });
+				const secCount = Array.isArray(res.sections) ? res.sections.length : 0;
+				ctx.ui.notify(res.ok ? `Note ${sectionsMatch[1]}: ${secCount} sections parsed.` : `Sections query failed: ${res.error ?? res.blocked}`, res.ok ? "info" : "error");
 				return;
 			}
 			const linksMatch = /^links\s+(.+)$/i.exec(action);
