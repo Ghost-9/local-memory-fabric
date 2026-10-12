@@ -8,9 +8,8 @@
 #      directory alone unless --purge is passed EXPLICITLY, and even then it backs up first.
 #   2. Rollback must be possible without a network. Update keeps the previous source tree, so
 #      `install.sh rollback` restores it. A tool that reads personal memory needs a way out.
-#   3. No silent failure. If the Rust engine cannot be built, say so loudly: the extension then
-#      falls back to the Python engine, which is ~6x slower. Pretending that is "installed" is
-#      how the same defect class keeps recurring in this project.
+#   3. No silent failure. If the Rust engine cannot be built or downloaded, say so loudly:
+#      the extension then falls back to the Python engine, which is ~55x slower.
 #
 # Usage:
 #   ./install.sh              install or update (idempotent)
@@ -25,6 +24,7 @@ STATE="${MEMORY_FABRIC_HOME:-$HOME/.pi/agent/scratch/memory-fabric}"
 BACKUP="${STATE}.backup"
 EXT_DIR="$HOME/.pi/agent/extensions/local-memory-fabric"
 MIN_MAJOR=26   # node --experimental-strip-types
+BIN_TARGET="$HERE/rust/target/release/memory-fabric"
 
 say()  { printf '%s\n' "$*"; }
 warn() { printf 'WARNING: %s\n' "$*" >&2; }
@@ -36,21 +36,80 @@ check_node() {
   [ "$major" -ge "$MIN_MAJOR" ] || die "node $major found; this extension needs >= $MIN_MAJOR for --experimental-strip-types."
 }
 
-build_rust() {
-  # The Rust engine is ~6x faster and is preferred whenever the binary exists. A missing
-  # binary is a SILENT 6x slowdown, so this reports rather than shrugs.
-  if ! command -v cargo >/dev/null 2>&1; then
-    warn "cargo not found: the Rust engine will NOT be built."
-    warn "The extension will fall back to the Python engine (~6x slower per query)."
-    warn "Install Rust from https://rustup.rs and re-run ./install.sh to get the fast path."
-    return 1
+download_prebuilt_rust() {
+  local os; os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  local arch; arch="$(uname -m)"
+  local target=""
+  if [ "$os" = "darwin" ] && [ "$arch" = "arm64" ]; then
+    target="memory-fabric-macos-arm64"
+  elif [ "$os" = "linux" ] && [ "$arch" = "x86_64" ]; then
+    target="memory-fabric-linux-x64"
   fi
-  say "  building the Rust engine (this takes a minute the first time)..."
-  if ( cd "$HERE/rust" && cargo build --release --locked --quiet ); then
-    say "  Rust engine built: $HERE/rust/target/release/memory-fabric"
+  [ -z "$target" ] && return 1
+
+  # Check if a dist artifact is already present locally
+  if [ -f "$HERE/dist/$target" ] && [ -f "$HERE/dist/$target.sha256" ]; then
+    say "  found local prebuilt binary in dist/; verifying checksum..."
+    local expected; expected="$(awk '{print $1}' "$HERE/dist/$target.sha256")"
+    local actual; actual="$(shasum -a 256 "$HERE/dist/$target" 2>/dev/null | awk '{print $1}' || sha256sum "$HERE/dist/$target" | awk '{print $1}')"
+    if [ "$expected" = "$actual" ]; then
+      mkdir -p "$(dirname "$BIN_TARGET")"
+      cp "$HERE/dist/$target" "$BIN_TARGET"
+      chmod +x "$BIN_TARGET"
+      say "  installed local prebuilt binary: $BIN_TARGET"
+      return 0
+    fi
+  fi
+
+  local tag="v0.4.0"
+  local url="https://github.com/Ghost-9/local-memory-fabric/releases/download/${tag}/${target}"
+  local sha_url="${url}.sha256"
+  mkdir -p "$(dirname "$BIN_TARGET")"
+  local tmp_bin="${BIN_TARGET}.tmp"
+  local tmp_sha="${BIN_TARGET}.sha256"
+
+  say "  downloading prebuilt Rust engine (${target}) from GitHub releases (${tag})..."
+  if command -v curl >/dev/null 2>&1; then
+    if curl -fsSL "$url" -o "$tmp_bin" && curl -fsSL "$sha_url" -o "$tmp_sha" 2>/dev/null; then
+      local expected; expected="$(awk '{print $1}' "$tmp_sha")"
+      local actual; actual="$(shasum -a 256 "$tmp_bin" 2>/dev/null | awk '{print $1}' || sha256sum "$tmp_bin" | awk '{print $1}')"
+      rm -f "$tmp_sha"
+      if [ "$expected" != "$actual" ]; then
+        warn "checksum mismatch for prebuilt binary (expected $expected, got $actual)"
+        rm -f "$tmp_bin"
+        return 1
+      fi
+      mv "$tmp_bin" "$BIN_TARGET"
+      chmod +x "$BIN_TARGET"
+      say "  prebuilt Rust engine installed and verified: $BIN_TARGET"
+      return 0
+    fi
+  fi
+  rm -f "$tmp_bin" "${tmp_sha:-}"
+  return 1
+}
+
+build_rust() {
+  if [ -x "$BIN_TARGET" ]; then
+    say "  Rust engine already present: $BIN_TARGET"
     return 0
   fi
-  warn "Rust build FAILED. The extension will fall back to Python (~6x slower)."
+  # First try prebuilt download for instant start without cargo
+  if download_prebuilt_rust; then
+    return 0
+  fi
+  if ! command -v cargo >/dev/null 2>&1; then
+    warn "cargo not found and prebuilt binary download unavailable."
+    warn "The extension will fall back to the Python engine (~55x slower per query)."
+    warn "Install Rust from https://rustup.rs or place the binary in rust/target/release/ to get the fast path."
+    return 1
+  fi
+  say "  building the Rust engine from source (this takes a minute the first time)..."
+  if ( cd "$HERE/rust" && cargo build --release --locked --quiet ); then
+    say "  Rust engine built: $BIN_TARGET"
+    return 0
+  fi
+  warn "Rust build FAILED. The extension will fall back to Python (~55x slower)."
   return 1
 }
 
@@ -135,10 +194,10 @@ do_status() {
     local eff; eff="$(node -p 'try{String(require("fs").readFileSync(process.argv[1],"utf8")).includes("\"enforce_export_policy\": true")}catch(e){"unknown"}' "$STATE/config.json" 2>/dev/null || echo unknown)"
     say "  export policy : enforce_export_policy is effectively $eff (default: off, by decision — see issue #8)"
   fi
-  if [ -x "$HERE/rust/target/release/memory-fabric" ]; then
-    say "  engine        : RUST (fast, ~6x)"
+  if [ -x "$BIN_TARGET" ]; then
+    say "  engine        : RUST (fast, ~55x)"
   else
-    warn "  engine        : PYTHON FALLBACK (~6x slower). Build it: cd rust && cargo build --release --locked"
+    warn "  engine        : PYTHON FALLBACK (~55x slower). Build it: cd rust && cargo build --release --locked"
   fi
   say "  type check    : $([ -f "$HERE/node_modules/typescript/bin/tsc" ] && echo 'toolchain present' || echo 'MISSING — run npm install (needed for ./test.sh only)')"
   if command -v python3 >/dev/null 2>&1; then

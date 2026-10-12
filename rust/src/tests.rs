@@ -14,7 +14,7 @@ fn busy_messages_are_told_apart_from_broken_indexes() {
     // A genuinely broken index must NOT be dressed up as transient contention.
     let broken = busy_message("database disk image is malformed", "dispatch");
     assert!(!broken.contains("busy"), "malformed index misreported as busy");
-    assert_eq!(broken, "database disk image is malformed");
+    assert!(broken.contains("corrupt"));
 }
 
 #[test]
@@ -95,3 +95,45 @@ fn camel_split_matches_the_python_engine() {
     assert_eq!(split_identifier("KV"), vec!["kv"]);
 }
 
+
+#[test]
+fn proposals_lifecycle_show_and_list() {
+    let tmp = std::env::temp_dir().join(format!("mf-test-{}", uuid::Uuid::new_v4().simple()));
+    let home = tmp.join("home");
+    let vault = tmp.join("vault");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(vault.join("projects")).unwrap();
+    std::fs::write(vault.join("projects/demo.md"), "# Project Demo\n\n## Overview\nInitial content.\n").unwrap();
+    let fabric = crate::MemoryFabric::with_paths(home.clone(), vault.clone()).unwrap();
+    fabric.index(true).unwrap();
+
+    let list_empty = fabric.proposal_list().unwrap();
+    assert_eq!(list_empty["ok"], true);
+    assert_eq!(list_empty["proposals"].as_array().unwrap().len(), 0);
+
+    let prop = fabric.propose(&json!({
+        "project": "demo",
+        "target": "projects/demo.md",
+        "section": "Overview",
+        "text": "Proposed addition.",
+        "provider": "ollama"
+    })).unwrap();
+    assert_eq!(prop["ok"], true);
+    let id = prop["proposal_id"].as_str().unwrap();
+
+    let shown = fabric.proposal_show(id, Some("ollama")).unwrap();
+    assert_eq!(shown["ok"], true);
+    assert_eq!(shown["status"], "proposed_review_required");
+
+    let list = fabric.proposal_list().unwrap();
+    assert_eq!(list["proposals"].as_array().unwrap().len(), 1);
+
+    let applied = fabric.proposal_apply(id, Some("ollama")).unwrap();
+    assert_eq!(applied["ok"], true);
+    assert_eq!(applied["status"], "applied");
+
+    let updated_content = std::fs::read_to_string(vault.join("projects/demo.md")).unwrap();
+    assert!(updated_content.contains("Proposed addition."));
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}

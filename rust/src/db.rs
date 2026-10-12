@@ -16,7 +16,15 @@ pub(crate) fn busy_aware(action: &str, err: rusqlite::Error) -> String {
 /// out of a transaction. Applied at the dispatch funnel so no call site is missed.
 pub(crate) fn busy_message(detail: &str, action: &str) -> String {
     let lowered = detail.to_ascii_lowercase();
-    if lowered.contains("database is locked") || lowered.contains("database is busy") || lowered.contains("locked") {
+    if lowered.contains("file is not a database")
+        || lowered.contains("malformed")
+        || lowered.contains("corrupt")
+    {
+        format!("local memory index is corrupt (during {action}); reindex with 'index --force' [{detail}]")
+    } else if lowered.contains("database is locked")
+        || lowered.contains("database is busy")
+        || lowered.contains("locked")
+    {
         format!("local memory index is busy (during {action}); retry shortly [{detail}]")
     } else {
         detail.to_string()
@@ -152,6 +160,12 @@ impl MemoryFabric {
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| busy_aware("lock", e))?;
         connection
+            .pragma_update(None, "journal_mode", "WAL")
+            .map_err(|e| e.to_string())?;
+        connection
+            .pragma_update(None, "synchronous", "NORMAL")
+            .map_err(|e| e.to_string())?;
+        connection
             .pragma_update(None, "foreign_keys", "ON")
             .map_err(|e| e.to_string())?;
         // Additive-only forward migration for READ paths. Mirrors the Python engine exactly.
@@ -218,6 +232,13 @@ impl MemoryFabric {
                 detected_at TEXT NOT NULL,
                 resolved_at TEXT);
             CREATE INDEX IF NOT EXISTS secret_alarms_unresolved ON secret_alarms(resolved_at);
+            -- Relational knowledge graph: [[wikilink]] connections between notes
+            CREATE TABLE IF NOT EXISTS note_links(
+                source TEXT NOT NULL,
+                target TEXT NOT NULL,
+                PRIMARY KEY(source, target)
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS note_links_by_target ON note_links(target);
         ").map_err(|e| e.to_string())?;
         let version: Option<String> = con
             .query_row(
@@ -296,6 +317,8 @@ pub(crate) fn delete_fts_terms(con: &Connection, rel: &str) -> Result<(), String
     con.execute("DELETE FROM documents_fts WHERE relpath=?1", [rel])
         .map_err(|e| e.to_string())?;
     con.execute("DELETE FROM doc_terms WHERE relpath=?1", [rel])
+        .map_err(|e| e.to_string())?;
+    con.execute("DELETE FROM note_links WHERE source=?1", [rel])
         .map_err(|e| e.to_string())?;
     Ok(())
 }

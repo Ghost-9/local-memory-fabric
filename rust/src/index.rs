@@ -3,14 +3,15 @@ use crate::db::{busy_aware, delete_document, delete_fts_terms};
 use crate::paths::{VERSION, now_utc, safe_relpath, set_mode};
 use crate::policy::{apple_path_re, secret_fingerprint, secret_signature};
 use crate::text::{
-    frontmatter_value, headings_for, is_skipped_name, scope_for, sha256, title_for, tokenize,
+    extract_wikilinks, frontmatter_value, headings_for, is_skipped_name, scope_for, sha256,
+    title_for, tokenize,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::time::{Instant, UNIX_EPOCH};
 
 impl MemoryFabric {
     pub(crate) fn sources(&self) -> Result<Vec<PathBuf>, String> {
@@ -97,6 +98,7 @@ impl MemoryFabric {
     }
 
     pub(crate) fn index(&self, force: bool) -> Result<Value, String> {
+        let start_time = Instant::now();
         if self.home.is_symlink() {
             return Err("Memory Fabric state directory must not be a symlink".into());
         }
@@ -110,41 +112,59 @@ impl MemoryFabric {
         con.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| busy_aware("lock", e))?;
         let migrated = self.init_db(&con)?;
-        let existing: HashMap<String, String> = {
+        let existing: HashMap<String, (String, i64)> = {
             let mut stmt = con
-                .prepare("SELECT relpath,content_hash FROM documents")
+                .prepare("SELECT relpath,content_hash,mtime_ns FROM documents")
                 .map_err(|e| e.to_string())?;
             let mut out = HashMap::new();
             let rows = stmt
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))
                 .map_err(|e| e.to_string())?;
             for row in rows {
-                let (p, h) = row.map_err(|e| e.to_string())?;
-                out.insert(p, h);
+                let (p, data) = row.map_err(|e| e.to_string())?;
+                out.insert(p, data);
             }
             out
         };
+        let canonical_vault = self.vault.canonicalize().map_err(|e| e.to_string())?;
         let tx = con.unchecked_transaction().map_err(|e| e.to_string())?;
         let mut found = HashSet::new();
         let (mut added, mut updated, mut unchanged, mut excluded_sensitive) =
             (0usize, 0usize, 0usize, 0usize);
         for path in self.sources()? {
-            let canonical_vault = self.vault.canonicalize().map_err(|e| e.to_string())?;
             let Ok(canonical_path) = path.canonicalize() else {
                 continue;
             };
             if !canonical_path.starts_with(&canonical_vault) {
                 continue;
             }
-            let Ok(text) = fs::read_to_string(&path) else {
-                continue;
-            };
             let rel = path
                 .strip_prefix(&self.vault)
                 .map_err(|e| e.to_string())?
                 .to_string_lossy()
                 .replace('\\', "/");
             found.insert(rel.clone());
+
+            let mtime_ns = fs::symlink_metadata(&path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_nanos().min(i64::MAX as u128) as i64)
+                .unwrap_or(0);
+
+            // Fast incremental skip: if mtime_ns is identical and not forced/migrated, skip reading disk!
+            if !force && !migrated && mtime_ns > 0 {
+                if let Some((_, prev_mtime)) = existing.get(&rel) {
+                    if *prev_mtime == mtime_ns {
+                        unchanged += 1;
+                        continue;
+                    }
+                }
+            }
+
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue;
+            };
             let classification = frontmatter_value(&text, "classification")
                 .unwrap_or_else(|| "local_only".into())
                 .to_ascii_lowercase();
@@ -174,7 +194,7 @@ impl MemoryFabric {
                 continue;
             }
             let digest = sha256(&text);
-            if !force && !migrated && existing.get(&rel) == Some(&digest) {
+            if !force && !migrated && existing.get(&rel).map(|(h, _)| h == &digest).unwrap_or(false) {
                 unchanged += 1;
                 continue;
             }
@@ -188,12 +208,6 @@ impl MemoryFabric {
             let valid_from = frontmatter_value(&text, "valid_from");
             let valid_to = frontmatter_value(&text, "valid_to");
             let superseded_by = frontmatter_value(&text, "superseded_by");
-            let mtime_ns = fs::metadata(&path)
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| d.as_nanos().min(i64::MAX as u128) as i64)
-                .unwrap_or(0);
             if existing.contains_key(&rel) {
                 updated += 1;
                 delete_fts_terms(&tx, &rel)?;
@@ -215,6 +229,17 @@ impl MemoryFabric {
                 )
                 .map_err(|e| e.to_string())?;
             }
+            // Index relational wikilinks
+            let links = extract_wikilinks(&text);
+            tx.execute("DELETE FROM note_links WHERE source=?1", [&rel])
+                .map_err(|e| e.to_string())?;
+            for target in links {
+                tx.execute(
+                    "INSERT OR IGNORE INTO note_links(source,target) VALUES(?1,?2)",
+                    params![rel, target],
+                )
+                .map_err(|e| e.to_string())?;
+            }
         }
         let stale: Vec<String> = existing
             .keys()
@@ -227,28 +252,27 @@ impl MemoryFabric {
         for rel in &stale {
             delete_document(&tx, rel)?;
         }
-        tx.execute("DELETE FROM term_df", [])
+        // Incremental delta skip: only rebuild term_df if terms actually changed
+        if added > 0 || updated > 0 || !stale.is_empty() || force || migrated {
+            tx.execute("DELETE FROM term_df", [])
+                .map_err(|e| e.to_string())?;
+            tx.execute(
+                "INSERT INTO term_df(term,df) SELECT term,COUNT(*) FROM doc_terms GROUP BY term",
+                [],
+            )
             .map_err(|e| e.to_string())?;
-        tx.execute(
-            "INSERT INTO term_df(term,df) SELECT term,COUNT(*) FROM doc_terms GROUP BY term",
-            [],
-        )
-        .map_err(|e| e.to_string())?;
+        }
         tx.execute("INSERT INTO metadata(key,value) VALUES('last_indexed_at',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [now_utc()]).map_err(|e| e.to_string())?;
-        let canonical = self
-            .vault
-            .canonicalize()
-            .map_err(|e| e.to_string())?
-            .to_string_lossy()
-            .to_string();
+        let canonical = canonical_vault.to_string_lossy().to_string();
         tx.execute("INSERT INTO metadata(key,value) VALUES('vault_path',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [canonical]).map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
         set_mode(&self.db_path, 0o600);
         let docs: i64 = con
             .query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))
             .map_err(|e| e.to_string())?;
+        let elapsed_ms = (start_time.elapsed().as_micros() as f64) / 1000.0;
         Ok(
-            json!({"ok":true,"version":VERSION,"added":added,"updated":updated,"unchanged":unchanged,"removed_from_index":stale.len(),"excluded_sensitive":excluded_sensitive,"documents":docs,"secret_alarms":self.unresolved_alarms()?.len()}),
+            json!({"ok":true,"version":VERSION,"added":added,"updated":updated,"unchanged":unchanged,"removed_from_index":stale.len(),"excluded_sensitive":excluded_sensitive,"documents":docs,"secret_alarms":self.unresolved_alarms()?.len(),"elapsed_ms":elapsed_ms}),
         )
     }
 

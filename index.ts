@@ -29,7 +29,7 @@ const SCRIPT = fileURLToPath(new URL("./memory_fabric.py", import.meta.url));
 const PYTHON = process.env.MEMORY_FABRIC_PYTHON || "python3";
 const RUST_BIN = process.env.MEMORY_FABRIC_BIN || fileURLToPath(new URL("./rust/target/release/memory-fabric", import.meta.url));
 const ENGINE = (process.env.MEMORY_FABRIC_ENGINE || "auto").toLowerCase();
-const MAX_STDOUT = 256 * 1024;
+const MAX_STDOUT = 4 * 1024 * 1024;
 
 type Response = Record<string, unknown>;
 type Pending = { request: Response; resolve: (value: Response) => void; timer?: ReturnType<typeof setTimeout> };
@@ -84,8 +84,12 @@ function callRust(request: Response): Promise<Response> {
 			const lines = createInterface({ input: child.stdout });
 			lines.on("line", (line) => {
 				if (Buffer.byteLength(line, "utf8") > MAX_STDOUT) {
-					child.kill();
-					failRustWorker(child, "Rust memory response exceeded its size limit.");
+					const item = rustInFlight.shift();
+					if (item) {
+						if (item.timer) clearTimeout(item.timer);
+						item.resolve({ ok: false, error: "Rust memory response exceeded its size limit." });
+					}
+					sendNextRustRequest(child);
 					return;
 				}
 				const item = rustInFlight.shift();
@@ -274,6 +278,28 @@ export default function (pi: ExtensionAPI) {
 	// a dead notification and an evicting tracker both shipped green.
 	const localMessageHashes = new Set<string>();
 	const scrubState = createScrubState();
+	pi.on("before_agent_start", async (event: any, ctx: any) => {
+		const prompt = String(event?.prompt ?? "").trim();
+		const isCompactedTurn = prompt.includes("# Resuming from a compaction") || prompt.includes("Compaction Resume Step");
+		if (!isCompactedTurn) return;
+		if (!providerAllowed(ctx?.model)) return;
+
+		try {
+			const status = await callFabric({ op: "status" });
+			if (!status.ok || !status.indexed) return;
+			const contextBrief = `\n[LOCAL MEMORY: COMPACTION RE-HYDRATION]\n• Memory Fabric active: ${status.documents} indexed documents in canonical vault.\n• Secret alarms: ${status.secret_alarms ?? 0} open.\n• Note: Memory excerpts and active anchors are restored. Query memory_fabric_context or memory_fabric_search for deep recall.`;
+			return {
+				message: {
+					customType: "memory-context",
+					content: contextBrief,
+					display: false,
+				},
+			};
+		} catch {
+			// Fail-safe: do not block agent startup on re-hydration error
+		}
+	});
+
 	pi.on("message_end", (event, ctx) => {
 		if (!isLoopbackModel(ctx.model)) return;
 		const message = event.message as Record<string, unknown>;
@@ -441,8 +467,22 @@ export default function (pi: ExtensionAPI) {
 		},
 	}));
 
-pi.registerTool(defineTool({
-	name: "memory_fabric_proposal_show",
+	pi.registerTool(defineTool({
+		name: "memory_fabric_apply",
+		label: "Apply Memory Proposal",
+		description: "Apply an unapproved memory proposal cleanly to the target vault note. Restricted to an allowlisted local model provider. Atomically updates the vault note and commits the change to vault git repository if version-controlled.",
+		exposure: "deferred",
+		namespace,
+		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+		parameters: Type.Object({ proposal_id: Type.String({ description: "12-character proposal id" }) }),
+		async execute(_id, params, _signal, _onUpdate, ctx) {
+			const result = await callFabric({ op: "apply", proposal_id: params.proposal_id, provider: providerOf(ctx) });
+			return toolResult(result);
+		},
+	}));
+
+	pi.registerTool(defineTool({
+		name: "memory_fabric_proposal_show",
 		label: "Review Memory Proposal",
 		description: "Show the diff for an unapproved memory proposal. Only an allowlisted local provider may inspect proposal content. No apply operation exists in this version.",
 		exposure: "deferred",
@@ -496,8 +536,14 @@ pi.registerTool(defineTool({
 				ctx.ui.notify(`backend=${backend}; indexed=${engineStatus.indexed === true}; documents=${engineStatus.documents ?? 0}; configured=${allTools.length}; memory_fabric=${tools.length}; active=${active.length}; ${tools.join(", ")}`, "info");
 				return;
 			}
-			if (!["status", "index", "proposals", "alarms"].includes(action)) {
-				ctx.ui.notify("Usage: /memory-fabric [status|index|proposals|alarms|resolve <id>|tools]", "warning");
+			if (!["status", "index", "proposals", "alarms"].includes(action) && !action.startsWith("resolve") && !action.startsWith("apply")) {
+				ctx.ui.notify("Usage: /memory-fabric [status|index|proposals|alarms|resolve <id>|apply <id>|tools]", "warning");
+				return;
+			}
+			const applyMatch = /^apply\s+([0-9a-f]{12})$/i.exec(action);
+			if (applyMatch) {
+				const result = await callFabric({ op: "apply", proposal_id: applyMatch[1], provider: providerOf(ctx) });
+				ctx.ui.notify(result.ok ? `Proposal ${applyMatch[1]} applied: ${result.note ?? "applied"}` : `Apply failed: ${result.error ?? result.blocked}`, result.ok ? "info" : "error");
 				return;
 			}
 			const resolveMatch = /^resolve\s+([0-9a-f]{4,16})$/i.exec(action);

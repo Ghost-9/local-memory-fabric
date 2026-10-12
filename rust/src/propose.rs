@@ -76,7 +76,7 @@ impl MemoryFabric {
         let start = lines.iter().position(|line| {
             regex(&format!(
                 r"(?i)^#{{1,6}}\s+{}\s*#*\s*$",
-                regex::escape(section)
+                regex::escape(&section)
             ))
             .is_match(line.trim())
         });
@@ -286,5 +286,120 @@ pub(crate) fn proposal_show(&self, id: &str, provider: Option<&str>) -> Result<V
             }
         }
         Ok(json!({"ok":true,"proposals":items}))
+    }
+
+    pub(crate) fn proposal_apply(&self, id: &str, provider: Option<&str>) -> Result<Value, String> {
+        if !self.is_local_provider(provider) {
+            return Ok(
+                json!({"ok":false,"blocked":"Proposal apply is available only to an explicitly allowed local model provider."}),
+            );
+        }
+        if !regex(r"^[a-f0-9]{12}$").is_match(id) {
+            return Ok(json_error("invalid proposal id"));
+        }
+        let path = self.proposals_path.join(format!("{id}.json"));
+        if path.is_symlink() {
+            return Ok(json_error("proposal path is unsafe"));
+        }
+        let mut record: Value = match fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+        {
+            Some(v) => v,
+            None => return Ok(json_error("proposal not found")),
+        };
+        if record["status"].as_str() == Some("applied") {
+            return Ok(json!({
+                "ok": true,
+                "proposal_id": id,
+                "status": "already_applied",
+                "target": record["target"],
+                "note": "Proposal was already applied previously"
+            }));
+        }
+        let target = record["target"].as_str().unwrap_or("").to_string();
+        let section = record["section"].as_str().unwrap_or("").to_string();
+        let text = record["proposal_text"].as_str().unwrap_or("").to_string();
+        let target_path = self.vault.join(&target);
+        if target_path.is_symlink() || !target_path.exists() {
+            return Ok(json_error("target note does not exist or is a symlink"));
+        }
+        let base = fs::read_to_string(&target_path).map_err(|e| e.to_string())?;
+        let lines: Vec<&str> = base.split_inclusive('\n').collect();
+        let start = lines.iter().position(|line| {
+            regex(&format!(
+                r"(?i)^#{{1,6}}\s+{}\s*#*\s*$",
+                regex::escape(&section)
+            ))
+            .is_match(line.trim())
+        });
+        let Some(start) = start else {
+            return Ok(json_error("proposal section heading must already exist"));
+        };
+        let level = lines[start].chars().take_while(|c| *c == '#').count();
+        let mut end = lines.len();
+        for (i, line) in lines.iter().enumerate().skip(start + 1) {
+            let n = line.chars().take_while(|c| *c == '#').count();
+            if n > 0 && n <= level && line.chars().nth(n).map(char::is_whitespace).unwrap_or(false) {
+                end = i;
+                break;
+            }
+        }
+        let mut insert_at = end;
+        while insert_at > start + 1 && lines[insert_at - 1].trim().is_empty() {
+            insert_at -= 1;
+        }
+        let mut updated = String::new();
+        for line in &lines[..insert_at] {
+            updated.push_str(line);
+        }
+        if insert_at > 0 && !lines[insert_at - 1].trim().is_empty() {
+            updated.push('\n');
+        }
+        updated.push_str(text.trim_end());
+        updated.push('\n');
+        if end < lines.len() {
+            updated.push('\n');
+        }
+        for line in &lines[end..] {
+            updated.push_str(line);
+        }
+        let tmp_path = self.vault.join(format!("{}.tmp.{}", target.replace('/', "_"), id));
+        fs::write(&tmp_path, &updated).map_err(|e| e.to_string())?;
+        fs::rename(&tmp_path, &target_path).map_err(|e| e.to_string())?;
+
+        let mut git_commit: Option<String> = None;
+        if self.vault.join(".git").exists() {
+            let _ = std::process::Command::new("git")
+                .args(["-C", self.vault.to_str().unwrap(), "add", &target])
+                .output();
+            let commit_msg = format!("memory: apply proposal {id} to {target}");
+            if let Ok(c) = std::process::Command::new("git")
+                .args(["-C", self.vault.to_str().unwrap(), "commit", "-m", &commit_msg])
+                .output()
+            {
+                if c.status.success() {
+                    git_commit = String::from_utf8(c.stdout).ok().map(|s| s.lines().next().unwrap_or("").to_string());
+                }
+            }
+        }
+
+        record["status"] = json!("applied");
+        record["applied_at"] = json!(now_utc());
+        if let Some(ref c) = git_commit {
+            record["git_commit"] = json!(c);
+        }
+        if let Ok(mut f) = fs::File::create(&path) {
+            let _ = serde_json::to_writer_pretty(&mut f, &record);
+        }
+
+        Ok(json!({
+            "ok": true,
+            "proposal_id": id,
+            "status": "applied",
+            "target": target,
+            "git_commit": git_commit,
+            "note": "Proposal applied cleanly to vault. Changes recorded in git."
+        }))
     }
 }

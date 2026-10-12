@@ -187,3 +187,19 @@ pub(crate) fn sha256(text: &str) -> String {
 pub(crate) fn json_error(message: impl Into<String>) -> Value {
     json!({"ok": false, "error": message.into()})
 }
+
+pub(crate) fn extract_wikilinks(text: &str) -> Vec<String> {
+    let re = regex(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]");
+    let mut links = Vec::new();
+    for cap in re.captures_iter(text) {
+        if let Some(m) = cap.get(1) {
+            let target = m.as_str().trim();
+            if !target.is_empty() {
+                links.push(target.to_string());
+            }
+        }
+    }
+    links.sort();
+    links.dedup();
+    links
+}

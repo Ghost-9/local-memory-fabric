@@ -102,6 +102,13 @@ def title_for(relpath: str, text: str) -> str:
     return Path(relpath).stem.replace("-", " ").replace("_", " ")
 
 
+
+
+def extract_wikilinks(text: str) -> list[str]:
+    matches = re.findall(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]", text)
+    cleaned = sorted({m.strip() for m in matches if m.strip()})
+    return cleaned
+
 def headings_for(text: str) -> str:
     return "\n".join(line.strip() for line in text.splitlines() if re.match(r"^#{1,6}\s+", line))
 
@@ -303,6 +310,13 @@ class MemoryFabric:
             ) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS doc_terms_by_term ON doc_terms(term);
             CREATE TABLE IF NOT EXISTS term_df (term TEXT PRIMARY KEY, df INTEGER NOT NULL) WITHOUT ROWID;
+                        CREATE TABLE IF NOT EXISTS note_links (
+                source_relpath TEXT NOT NULL,
+                target_relpath TEXT NOT NULL,
+                indexed_at TEXT NOT NULL,
+                PRIMARY KEY (source_relpath, target_relpath)
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS note_links_target ON note_links(target_relpath);
             CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
             -- Credential exposure alarms. A note matching the secret filter is excluded from
             -- the index, which is correct for safety but SILENT: the owner never learns a key is
@@ -406,7 +420,7 @@ class MemoryFabric:
         schema_migrated = self._init_db(con)
         con.commit()
         try:
-            existing = {row[0]: row[1] for row in con.execute("SELECT relpath,content_hash FROM documents")}
+            existing = {row[0]: (row[1], row[2]) for row in con.execute("SELECT relpath,content_hash,mtime_ns FROM documents")}
             found: set[str] = set()
             added = updated = unchanged = excluded_sensitive = 0
             con.execute("BEGIN IMMEDIATE")
@@ -416,15 +430,17 @@ class MemoryFabric:
                     resolved.relative_to(self.vault.resolve(strict=True))
                     if path.is_symlink() or not path.is_file():
                         continue
-                    text = path.read_text(encoding="utf-8")
-                    # os.stat, not Path.stat: the latter only accepted follow_symlinks from
-                    # Python 3.10, and macOS ships 3.9 as /usr/bin/python3. A missing or
-                    # relinked Homebrew python3 therefore used to break indexing outright.
                     st = os.stat(path, follow_symlinks=False)
+                    rel = path.relative_to(self.vault).as_posix()
+                    found.add(rel)
+                    if not force and not schema_migrated and rel in existing:
+                        stored_hash, stored_mtime = existing[rel]
+                        if stored_mtime is not None and st.st_mtime_ns == stored_mtime:
+                            unchanged += 1
+                            continue
+                    text = path.read_text(encoding="utf-8")
                 except (OSError, UnicodeError, ValueError):
                     continue
-                rel = path.relative_to(self.vault).as_posix()
-                found.add(rel)
                 classification = (frontmatter_value(text, "classification") or "local_only").lower()
                 if classification in {"secret", "restricted", "excluded"} or secret_signature(text):
                     excluded_sensitive += 1
@@ -447,7 +463,7 @@ class MemoryFabric:
                         con.execute("DELETE FROM doc_terms WHERE relpath=?", (rel,))
                     continue
                 digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-                if not force and not schema_migrated and existing.get(rel) == digest:
+                if not force and not schema_migrated and rel in existing and existing[rel][0] == digest:
                     unchanged += 1
                     continue
                 scope = scope_for(rel)
@@ -461,6 +477,7 @@ class MemoryFabric:
                     updated += 1
                     con.execute("DELETE FROM documents_fts WHERE relpath=?", (rel,))
                     con.execute("DELETE FROM doc_terms WHERE relpath=?", (rel,))
+                    con.execute("DELETE FROM note_links WHERE source_relpath=?", (rel,))
                 else:
                     added += 1
                 con.execute("""INSERT INTO documents(relpath,title,scope,classification,source_status,valid_from,valid_to,superseded_by,
@@ -474,6 +491,8 @@ class MemoryFabric:
                      "loopback_allowlist_only", "deny_remote", text, digest, st.st_mtime_ns, utc_now()))
                 con.execute("INSERT INTO documents_fts(relpath,title,headings,body) VALUES(?,?,?,?)", (rel, title, headings, text))
                 con.executemany("INSERT OR IGNORE INTO doc_terms(relpath,term) VALUES(?,?)", ((rel, term) for term in tokens(title + "\n" + headings + "\n" + text)))
+                for link in extract_wikilinks(text):
+                    con.execute("INSERT OR IGNORE INTO note_links(source_relpath,target_relpath,indexed_at) VALUES(?,?,?)", (rel, link, utc_now()))
             removed = 0
             for rel in set(existing) - found:
                 # Sandboxed payloads are not in the canonical memory, so the vault scan cannot
@@ -483,9 +502,11 @@ class MemoryFabric:
                 con.execute("DELETE FROM documents_fts WHERE relpath=?", (rel,))
                 con.execute("DELETE FROM documents WHERE relpath=?", (rel,))
                 con.execute("DELETE FROM doc_terms WHERE relpath=?", (rel,))
+                con.execute("DELETE FROM note_links WHERE source_relpath=?", (rel,))
                 removed += 1
-            con.execute("DELETE FROM term_df")
-            con.execute("INSERT INTO term_df(term,df) SELECT term,COUNT(*) FROM doc_terms GROUP BY term")
+            if added > 0 or updated > 0 or removed > 0 or force:
+                con.execute("DELETE FROM term_df")
+                con.execute("INSERT INTO term_df(term,df) SELECT term,COUNT(*) FROM doc_terms GROUP BY term")
             con.execute("INSERT INTO metadata(key,value) VALUES('last_indexed_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (utc_now(),))
             con.execute("INSERT INTO metadata(key,value) VALUES('vault_path',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(self.vault.resolve()),))
             con.commit()
@@ -1007,6 +1028,82 @@ class MemoryFabric:
                 "head": text[:SANDBOX_HEAD_CHARS],
                 "note": "Raw payload stored outside the canonical memory at mode 0600; retrieve deliberately with search or read rather than pasting it into context."}
 
+    def proposal_apply(self, proposal_id: str, provider: str | None = None) -> dict[str, Any]:
+        if not self.is_local_provider(provider):
+            return {"ok": False, "blocked": "Proposal apply is available only to an explicitly allowed local model provider."}
+        if not re.fullmatch(r"^[a-f0-9]{12}$", proposal_id or ""):
+            return {"ok": False, "error": "invalid proposal id"}
+        path = self.proposals_path / f"{proposal_id}.json"
+        if path.is_symlink():
+            return {"ok": False, "error": "proposal path is unsafe"}
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"ok": False, "error": "proposal not found"}
+        if record.get("status") == "applied":
+            return {
+                "ok": True,
+                "proposal_id": proposal_id,
+                "status": "already_applied",
+                "target": record.get("target"),
+                "note": "Proposal was already applied previously"
+            }
+        target = record.get("target", "")
+        section = record.get("section", "")
+        text = record.get("proposal_text", "")
+        target_path = self.vault / target
+        if target_path.is_symlink() or not target_path.exists():
+            return {"ok": False, "error": "target note does not exist or is a symlink"}
+        base = target_path.read_text(encoding="utf-8")
+        lines = base.splitlines(keepends=True)
+        start = None
+        for i, line in enumerate(lines):
+            if re.match(rf"(?i)^#{{1,6}}\s+{re.escape(section)}\s*#*$", line.strip()):
+                start = i
+                break
+        if start is None:
+            return {"ok": False, "error": "proposal section heading must already exist"}
+        level = len(lines[start]) - len(lines[start].lstrip("#"))
+        end = len(lines)
+        for i in range(start + 1, len(lines)):
+            m = re.match(r"^(#{1,6})\s+", lines[i])
+            if m and len(m.group(1)) <= level:
+                end = i
+                break
+        insert_at = end
+        while insert_at > start + 1 and not lines[insert_at - 1].strip():
+            insert_at -= 1
+        updated = "".join(lines[:insert_at]) + ("\n" if insert_at and lines[insert_at - 1].strip() else "") + text.rstrip() + "\n" + ("\n" if end < len(lines) else "") + "".join(lines[end:])
+        tmp_path = self.vault / f"{target.replace('/', '_')}.tmp.{proposal_id}"
+        tmp_path.write_text(updated, encoding="utf-8")
+        tmp_path.replace(target_path)
+
+        git_commit = None
+        if (self.vault / ".git").exists():
+            try:
+                import subprocess
+                subprocess.run(["git", "-C", str(self.vault), "add", target], capture_output=True, check=False)
+                c = subprocess.run(["git", "-C", str(self.vault), "commit", "-m", f"memory: apply proposal {proposal_id} to {target}"], capture_output=True, text=True, check=False)
+                if c.returncode == 0:
+                    git_commit = c.stdout.splitlines()[0] if c.stdout.splitlines() else None
+            except Exception:
+                pass
+
+        record["status"] = "applied"
+        record["applied_at"] = utc_now()
+        if git_commit:
+            record["git_commit"] = git_commit
+        path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        return {
+            "ok": True,
+            "proposal_id": proposal_id,
+            "status": "applied",
+            "target": target,
+            "git_commit": git_commit,
+            "note": "Proposal applied cleanly to vault. Changes recorded in git."
+        }
+
     def proposal_show(self, proposal_id: str, provider: str | None = None) -> dict[str, Any]:
         if not self.is_local_provider(provider):
             return {"ok": False, "blocked": "Proposal contents are available only to an explicitly allowed local model provider."}
@@ -1052,6 +1149,7 @@ def dispatch_request(fabric: MemoryFabric, req: dict[str, Any]) -> dict[str, Any
     if op == "read": return fabric.read(str(req.get("source_ref", "")), req.get("provider"), req.get("heading"))
     if op == "propose": return fabric.propose(str(req.get("project", "")), str(req.get("target", "")), str(req.get("section", "")), str(req.get("text", "")), req.get("source_refs", []), req.get("provider"))
     if op == "sandbox": return fabric.sandbox(str(req.get("title", "")), str(req.get("text", "")), str(req.get("scope", "episodic")), req.get("provider"), req.get("loopback"))
+    if op == "apply": return fabric.proposal_apply(str(req.get("proposal_id", "")), req.get("provider"))
     if op == "proposal-show": return fabric.proposal_show(str(req.get("proposal_id", "")), req.get("provider"))
     if op == "proposal-list": return fabric.proposal_list()
     if op == "alarms": return fabric.alarms()
