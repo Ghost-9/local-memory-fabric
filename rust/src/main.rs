@@ -12,7 +12,7 @@ mod tests;
 use crate::db::Config;
 use crate::paths::MAX_REQUEST_BYTES;
 use crate::text::json_error;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::env;
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
@@ -36,6 +36,14 @@ fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, String> {
             req["provider"].as_str(),
             req["as_of"].as_str(),
             req["loopback"].as_bool(),
+            req["token_budget"].as_u64().map(|b| b as usize),
+        ),
+        "audit" => fabric.audit(),
+        "links" => fabric.links(req["source_ref"].as_str().unwrap_or("")),
+        "proposal-history" => fabric.proposal_history(),
+        "proposal-revert" => fabric.proposal_revert(
+            req["proposal_id"].as_str().unwrap_or(""),
+            req["provider"].as_str(),
         ),
         "context" => fabric.context(
             req["project"].as_str(),
@@ -187,9 +195,152 @@ fn one_shot(quiet: bool) -> Result<i32, String> {
     Ok(exit_code_for(&response))
 }
 
+
+fn serve_mcp() -> Result<(), String> {
+    let stdin = io::stdin();
+    let mut stdout = io::BufWriter::new(io::stdout().lock());
+    let fabric = MemoryFabric::new()?;
+    for line in stdin.lock().lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => break,
+        };
+        let req: Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let id = req.get("id").cloned().unwrap_or(Value::Null);
+        let method = req["method"].as_str().unwrap_or("");
+        match method {
+            "initialize" => {
+                let resp = json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": { "tools": {} },
+                        "serverInfo": {
+                            "name": "local-memory-fabric",
+                            "version": crate::paths::VERSION
+                        }
+                    }
+                });
+                serde_json::to_writer(&mut stdout, &resp).map_err(|e| e.to_string())?;
+                stdout.write_all(b"\n").map_err(|e| e.to_string())?;
+                stdout.flush().map_err(|e| e.to_string())?;
+            }
+            "notifications/initialized" => {}
+            "tools/list" => {
+                let resp = json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "tools": [
+                            {
+                                "name": "memory_fabric_search",
+                                "description": "Search local memory index with BM25 lexical retrieval and optional temporal filtering.",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "query": { "type": "string" },
+                                        "scope": { "type": "string", "default": "all" },
+                                        "limit": { "type": "integer", "default": 5 }
+                                    },
+                                    "required": ["query"]
+                                }
+                            },
+                            {
+                                "name": "memory_fabric_context",
+                                "description": "Retrieve bounded context packet from local memory.",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "query": { "type": "string" },
+                                        "project": { "type": "string" },
+                                        "token_budget": { "type": "integer", "default": 1200 }
+                                    },
+                                    "required": ["query"]
+                                }
+                            },
+                            {
+                                "name": "memory_fabric_status",
+                                "description": "Check memory index status, document count, and alarm counts.",
+                                "inputSchema": { "type": "object", "properties": {} }
+                            },
+                            {
+                                "name": "memory_fabric_audit",
+                                "description": "Audit memory vault for stale notes, contradictions, duplicates, and broken links.",
+                                "inputSchema": { "type": "object", "properties": {} }
+                            }
+                        ]
+                    }
+                });
+                serde_json::to_writer(&mut stdout, &resp).map_err(|e| e.to_string())?;
+                stdout.write_all(b"\n").map_err(|e| e.to_string())?;
+                stdout.flush().map_err(|e| e.to_string())?;
+            }
+            "tools/call" => {
+                let name = req["params"]["name"].as_str().unwrap_or("");
+                let args = &req["params"]["arguments"];
+                let mut op_req = json!({});
+                if name == "memory_fabric_search" {
+                    op_req = json!({
+                        "op": "search",
+                        "query": args["query"].as_str().unwrap_or(""),
+                        "scope": args["scope"].as_str().unwrap_or("all"),
+                        "limit": args["limit"].as_u64().unwrap_or(5),
+                        "provider": "ollama"
+                    });
+                } else if name == "memory_fabric_context" {
+                    op_req = json!({
+                        "op": "context",
+                        "query": args["query"].as_str().unwrap_or(""),
+                        "project": args["project"].as_str(),
+                        "token_budget": args["token_budget"].as_u64().unwrap_or(1200),
+                        "provider": "ollama"
+                    });
+                } else if name == "memory_fabric_status" {
+                    op_req = json!({ "op": "status" });
+                } else if name == "memory_fabric_audit" {
+                    op_req = json!({ "op": "audit" });
+                }
+                let res = dispatch(&fabric, &op_req).unwrap_or_else(|e| json_error(&e));
+                let resp = json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": serde_json::to_string_pretty(&res).unwrap_or_default()
+                            }
+                        ]
+                    }
+                });
+                serde_json::to_writer(&mut stdout, &resp).map_err(|e| e.to_string())?;
+                stdout.write_all(b"\n").map_err(|e| e.to_string())?;
+                stdout.flush().map_err(|e| e.to_string())?;
+            }
+            _ => {
+                let resp = json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32601, "message": "Method not found" }
+                });
+                let _ = serde_json::to_writer(&mut stdout, &resp);
+                let _ = stdout.write_all(b"\n");
+                let _ = stdout.flush();
+            }
+        }
+    }
+    Ok(())
+}
+
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
-    let result = if args.iter().any(|a| a == "--serve") {
+    let result = if args.iter().any(|a| a == "--mcp") {
+        serve_mcp().map(|_| 0)
+    } else if args.iter().any(|a| a == "--serve") {
         serve().map(|_| 0)
     } else {
         one_shot(args.iter().any(|a| a == "--quiet"))

@@ -452,4 +452,66 @@ impl MemoryFabric {
         }
         Ok(row)
     }
+
+    pub(crate) fn audit(&self) -> Result<Value, String> {
+        let con = self.connect()?;
+        let now_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+        let mut stmt = con.prepare("SELECT relpath, title, valid_to FROM documents WHERE valid_to IS NOT NULL AND valid_to < ?1 ORDER BY relpath")
+            .map_err(|e| e.to_string())?;
+        let stale: Vec<Value> = stmt.query_map([&now_date], |r| {
+            Ok(json!({
+                "relpath": r.get::<_, String>(0)?,
+                "title": r.get::<_, String>(1)?,
+                "valid_to": r.get::<_, String>(2)?
+            }))
+        }).map_err(|e| e.to_string())?
+        .filter_map(Result::ok).collect();
+
+        let mut stmt = con.prepare("SELECT relpath, title, source_status, superseded_by FROM documents WHERE superseded_by IS NOT NULL AND source_status = 'current' ORDER BY relpath")
+            .map_err(|e| e.to_string())?;
+        let contradictions: Vec<Value> = stmt.query_map([], |r| {
+            Ok(json!({
+                "relpath": r.get::<_, String>(0)?,
+                "title": r.get::<_, String>(1)?,
+                "status": r.get::<_, String>(2)?,
+                "superseded_by": r.get::<_, String>(3)?
+            }))
+        }).map_err(|e| e.to_string())?
+        .filter_map(Result::ok).collect();
+
+        let mut stmt = con.prepare("SELECT relpath, title, content_hash FROM documents WHERE content_hash IN (SELECT content_hash FROM documents GROUP BY content_hash HAVING COUNT(*) > 1) ORDER BY content_hash, relpath")
+            .map_err(|e| e.to_string())?;
+        let duplicates: Vec<Value> = stmt.query_map([], |r| {
+            Ok(json!({
+                "relpath": r.get::<_, String>(0)?,
+                "title": r.get::<_, String>(1)?,
+                "content_hash": r.get::<_, String>(2)?
+            }))
+        }).map_err(|e| e.to_string())?
+        .filter_map(Result::ok).collect();
+
+        let mut stmt = con.prepare("SELECT source, target FROM note_links WHERE NOT EXISTS (SELECT 1 FROM documents WHERE relpath = target OR title = target OR relpath = target || '.md') ORDER BY source, target")
+            .map_err(|e| e.to_string())?;
+        let broken_links: Vec<Value> = stmt.query_map([], |r| {
+            Ok(json!({
+                "source": r.get::<_, String>(0)?,
+                "target": r.get::<_, String>(1)?
+            }))
+        }).map_err(|e| e.to_string())?
+        .filter_map(Result::ok).collect();
+
+        Ok(json!({
+            "ok": true,
+            "stale_count": stale.len(),
+            "stale_notes": stale,
+            "contradiction_count": contradictions.len(),
+            "contradictions": contradictions,
+            "duplicate_count": duplicates.len(),
+            "duplicates": duplicates,
+            "broken_link_count": broken_links.len(),
+            "broken_links": broken_links,
+            "note": "Audit is advisory. Use proposals to apply any updates."
+        }))
+    }
 }

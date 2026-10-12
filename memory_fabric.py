@@ -607,7 +607,7 @@ class MemoryFabric:
                 "secret_alarms": open_alarms}
 
     def search(self, query: str, scope: str = "all", limit: int = 5, provider: str | None = None, as_of: str | None = None,
-                loopback: bool | None = None) -> dict[str, Any]:
+                loopback: bool | None = None, token_budget: int | None = None) -> dict[str, Any]:
         if not self.is_local_provider(provider):
             return {"ok": False, "blocked": "Memory content is available only to an explicitly allowed local model provider."}
         if not query or not query.strip():
@@ -1119,6 +1119,101 @@ class MemoryFabric:
         return {"ok": True, "proposal_id": proposal_id, "status": record.get("status"),
                 "target": record.get("target"), "diff": record.get("diff", "")}
 
+
+    def audit(self) -> dict[str, Any]:
+        with closing(self._connect()) as con:
+            now_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            stale = [{"relpath": r[0], "title": r[1], "valid_to": r[2]}
+                     for r in con.execute("SELECT relpath,title,valid_to FROM documents WHERE valid_to IS NOT NULL AND valid_to < ? ORDER BY relpath", (now_date,)).fetchall()]
+            contradictions = [{"relpath": r[0], "title": r[1], "status": r[2], "superseded_by": r[3]}
+                              for r in con.execute("SELECT relpath,title,source_status,superseded_by FROM documents WHERE superseded_by IS NOT NULL AND source_status = 'current' ORDER BY relpath").fetchall()]
+            duplicates = [{"relpath": r[0], "title": r[1], "content_hash": r[2]}
+                          for r in con.execute("SELECT relpath,title,content_hash FROM documents WHERE content_hash IN (SELECT content_hash FROM documents GROUP BY content_hash HAVING COUNT(*) > 1) ORDER BY content_hash, relpath").fetchall()]
+            broken_links = [{"source": r[0], "target": r[1]}
+                            for r in con.execute("SELECT source_relpath,target_relpath FROM note_links WHERE NOT EXISTS (SELECT 1 FROM documents WHERE relpath=target_relpath OR title=target_relpath OR relpath=target_relpath||'.md') ORDER BY source_relpath,target_relpath").fetchall()]
+        return {
+            "ok": True,
+            "stale_count": len(stale),
+            "stale_notes": stale,
+            "contradiction_count": len(contradictions),
+            "contradictions": contradictions,
+            "duplicate_count": len(duplicates),
+            "duplicates": duplicates,
+            "broken_link_count": len(broken_links),
+            "broken_links": broken_links,
+            "note": "Audit is advisory. Use proposals to apply any updates."
+        }
+
+    def links(self, source_ref: str) -> dict[str, Any]:
+        safe_ref = safe_relpath(source_ref)
+        stem = Path(safe_ref).stem
+        with closing(self._connect()) as con:
+            outlinks = [r[0] for r in con.execute("SELECT target_relpath FROM note_links WHERE source_relpath=? ORDER BY target_relpath", (safe_ref,)).fetchall()]
+            backlinks = [r[0] for r in con.execute("SELECT source_relpath FROM note_links WHERE target_relpath=? OR target_relpath=? ORDER BY source_relpath", (safe_ref, stem)).fetchall()]
+        return {
+            "ok": True,
+            "source_ref": safe_ref,
+            "outlinks": outlinks,
+            "backlinks": backlinks
+        }
+
+    def proposal_history(self) -> dict[str, Any]:
+        if not self.proposals_path.exists():
+            return {"ok": True, "history": []}
+        items = []
+        for path in sorted(self.proposals_path.glob("*.json")):
+            try:
+                rec = json.loads(path.read_text(encoding="utf-8"))
+                if rec.get("status") == "applied":
+                    items.append({
+                        "proposal_id": rec["id"],
+                        "target": rec.get("target"),
+                        "section": rec.get("section"),
+                        "applied_at": rec.get("applied_at"),
+                        "git_commit": rec.get("git_commit")
+                    })
+            except Exception:
+                continue
+        items.sort(key=lambda x: str(x.get("applied_at", "")), reverse=True)
+        return {"ok": True, "history": items}
+
+    def proposal_revert(self, proposal_id: str, provider: str | None = None) -> dict[str, Any]:
+        if not self.is_local_provider(provider):
+            return {"ok": False, "blocked": "Proposal revert is available only to an explicitly allowed local model provider."}
+        if not re.fullmatch(r"^[a-f0-9]{12}$", proposal_id or ""):
+            return {"ok": False, "error": "invalid proposal id"}
+        path = self.proposals_path / f"{proposal_id}.json"
+        if not path.exists():
+            return {"ok": False, "error": "proposal not found"}
+        rec = json.loads(path.read_text(encoding="utf-8"))
+        if rec.get("status") != "applied":
+            return {"ok": False, "error": "only applied proposals can be reverted"}
+        target = rec.get("target", "")
+        commit_sha = rec.get("git_commit")
+        reverted_commit = None
+        if commit_sha and (self.vault / ".git").exists():
+            try:
+                c = subprocess.run(["git", "-C", str(self.vault), "revert", "--no-edit", commit_sha],
+                                   capture_output=True, text=True, check=False)
+                if c.returncode == 0:
+                    lines = c.stdout.splitlines()
+                    reverted_commit = lines[0] if lines else None
+            except Exception:
+                pass
+        rec["status"] = "reverted"
+        rec["reverted_at"] = utc_now()
+        if reverted_commit:
+            rec["revert_git_commit"] = reverted_commit
+        path.write_text(json.dumps(rec, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return {
+            "ok": True,
+            "proposal_id": proposal_id,
+            "status": "reverted",
+            "target": target,
+            "revert_git_commit": reverted_commit,
+            "note": "Proposal reverted. Changes restored in vault git repository."
+        }
+
     def proposal_list(self) -> dict[str, Any]:
         if not self.proposals_path.exists():
             return {"ok": True, "proposals": []}
@@ -1144,11 +1239,15 @@ def dispatch_request(fabric: MemoryFabric, req: dict[str, Any]) -> dict[str, Any
     op = req.get("op")
     if op == "status": return fabric.status()
     if op == "index": return fabric.index(bool(req.get("force", False)))
-    if op == "search": return fabric.search(str(req.get("query", "")), str(req.get("scope", "all")), int(req.get("limit", 5)), req.get("provider"), req.get("as_of"), req.get("loopback"))
     if op == "context": return fabric.context(req.get("project"), str(req.get("query", "")), req.get("provider"), int(req.get("token_budget", 1200)), req.get("as_of"), req.get("loopback"))
     if op == "read": return fabric.read(str(req.get("source_ref", "")), req.get("provider"), req.get("heading"))
     if op == "propose": return fabric.propose(str(req.get("project", "")), str(req.get("target", "")), str(req.get("section", "")), str(req.get("text", "")), req.get("source_refs", []), req.get("provider"))
     if op == "sandbox": return fabric.sandbox(str(req.get("title", "")), str(req.get("text", "")), str(req.get("scope", "episodic")), req.get("provider"), req.get("loopback"))
+    if op == "search": return fabric.search(str(req.get("query", "")), str(req.get("scope", "all")), int(req.get("limit", 5)), req.get("provider"), req.get("as_of"), req.get("loopback"), int(req["token_budget"]) if req.get("token_budget") is not None else None)
+    if op == "audit": return fabric.audit()
+    if op == "links": return fabric.links(str(req.get("source_ref", "")))
+    if op == "proposal-history": return fabric.proposal_history()
+    if op == "proposal-revert": return fabric.proposal_revert(str(req.get("proposal_id", "")), req.get("provider"))
     if op == "apply": return fabric.proposal_apply(str(req.get("proposal_id", "")), req.get("provider"))
     if op == "proposal-show": return fabric.proposal_show(str(req.get("proposal_id", "")), req.get("provider"))
     if op == "proposal-list": return fabric.proposal_list()

@@ -402,4 +402,80 @@ pub(crate) fn proposal_show(&self, id: &str, provider: Option<&str>) -> Result<V
             "note": "Proposal applied cleanly to vault. Changes recorded in git."
         }))
     }
+
+    pub(crate) fn proposal_history(&self) -> Result<Value, String> {
+        if !self.proposals_path.exists() {
+            return Ok(json!({"ok": true, "history": []}));
+        }
+        let mut items = Vec::new();
+        if let Ok(entries) = fs::read_dir(&self.proposals_path) {
+            for entry in entries.filter_map(Result::ok) {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                    if let Ok(content) = fs::read_to_string(&path) {
+                        if let Ok(rec) = serde_json::from_str::<Value>(&content) {
+                            if rec["status"].as_str() == Some("applied") {
+                                items.push(json!({
+                                    "proposal_id": rec["id"],
+                                    "target": rec["target"],
+                                    "section": rec["section"],
+                                    "applied_at": rec["applied_at"],
+                                    "git_commit": rec["git_commit"]
+                                }));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        items.sort_by(|a, b| b["applied_at"].as_str().cmp(&a["applied_at"].as_str()));
+        Ok(json!({"ok": true, "history": items}))
+    }
+
+    pub(crate) fn proposal_revert(&self, id: &str, provider: Option<&str>) -> Result<Value, String> {
+        if !self.is_local_provider(provider) {
+            return Ok(json!({"ok": false, "blocked": "Proposal revert is available only to an explicitly allowed local model provider."}));
+        }
+        let path = self.proposals_path.join(format!("{id}.json"));
+        if !path.exists() {
+            return Ok(json_error("proposal not found"));
+        }
+        let mut rec: Value = serde_json::from_str(&fs::read_to_string(&path).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        if rec["status"].as_str() != Some("applied") {
+            return Ok(json_error("only applied proposals can be reverted"));
+        }
+        let target = rec["target"].as_str().unwrap_or("").to_string();
+        let git_commit = rec["git_commit"].as_str();
+
+        let mut reverted_commit = None;
+        if let Some(commit_sha) = git_commit {
+            if self.vault.join(".git").exists() {
+                let c = std::process::Command::new("git")
+                    .args(["-C", self.vault.to_str().unwrap(), "revert", "--no-edit", commit_sha])
+                    .output();
+                if let Ok(out) = c {
+                    if out.status.success() {
+                        reverted_commit = Some(String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or("").to_string());
+                    }
+                }
+            }
+        }
+
+        rec["status"] = json!("reverted");
+        rec["reverted_at"] = json!(now_utc());
+        if let Some(ref rc) = reverted_commit {
+            rec["revert_git_commit"] = json!(rc);
+        }
+        let _ = fs::write(&path, serde_json::to_string_pretty(&rec).unwrap());
+
+        Ok(json!({
+            "ok": true,
+            "proposal_id": id,
+            "status": "reverted",
+            "target": target,
+            "revert_git_commit": reverted_commit,
+            "note": "Proposal reverted. Changes restored in vault git repository."
+        }))
+    }
 }

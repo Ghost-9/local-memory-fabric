@@ -22,6 +22,7 @@ impl MemoryFabric {
         provider: Option<&str>,
         as_of: Option<&str>,
         loopback: Option<bool>,
+        token_budget: Option<usize>,
     ) -> Result<Value, String> {
         if !self.is_local_provider(provider) {
             return Ok(
@@ -305,6 +306,22 @@ impl MemoryFabric {
         if low_discrimination && warning.is_none() {
             warning = Some("Query terms were too common in this index to discriminate; these are unfiltered candidates, not a ranked answer.".into());
         }
+        let mut budget_truncated = false;
+        if let Some(tb) = token_budget {
+            let max_chars = tb.clamp(50, 20000) * 4;
+            let mut accum = 0;
+            let mut truncated_res = Vec::new();
+            for res in results {
+                let exc_len = res["excerpt"].as_str().map(|s| s.len()).unwrap_or(0);
+                if accum + exc_len > max_chars && !truncated_res.is_empty() {
+                    budget_truncated = true;
+                    break;
+                }
+                accum += exc_len;
+                truncated_res.push(res);
+            }
+            results = truncated_res;
+        }
         let shown = results.len();
         let abstention = if shown > 0 {
             None
@@ -313,9 +330,11 @@ impl MemoryFabric {
         } else {
             Some("matches exist but none passed the overlap or temporal gate; inspect total_matches and the date")
         };
-        Ok(
-            json!({"ok":true,"results":results,"shown":shown,"total_matches":total_matches,"low_discrimination":low_discrimination,"abstention":abstention,"temporal_warning":warning,"as_of":as_of,"withheld_export":withheld,"local_only":true,"note":"Lexical candidates are not verified facts; inspect cited source passages.","credential_alarm":self.secret_alert_reminder()?}),
-        )
+        let mut ret_val = json!({"ok":true,"results":results,"shown":shown,"total_matches":total_matches,"low_discrimination":low_discrimination,"abstention":abstention,"temporal_warning":warning,"as_of":as_of,"withheld_export":withheld,"local_only":true,"note":"Lexical candidates are not verified facts; inspect cited source passages.","credential_alarm":self.secret_alert_reminder()?});
+        if budget_truncated {
+            ret_val["budget_truncated"] = json!(true);
+        }
+        Ok(ret_val)
     }
 
     pub(crate) fn context(
@@ -335,7 +354,7 @@ impl MemoryFabric {
         let scope = project
             .map(|p| format!("project:{p}"))
             .unwrap_or_else(|| "all".into());
-        let hits = self.search(query, &scope, 10, provider, as_of, loopback)?;
+        let hits = self.search(query, &scope, 10, provider, as_of, loopback, None)?;
         if !hits["ok"].as_bool().unwrap_or(false) {
             return Ok(hits);
         }
@@ -454,5 +473,27 @@ impl MemoryFabric {
         Ok(
             json!({"ok":true,"source_ref":row["relpath"],"title":row["title"],"scope":row["scope"],"classification":row["classification"],"source_status":row["source_status"],"valid_from":row["valid_from"],"valid_to":row["valid_to"],"superseded_by":row["superseded_by"],"provider_policy":row["provider_policy"],"export_policy":row["export_policy"],"content":output,"truncated":truncated,"local_only":true}),
         )
+    }
+
+    pub(crate) fn links(&self, source_ref: &str) -> Result<Value, String> {
+        let con = self.connect()?;
+        let safe_ref = safe_relpath(source_ref)?;
+        let mut stmt = con.prepare("SELECT target FROM note_links WHERE source = ?1 ORDER BY target")
+            .map_err(|e| e.to_string())?;
+        let outlinks: Vec<String> = stmt.query_map([&safe_ref], |r| r.get(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(Result::ok).collect();
+        let stem = std::path::Path::new(&safe_ref).file_stem().and_then(|s| s.to_str()).unwrap_or(&safe_ref);
+        let mut stmt = con.prepare("SELECT source FROM note_links WHERE target = ?1 OR target = ?2 ORDER BY source")
+            .map_err(|e| e.to_string())?;
+        let backlinks: Vec<String> = stmt.query_map([&safe_ref, stem], |r| r.get(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(Result::ok).collect();
+        Ok(json!({
+            "ok": true,
+            "source_ref": safe_ref,
+            "outlinks": outlinks,
+            "backlinks": backlinks
+        }))
     }
 }

@@ -386,7 +386,18 @@ export default function (pi: ExtensionAPI) {
 			token_budget: Type.Optional(Type.Integer({ description: "Maximum context budget, 100-6000; default 1200" })),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
-			const result = await callFabric({ op: "context", query: params.query, project: params.project, as_of: params.as_of, token_budget: params.token_budget, provider: providerOf(ctx), loopback: isLoopbackModel(ctx.model) });
+			let budget = params.token_budget;
+			if (!budget) {
+				const maxContext = ctx.model?.contextWindow ?? 128000;
+				budget = maxContext <= 16384 ? 600 : maxContext <= 65536 ? 1200 : 2400;
+			}
+			let project = params.project;
+			if (!project) {
+				const cwd = ctx.cwd ?? "";
+				const m = /projects[\\/]([^\\/]+)/i.exec(cwd);
+				if (m) project = m[1];
+			}
+			const result = await callFabric({ op: "context", query: params.query, project, as_of: params.as_of, token_budget: budget, provider: providerOf(ctx), loopback: isLoopbackModel(ctx.model) });
 			return toolResult(result);
 		},
 	}));
@@ -403,9 +414,16 @@ export default function (pi: ExtensionAPI) {
 			scope: Type.Optional(Type.String({ description: "all, company, system, system:pi-harness, evidence, episodic, or project:<slug>" })),
 			limit: Type.Optional(Type.Integer({ description: "Maximum results, 1-20" })),
 			as_of: Type.Optional(Type.String({ description: "Optional ISO date (YYYY-MM-DD) for temporal filtering" })),
+			token_budget: Type.Optional(Type.Integer({ description: "Optional token budget cap to prevent search payload overflow" })),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
-			const result = await callFabric({ op: "search", query: params.query, scope: params.scope ?? "all", limit: params.limit ?? 5, as_of: params.as_of, provider: providerOf(ctx), loopback: isLoopbackModel(ctx.model) });
+			let scope = params.scope ?? "all";
+			if (scope === "auto" || !params.scope) {
+				const cwd = ctx.cwd ?? "";
+				const m = /projects[\\/]([^\\/]+)/i.exec(cwd);
+				if (m) scope = `project:${m[1]}`;
+			}
+			const result = await callFabric({ op: "search", query: params.query, scope, limit: params.limit ?? 5, as_of: params.as_of, token_budget: params.token_budget, provider: providerOf(ctx), loopback: isLoopbackModel(ctx.model) });
 			return toolResult(result);
 		},
 	}));
@@ -508,6 +526,34 @@ export default function (pi: ExtensionAPI) {
 		},
 	}));
 
+	
+	pi.registerTool(defineTool({
+		name: "memory_fabric_audit",
+		label: "Audit Memory Vault",
+		description: "Audit the local memory vault for stale/expired notes, contradictions between superseded and current notes, duplicate content, and broken wikilinks. Advisory only: outputs candidate proposals and does not modify the vault.",
+		exposure: "deferred",
+		namespace,
+		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+		parameters: Type.Object({}),
+		async execute(_id, _params, _signal, _onUpdate, _ctx) {
+			return toolResult(await callFabric({ op: "audit" }));
+		},
+	}));
+
+	pi.registerTool(defineTool({
+		name: "memory_fabric_links",
+		label: "Inspect Note Links and Provenance",
+		description: "Inspect outlinks and backlinks for an indexed Markdown source. Shows which notes cite this note and what this note depends on.",
+		exposure: "deferred",
+		namespace,
+		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+		parameters: Type.Object({
+			source_ref: Type.String({ description: "Exact relative path of the note, e.g. projects/local-memory-agent.md" }),
+		}),
+		async execute(_id, params, _signal, _onUpdate, _ctx) {
+			return toolResult(await callFabric({ op: "links", source_ref: params.source_ref }));
+		},
+	}));
 	pi.registerTool(defineTool({
 		name: "memory_fabric_resolve",
 		label: "Resolve Credential Alarm",
@@ -537,13 +583,38 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			if (!["status", "index", "proposals", "alarms"].includes(action) && !action.startsWith("resolve") && !action.startsWith("apply")) {
-				ctx.ui.notify("Usage: /memory-fabric [status|index|proposals|alarms|resolve <id>|apply <id>|tools]", "warning");
+				ctx.ui.notify("Usage: /memory-fabric [status|index|proposals|alarms|audit|history|resolve <id>|apply <id>|revert <id>|links <ref>|tools]", "warning");
 				return;
 			}
 			const applyMatch = /^apply\s+([0-9a-f]{12})$/i.exec(action);
 			if (applyMatch) {
 				const result = await callFabric({ op: "apply", proposal_id: applyMatch[1], provider: providerOf(ctx) });
 				ctx.ui.notify(result.ok ? `Proposal ${applyMatch[1]} applied: ${result.note ?? "applied"}` : `Apply failed: ${result.error ?? result.blocked}`, result.ok ? "info" : "error");
+				return;
+			}
+			if (action === "audit") {
+				const res = await callFabric({ op: "audit" });
+				ctx.ui.notify(`Vault Audit: ${res.stale_count ?? 0} stale notes, ${res.contradiction_count ?? 0} contradictions, ${res.duplicate_count ?? 0} duplicates, ${res.broken_link_count ?? 0} broken wikilinks.`, "info");
+				return;
+			}
+			if (action === "history") {
+				const res = await callFabric({ op: "proposal-history" });
+				const hist = Array.isArray(res.history) ? res.history : [];
+				ctx.ui.notify(`Proposal History: ${hist.length} applied proposals. ${hist.slice(0, 3).map((h: any) => `${h.proposal_id}: ${h.target}`).join("; ")}`, "info");
+				return;
+			}
+			const revertMatch = /^revert\s+([0-9a-f]{12})$/i.exec(action);
+			if (revertMatch) {
+				const res = await callFabric({ op: "proposal-revert", proposal_id: revertMatch[1], provider: providerOf(ctx) });
+				ctx.ui.notify(res.ok ? `Proposal ${revertMatch[1]} reverted successfully.` : `Revert failed: ${res.error ?? res.blocked}`, res.ok ? "info" : "error");
+				return;
+			}
+			const linksMatch = /^links\s+(.+)$/i.exec(action);
+			if (linksMatch) {
+				const res = await callFabric({ op: "links", source_ref: linksMatch[1].trim() });
+				const outCount = Array.isArray(res.outlinks) ? res.outlinks.length : 0;
+				const backCount = Array.isArray(res.backlinks) ? res.backlinks.length : 0;
+				ctx.ui.notify(res.ok ? `Note ${linksMatch[1]}: ${outCount} outlinks, ${backCount} backlinks.` : `Links query failed: ${res.error ?? "error"}`, res.ok ? "info" : "error");
 				return;
 			}
 			const resolveMatch = /^resolve\s+([0-9a-f]{4,16})$/i.exec(action);

@@ -183,7 +183,13 @@ impl MemoryFabric {
                     fingerprint TEXT NOT NULL,
                     detected_at TEXT NOT NULL,
                     resolved_at TEXT);
-                 CREATE INDEX IF NOT EXISTS secret_alarms_unresolved ON secret_alarms(resolved_at);",
+                 CREATE INDEX IF NOT EXISTS secret_alarms_unresolved ON secret_alarms(resolved_at);
+                 CREATE TABLE IF NOT EXISTS note_links(
+                    source TEXT NOT NULL,
+                    target TEXT NOT NULL,
+                    PRIMARY KEY(source, target)
+                 ) WITHOUT ROWID;
+                 CREATE INDEX IF NOT EXISTS note_links_by_target ON note_links(target);",
             )
             .map_err(|e| format!("could not apply the additive index migration: {e}"))?;
         Ok(connection)
