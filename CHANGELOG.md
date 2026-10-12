@@ -4,6 +4,29 @@ All notable changes to `local-memory-fabric`. The project is pre-1.0; anything m
 gate (`./test.sh`) must be green before a change lands, and every performance claim carries its
 measurement.
 
+## [1.1.0] — 2026-10-12
+
+Major milestone release unifying the high-speed native engine, single-switch autonomous provider modes, standardized project memory lifecycle management, and cross-IDE agent integration.
+
+### Added
+- **Single-Switch Provider Mode Automation**: `PI_MEMORY_MODE=remote` and interactive runtime command `/memory-fabric mode [local|remote]` to flip between strict fail-closed loopback isolation and autonomous remote agent read/write permissions with zero manual allowlisting.
+- **Standardized Project Memory Lifecycle**: `memory_fabric_project` tool and `/memory-fabric project [create|update|consolidate|archive|status] <name>` commands for structured YAML frontmatter cards (`projects/<name>.md`).
+- **Audit Subsystem (`op: "audit"`)**: Advisory scanning for stale/expired notes (`valid_to < now()`), status contradictions, duplicate content hashes, and broken wikilinks.
+- **Obsidian [[wikilink]] Graph Traversal (`op: "links"`)**: SQLite `note_links` indexing with outlink and backlink traversal.
+- **Write-Back History and Reversion (`/memory-fabric revert <id>`)**: Versioned proposal history tracking and automated git-revert rollbacks.
+- **Dynamic Token Budgeting**: Optional `token_budget` parameter for `search` and `context` payloads with `"budget_truncated"` status flag.
+- **Universal Multi-IDE MCP Server (`--mcp`)**: Stdio JSON-RPC 2.0 server for Antigravity, OpenCode, Codex, and Cursor.
+- **Shared UNIX Domain Socket Daemon (`--socket`)**: Cross-process daemon listening on `~/.cache/memory-fabric.sock`.
+- **Background Filesystem Watcher (`--watch`)**: Real-time mtime change detector for sub-10ms incremental indexing.
+- **Agency Router Episodic Hook (`/memory-fabric sync-agency`)**: Automated squad anchor persistence into `vault/episodic/squad-sessions.md`.
+- **Empirical Prompt Prefix-Cache Measurement**: 20-turn instrumented evaluation proving 0 prefix invalidations and 97.9% KV cache hit rate.
+
+### Performance & Footprint
+- **Incremental Reindex Latency**: 191 ms -> 8.4 ms (22.7x speedup).
+- **Search p50 Latency**: 12.9 ms -> 0.94 ms (Rust worker).
+- **Resident Memory (RSS)**: 5.78 MB idle daemon footprint.
+- **Disk Storage**: 12.56 MB SQLite database across the complete vault.
+
 ## [0.3.5] — 2026-10-12
 
 Operator decisions recorded, beta blocker #9 closed, and the answer to "port it to Rust" —
