@@ -195,7 +195,6 @@ fn one_shot(quiet: bool) -> Result<i32, String> {
     Ok(exit_code_for(&response))
 }
 
-
 fn serve_mcp() -> Result<(), String> {
     let stdin = io::stdin();
     let mut stdout = io::BufWriter::new(io::stdout().lock());
@@ -336,12 +335,83 @@ fn serve_mcp() -> Result<(), String> {
     Ok(())
 }
 
+fn dirs_or_home_socket_path() -> PathBuf {
+    if let Ok(cache) = env::var("XDG_CACHE_HOME") {
+        PathBuf::from(cache).join("memory-fabric.sock")
+    } else if let Ok(home) = env::var("HOME") {
+        PathBuf::from(home).join(".cache").join("memory-fabric.sock")
+    } else {
+        PathBuf::from("/tmp/memory-fabric.sock")
+    }
+}
+
+#[cfg(unix)]
+fn serve_socket(path: &std::path::Path) -> Result<(), String> {
+    use std::os::unix::net::UnixListener;
+    if path.exists() {
+        let _ = std::fs::remove_file(path);
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let listener = UnixListener::bind(path)
+        .map_err(|e| format!("failed to bind UNIX domain socket {}: {}", path.display(), e))?;
+    let fabric = MemoryFabric::new()?;
+    for stream in listener.incoming() {
+        if let Ok(stream) = stream {
+            let mut reader = io::BufReader::new(&stream);
+            let mut writer = io::BufWriter::new(&stream);
+            let mut line = String::new();
+            if reader.read_line(&mut line).is_ok() && !line.trim().is_empty() {
+                let resp = match serde_json::from_str::<Value>(&line) {
+                    Ok(req) => dispatch(&fabric, &req).unwrap_or_else(|e| json_error(&e)),
+                    Err(_) => json_error("request must be valid JSON"),
+                };
+                let _ = serde_json::to_writer(&mut writer, &resp);
+                let _ = writer.write_all(b"\n");
+                let _ = writer.flush();
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn serve_socket(_path: &std::path::Path) -> Result<(), String> {
+    Err("UNIX domain sockets are not supported on this platform".into())
+}
+
+fn watch_loop() -> Result<(), String> {
+    let fabric = MemoryFabric::new()?;
+    let mut last_mtime = None;
+    println!("Watching vault {} for changes...", fabric.vault.display());
+    loop {
+        if let Ok(meta) = std::fs::metadata(&fabric.vault) {
+            let cur_mtime = meta.modified().ok();
+            if cur_mtime != last_mtime {
+                last_mtime = cur_mtime;
+                let _ = fabric.index(false);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     let result = if args.iter().any(|a| a == "--mcp") {
         serve_mcp().map(|_| 0)
     } else if args.iter().any(|a| a == "--serve") {
         serve().map(|_| 0)
+    } else if let Some(sock_idx) = args.iter().position(|a| a == "--socket") {
+        let default_sock = dirs_or_home_socket_path();
+        let path = args.get(sock_idx + 1)
+            .filter(|p| !p.starts_with("--"))
+            .map(PathBuf::from)
+            .unwrap_or(default_sock);
+        serve_socket(&path).map(|_| 0)
+    } else if args.iter().any(|a| a == "--watch") {
+        watch_loop().map(|_| 0)
     } else {
         one_shot(args.iter().any(|a| a == "--quiet"))
     };

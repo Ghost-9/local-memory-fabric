@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
@@ -555,6 +555,36 @@ export default function (pi: ExtensionAPI) {
 		},
 	}));
 	pi.registerTool(defineTool({
+		name: "memory_fabric_sync_agency",
+		label: "Sync Agency Episodic Session",
+		description: "Propose an episodic memory record into vault/episodic/squad-sessions.md from the most recent active agency session in ~/.cache/agency-skills/active_session.json.",
+		exposure: "deferred",
+		namespace,
+		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+		parameters: Type.Object({}),
+		async execute(_id, _params, _signal, _onUpdate, ctx) {
+			const agencyPath = resolve(homedir(), ".cache", "agency-skills", "active_session.json");
+			if (!existsSync(agencyPath)) {
+				return toolResult({ ok: false, error: "No active agency session found." });
+			}
+			try {
+				const session = JSON.parse(readFileSync(agencyPath, "utf8"));
+				const record = `# Squad Session Record: ${new Date().toISOString().split("T")[0]}\n\n- Active Anchor: ${session.sessionAnchor ?? "none"}\n- Anchor Tier: ${session.anchorTier ?? 1}\n- Consulted Squad: ${(session.consultedSquad ?? []).join(", ")}\n- Last Action: ${session.lastAction ?? "n/a"}\n- Timestamp: ${session.updatedAt ? new Date(session.updatedAt).toISOString() : new Date().toISOString()}\n`;
+				const res = await callFabric({
+					op: "propose",
+					target: "episodic/squad-sessions.md",
+					content: record,
+					summary: `Episodic anchor sync for squad ${session.sessionAnchor}`,
+					provider: providerOf(ctx),
+				});
+				return toolResult(res);
+			} catch (e: any) {
+				return toolResult({ ok: false, error: e.message });
+			}
+		},
+	}));
+
+	pi.registerTool(defineTool({
 		name: "memory_fabric_resolve",
 		label: "Resolve Credential Alarm",
 		description: "Mark one credential-exposure alarm as done, which stops the reminder that appears on every memory fetch. ONLY call this after the user states they have rotated or removed the key - resolving does not verify anything and does not change the vault. Use memory_fabric_alarms to obtain the alarm id.",
@@ -582,8 +612,8 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(`backend=${backend}; indexed=${engineStatus.indexed === true}; documents=${engineStatus.documents ?? 0}; configured=${allTools.length}; memory_fabric=${tools.length}; active=${active.length}; ${tools.join(", ")}`, "info");
 				return;
 			}
-			if (!["status", "index", "proposals", "alarms"].includes(action) && !action.startsWith("resolve") && !action.startsWith("apply")) {
-				ctx.ui.notify("Usage: /memory-fabric [status|index|proposals|alarms|audit|history|resolve <id>|apply <id>|revert <id>|links <ref>|tools]", "warning");
+			if (!["status", "index", "proposals", "alarms", "audit", "history", "sync-agency"].includes(action) && !action.startsWith("resolve") && !action.startsWith("apply") && !action.startsWith("revert") && !action.startsWith("links")) {
+				ctx.ui.notify("Usage: /memory-fabric [status|index|proposals|alarms|audit|history|sync-agency|resolve <id>|apply <id>|revert <id>|links <ref>|tools]", "warning");
 				return;
 			}
 			const applyMatch = /^apply\s+([0-9a-f]{12})$/i.exec(action);
@@ -595,6 +625,28 @@ export default function (pi: ExtensionAPI) {
 			if (action === "audit") {
 				const res = await callFabric({ op: "audit" });
 				ctx.ui.notify(`Vault Audit: ${res.stale_count ?? 0} stale notes, ${res.contradiction_count ?? 0} contradictions, ${res.duplicate_count ?? 0} duplicates, ${res.broken_link_count ?? 0} broken wikilinks.`, "info");
+				return;
+			}
+			if (action === "sync-agency") {
+				const agencyPath = resolve(homedir(), ".cache", "agency-skills", "active_session.json");
+				if (!existsSync(agencyPath)) {
+					ctx.ui.notify("No active agency session found in ~/.cache/agency-skills/active_session.json", "warning");
+					return;
+				}
+				try {
+					const session = JSON.parse(readFileSync(agencyPath, "utf8"));
+					const record = `# Squad Session Record: ${new Date().toISOString().split("T")[0]}\n\n- Active Anchor: ${session.sessionAnchor ?? "none"}\n- Anchor Tier: ${session.anchorTier ?? 1}\n- Consulted Squad: ${(session.consultedSquad ?? []).join(", ")}\n- Last Action: ${session.lastAction ?? "n/a"}\n- Timestamp: ${session.updatedAt ? new Date(session.updatedAt).toISOString() : new Date().toISOString()}\n`;
+					const res = await callFabric({
+						op: "propose",
+						target: "episodic/squad-sessions.md",
+						content: record,
+						summary: `Episodic anchor sync for squad ${session.sessionAnchor}`,
+						provider: providerOf(ctx),
+					});
+					ctx.ui.notify(res.ok ? `Agency squad session proposed: ${res.proposal_id ?? "ok"}` : `Agency sync failed: ${res.error ?? res.blocked}`, res.ok ? "info" : "error");
+				} catch (err: any) {
+					ctx.ui.notify(`Agency sync error: ${err.message}`, "error");
+				}
 				return;
 			}
 			if (action === "history") {
