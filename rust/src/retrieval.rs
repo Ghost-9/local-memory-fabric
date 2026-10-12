@@ -274,6 +274,9 @@ impl MemoryFabric {
             if start + 1000 < body_chars {
                 excerpt.push('…');
             }
+            if loopback != Some(true) {
+                excerpt = crate::policy::sanitize_remote_excerpt(&excerpt);
+            }
             results.push(json!({"source_ref":row.relpath,"title":row.title,"scope":row.scope,"classification":row.classification,"source_status":row.source_status,"valid_from":row.valid_from,"valid_to":row.valid_to,"superseded_by":row.superseded_by,"provider_policy":row.provider_policy,"export_policy":row.export_policy,"excerpt":excerpt,"matched_terms":matched,"bm25_rank":(row.rank*1_000_000.0).round()/1_000_000.0,"indexed_at":row.indexed_at}));
             if results.len() >= limit.clamp(1, 20) {
                 break;
@@ -425,7 +428,11 @@ impl MemoryFabric {
                 json!({"ok":false,"blocked":"This source is not approved for export to a non-local model provider; nothing was returned."}),
             );
         }
-        let body = row["body"].as_str().unwrap_or("");
+        let mut body = row["body"].as_str().unwrap_or("").to_string();
+        if loopback != Some(true) {
+            body = crate::policy::sanitize_remote_excerpt(&body);
+        }
+        let body = body.as_str();
         let current = fs::read_to_string(self.vault.join(safe_relpath(source_ref)?));
         if current
             .as_ref()

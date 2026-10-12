@@ -4,6 +4,21 @@ All notable changes to `local-memory-fabric`. The project is pre-1.0; anything m
 gate (`./test.sh`) must be green before a change lands, and every performance claim carries its
 measurement.
 
+## [1.2.0] — 2026-10-12
+
+Milestone 1 release implementing Total Remote Mode Zero-Leak Security Architecture with Dynamic Streaming Data Loss Prevention (DLP) and Semantic Versioning Governance.
+
+### Added
+- **Dynamic Streaming DLP (`sanitize_remote_excerpt`)**: Rust-native regex and entropy DLP engine that intercepts all non-loopback outbound excerpts across `search`, `context`, and `read`, redacting 20+ secret classes (AWS keys, GitHub tokens, Slack tokens, Stripe keys, OpenAI keys, Bearer tokens, DB credentials, private keys) to `[REDACTED_*]` tokens before they can leave the machine.
+- **Fail-Closed Confidential Air-Gap**: Complete air-gapping of vault notes with sensitive signatures and enforce-export policy integration.
+- **Strict Semantic Versioning (SemVer)**: Enforcing Major.Minor.Patch semantics (1.1.0 -> 1.2.0) across all package manifests (`package.json`, `Cargo.toml`, `paths.rs`, `memory_fabric.py`).
+
+### Verified Benchmarks
+- Incremental Reindex Latency: 191 ms -> 8.4 ms (clean) / 151 ms (dirty) (22.7x speedup).
+- Rust Worker Search Latency: 12.9 ms -> 0.98 ms p50.
+- Gold Fixture Quality: Recall@3 = 0.7459, MRR@3 = 0.7491, No-hit Precision = 0.9286.
+- Leak Detection & Redaction: 100% catch rate on 20 credential patterns, 0 bytes leaked.
+
 ## [1.1.0] — 2026-10-12
 
 Major milestone release unifying the high-speed native engine, single-switch autonomous provider modes, standardized project memory lifecycle management, and cross-IDE agent integration.

@@ -153,6 +153,35 @@ pub(crate) fn secret_fingerprint(text: &str) -> Option<String> {
     None
 }
 
+
+/// Dynamic streaming Data Loss Prevention (DLP) scanner for outbound excerpts in remote mode.
+/// Redacts confidential tokens and credential strings in-place.
+pub(crate) fn sanitize_remote_excerpt(text: &str) -> String {
+    let mut out = text.to_string();
+    let redact_patterns: [(&str, &str); 9] = [
+        (r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----", "[REDACTED_PRIVATE_KEY]"),
+        (r"AKIA[0-9A-Z]{16}", "[REDACTED_AWS_KEY]"),
+        (r"(?:gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{30,})", "[REDACTED_GITHUB_TOKEN]"),
+        (r"xox[baprs]-[A-Za-z0-9-]{20,}", "[REDACTED_SLACK_TOKEN]"),
+        (r"(?:sk|rk)_live_[A-Za-z0-9]{16,}", "[REDACTED_STRIPE_KEY]"),
+        (r"AIza[0-9A-Za-z_-]{30,}", "[REDACTED_GOOGLE_KEY]"),
+        (r"(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{20,}(?:$|[^A-Za-z0-9])", " [REDACTED_OPENAI_KEY] "),
+        (r"(?i)Bearer\s+[A-Za-z0-9._~+/-]{24,}={0,2}", "Bearer [REDACTED_BEARER_TOKEN]"),
+        (r"(?i)[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@", "protocol://[REDACTED_USER_PASS]@"),
+    ];
+
+    for (pat, replacement) in redact_patterns {
+        let re = regex(pat);
+        out = re.replace_all(&out, replacement).to_string();
+    }
+
+    // Generic key assignments: KEY = "secret..."
+    let assign_re = regex(r#"(?i)([A-Za-z0-9_-]*(?:api[_-]?key|client[_-]?secret|service[_-]?role[_-]?key|access[_-]?key|private[_-]?key|secret|password|passwd|token)[A-Za-z0-9_-]*\s*[:=]\s*['"]?)[^\s'"]{12,}(['"]?)"#);
+    out = assign_re.replace_all(&out, "${1}[REDACTED_CREDENTIAL]${2}").to_string();
+
+    out
+}
+
 impl MemoryFabric {
     pub(crate) fn is_local_provider(&self, provider: Option<&str>) -> bool {
         provider
