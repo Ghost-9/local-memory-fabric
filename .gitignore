@@ -21,3 +21,4 @@ proposals/
 
 # os noise
 .DS_Store
+dist/
