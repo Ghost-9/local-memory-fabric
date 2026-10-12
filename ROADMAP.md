@@ -143,6 +143,10 @@ flowchart TD
 | **#69** | Section and Heading-Level Markdown AST Chunking with Hierarchical Breadcrumbs | 1.3.0 | enhancement, retrieval | Closed | Current HEAD |
 | **#70** | Sub-Microsecond In-Memory Query Cache with Generation Invalidation | 1.3.0 | performance, retrieval | Closed | Current HEAD |
 | **#71** | Multi-IDE Tool Surface Expansion (`memory_fabric_sections` in MCP and Extension) | 1.3.0 | enhancement | Closed | Current HEAD |
+| **#72** | POSIX Shared Memory (SHM) Ring Buffer Mesh (< 5 µs Zero-Copy IPC) | 1.4.0 | performance | Open | Planned v1.4.0 |
+| **#73** | Phase 2 Local Quantized Hybrid Retrieval (BM25 + all-MiniLM-L6-v2 + RRF-60) | 1.5.0 | enhancement, retrieval | Open | Planned v1.5.0 |
+| **#74** | Federated Cross-Worktree Multi-Vault Synchronization | 1.6.0 | enhancement | Open | Planned v1.6.0 |
+| **#75** | Autonomous Background Knowledge Distillation & Invariant Compactor | 1.7.0 | enhancement | Open | Planned v1.7.0 |
 
 ---
 
