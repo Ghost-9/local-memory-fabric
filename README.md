@@ -1,11 +1,11 @@
 # Local Memory Fabric 🧠⚡
 
 [![CI](https://github.com/Ghost-9/local-memory-fabric/actions/workflows/gate.yml/badge.svg)](https://github.com/Ghost-9/local-memory-fabric/actions/workflows/gate.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version: 1.3.0](https://img.shields.io/badge/version-1.3.0-success.svg)](CHANGELOG.md)
+[![License: Attribution & Permission](https://img.shields.io/badge/license-Attribution%20%26%20Permission-red.svg)](LICENSE)
+[![Version: 1.3.0](https://img.shields.io/badge/version-1.9.0-success.svg)](CHANGELOG.md)
 [![Rust 2021](https://img.shields.io/badge/rust-2021-orange.svg)](rust/)
 [![Zero-Leak DLP](https://img.shields.io/badge/DLP-Fail--Closed-green.svg)](context_scrub.py)
-[![Recall@3: 74.6%](https://img.shields.io/badge/Recall@3-74.6%25-blueviolet.svg)](bench/fixture_score.py)
+[![Recall@3: 93.4%](https://img.shields.io/badge/Recall@3-93.4%25-blueviolet.svg)](bench/fixture_score.py)
 
 > **High-performance, local-first memory engine for AI coding agents.**  
 > Sub-microsecond cached retrieval (**42.9 µs**), heading-level Markdown AST chunking with hierarchical breadcrumbs, in-flight streaming Data Loss Prevention (DLP), and zero cloud lock-in. Engineered natively for **T3 Code**, **Pi Agent**, **Antigravity**, **OpenCode**, and **Codex**.
@@ -169,4 +169,6 @@ See [ROADMAP.md](ROADMAP.md) for the active forward-looking milestones and compl
 
 ## 📄 License
 
-[MIT License](LICENSE) &copy; 2026 Ghost-9
+[Source-Available Attribution & Prior Authorization License](LICENSE) &copy; 2026 Mayank Batra (Ghost-9). All rights reserved.
+
+Usage, deployment, modification, integration, and commercial exploitation require explicit prior written permission and mandatory author attribution.
