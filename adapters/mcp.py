@@ -152,6 +152,33 @@ TOOLS = [
             }
         },
         "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+    },
+    {
+        "name": "memory_fabric_symbiosis",
+        "description": "Dual-engine memory-to-code symbiosis: links memory cards to live source code symbols with workspace proximity reranking.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query for memory and symbol cross-referencing"},
+                "active_file": {"type": "string", "description": "Active file in IDE editor to calculate proximity"},
+                "limit": {"type": "integer", "description": "Number of top candidates to return", "default": 10}
+            },
+            "required": ["query"]
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+    },
+    {
+        "name": "memory_fabric_fuzzy_sections",
+        "description": "Masked fuzzy search and sub-millisecond filtering over hierarchical AST Markdown sections.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "source_ref": {"type": "string", "description": "Canonical relative path of the note"},
+                "pattern": {"type": "string", "description": "Fuzzy pattern to match headings and breadcrumbs"}
+            },
+            "required": ["source_ref", "pattern"]
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
     }
 ]
 
@@ -177,7 +204,7 @@ class McpServer:
                     },
                     "serverInfo": {
                         "name": "local-memory-fabric-mcp",
-                        "version": "1.8.0"
+                        "version": "1.9.0"
                     }
                 }
             }
@@ -288,6 +315,17 @@ class McpServer:
             q = coerce_str(args.get("query"))
             peers = args.get("peer_vaults", [])
             return self.fabric.federate_search(q, scope="all", limit=5, peer_vaults=peers, provider=provider, loopback=True)
+
+        if name == "memory_fabric_symbiosis":
+            q = coerce_str(args.get("query"))
+            act = args.get("active_file")
+            lim = coerce_num(args.get("limit"), 10)
+            return self.fabric.code_symbiosis(q, active_file=act, limit=lim, provider=provider)
+
+        if name == "memory_fabric_fuzzy_sections":
+            ref = coerce_str(args.get("source_ref"))
+            pat = coerce_str(args.get("pattern"))
+            return self.fabric.fuzzy_sections(ref, pattern=pat, provider=provider)
 
         return {"ok": False, "error": f"Unknown tool: {name}"}
 

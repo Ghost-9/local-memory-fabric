@@ -9,6 +9,8 @@ mod shm;
 mod semantic;
 mod federate;
 mod compact;
+mod fuzzy;
+mod symbiosis;
 
 #[cfg(test)]
 mod tests;
@@ -160,6 +162,19 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
             ),
             _ => Ok(json_error("unknown federate action; use status, search, or merge-proposal")),
         },
+                "symbiosis" | "code-symbiosis" => fabric.code_symbiosis(
+            req["query"].as_str().unwrap_or(""),
+            req["active_file"].as_str(),
+            req["repo_root"].as_str(),
+            req["limit"].as_u64().unwrap_or(10) as usize,
+            req["provider"].as_str(),
+        ),
+        "fuzzy-sections" => fabric.fuzzy_sections(
+            req["source_ref"].as_str().or_else(|| req["target"].as_str()).unwrap_or(""),
+            req["pattern"].as_str().unwrap_or(""),
+            req["provider"].as_str(),
+            req["loopback"].as_bool(),
+        ),
         "resolve" => fabric.resolve_alarm(req["alarm_id"].as_str().unwrap_or("")),
         _ => Ok(json_error("unsupported memory operation")),
     }
@@ -352,6 +367,31 @@ fn serve_mcp() -> Result<(), String> {
                                     },
                                     "required": ["source_ref"]
                                 }
+                            },
+                            {
+                                "name": "memory_fabric_symbiosis",
+                                "description": "Dual-engine memory-to-code symbiosis with workspace proximity reranking.",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "query": { "type": "string" },
+                                        "active_file": { "type": "string" },
+                                        "limit": { "type": "number" }
+                                    },
+                                    "required": ["query"]
+                                }
+                            },
+                            {
+                                "name": "memory_fabric_fuzzy_sections",
+                                "description": "Sub-millisecond masked fuzzy filtering over AST Markdown sections.",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "source_ref": { "type": "string" },
+                                        "pattern": { "type": "string" }
+                                    },
+                                    "required": ["source_ref", "pattern"]
+                                }
                             }
                         ]
                     }
@@ -388,6 +428,21 @@ fn serve_mcp() -> Result<(), String> {
                     op_req = json!({
                         "op": "sections",
                         "source_ref": args["source_ref"].as_str().unwrap_or(""),
+                        "provider": "ollama"
+                    });
+                } else if name == "memory_fabric_symbiosis" {
+                    op_req = json!({
+                        "op": "symbiosis",
+                        "query": args["query"].as_str().unwrap_or(""),
+                        "active_file": args["active_file"].as_str(),
+                        "limit": args["limit"].as_u64().unwrap_or(10),
+                        "provider": "ollama"
+                    });
+                } else if name == "memory_fabric_fuzzy_sections" {
+                    op_req = json!({
+                        "op": "fuzzy-sections",
+                        "source_ref": args["source_ref"].as_str().unwrap_or(""),
+                        "pattern": args["pattern"].as_str().unwrap_or(""),
                         "provider": "ollama"
                     });
                 }

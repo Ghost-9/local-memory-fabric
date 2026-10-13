@@ -1,6 +1,6 @@
 {
   "name": "local-memory-fabric",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Deterministic local-first architectural memory fabric for Antigravity AI agents",
   "mcpServers": {
     "local-memory-fabric": {

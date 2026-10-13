@@ -563,5 +563,43 @@ impl MemoryFabric {
             "section_count": parsed.len(),
             "sections": parsed,
         }))
+     }
+    pub(crate) fn fuzzy_sections(
+        &self,
+        source_ref: &str,
+        pattern: &str,
+        provider: Option<&str>,
+        loopback: Option<bool>,
+    ) -> Result<Value, String> {
+        let sec_res = self.sections(source_ref, provider, loopback)?;
+        if !sec_res["ok"].as_bool().unwrap_or(false) {
+            return Ok(sec_res);
+        }
+        let raw_sections: Vec<crate::text::MarkdownSection> = serde_json::from_value(sec_res["sections"].clone())
+            .unwrap_or_default();
+        let filtered = crate::fuzzy::fuzzy_filter_sections(pattern, &raw_sections);
+        let out_sections: Vec<Value> = filtered
+            .into_iter()
+            .map(|(s, score)| {
+                json!({
+                    "heading": s.heading,
+                    "anchor": s.anchor,
+                    "level": s.level,
+                    "breadcrumbs": s.breadcrumbs,
+                    "line_start": s.line_start,
+                    "line_end": s.line_end,
+                    "char_start": s.char_start,
+                    "char_end": s.char_end,
+                    "fuzzy_score": score,
+                })
+            })
+            .collect();
+        Ok(json!({
+            "ok": true,
+            "source_ref": source_ref,
+            "pattern": pattern,
+            "section_count": out_sections.len(),
+            "sections": out_sections
+        }))
     }
 }

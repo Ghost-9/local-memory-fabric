@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 # Sandbox bounds. Tool output is the target: anything materially larger than a screenful is
 # refused rather than silently truncated, and the head returned with the handle stays small
 # because retrieving deliberately is the entire point.
@@ -1509,6 +1509,103 @@ class MemoryFabric:
         return prop
 
 
+
+    def fuzzy_sections(self, source_ref: str, pattern: str, provider: str | None = None) -> dict[str, Any]:
+        sec_res = self.sections(source_ref, provider)
+        if not sec_res.get("ok"):
+            return sec_res
+        sections = sec_res.get("sections", [])
+        pat = pattern.strip().lower()
+        if not pat:
+            return {"ok": True, "source_ref": source_ref, "pattern": pattern, "section_count": len(sections), "sections": sections}
+
+        scored = []
+        for s in sections:
+            heading = s.get("heading", "").lower()
+            anchor = s.get("anchor", "").lower()
+            breadcrumb = " > ".join(s.get("breadcrumbs", [])).lower()
+            best = max(
+                self._fuzzy_score(pat, heading),
+                self._fuzzy_score(pat, anchor),
+                self._fuzzy_score(pat, breadcrumb),
+            )
+            if best > 0.0:
+                item = dict(s)
+                item["fuzzy_score"] = best
+                scored.append(item)
+        scored.sort(key=lambda x: x.get("fuzzy_score", 0.0), reverse=True)
+        return {"ok": True, "source_ref": source_ref, "pattern": pattern, "section_count": len(scored), "sections": scored}
+
+    @staticmethod
+    def _fuzzy_score(pattern: str, target: str) -> float:
+        if not pattern: return 1.0
+        if not target: return 0.0
+        p_chars = set(pattern)
+        if not p_chars.issubset(set(target)):
+            return 0.0
+        p_idx, t_idx = 0, 0
+        score = 0.0
+        prev_idx = None
+        consecutive = 0
+        while p_idx < len(pattern) and t_idx < len(target):
+            if pattern[p_idx] == target[t_idx]:
+                score += 10.0
+                if t_idx == 0: score += 15.0
+                if prev_idx is not None and t_idx == prev_idx + 1:
+                    consecutive += 1
+                    score += consecutive * 5.0
+                else:
+                    consecutive = 0
+                    if prev_idx is not None:
+                        score -= min(5.0, float(t_idx - prev_idx - 1))
+                if t_idx > 0 and target[t_idx - 1] in "_-/. :#":
+                    score += 12.0
+                prev_idx = t_idx
+                p_idx += 1
+            t_idx += 1
+        if p_idx == len(pattern):
+            score -= (len(target) - len(pattern)) * 0.1
+            max_possible = len(pattern) * 35.0
+            return max(0.01, min(1.0, score / max_possible))
+        return 0.0
+
+    def code_symbiosis(self, query: str, active_file: str | None = None, repo_root: str | None = None, limit: int = 10, provider: str | None = None) -> dict[str, Any]:
+        search_res = self.search(query, scope="all", limit=min(256, max(limit * 2, 20)), provider=provider, loopback=True)
+        results = search_res.get("results", [])
+        enriched = []
+        for r in results:
+            item = dict(r)
+            src_ref = item.get("source_ref", "")
+            prox = self._calc_path_proximity(active_file, src_ref)
+            base = float(item.get("score", 0.0))
+            item["proximity"] = prox
+            item["fused_score"] = (base * 0.65) + (prox * 0.35)
+            item["code_anchors"] = [{"symbol": src_ref, "path": src_ref, "proximity": prox}]
+            enriched.append(item)
+        enriched.sort(key=lambda x: x.get("fused_score", 0.0), reverse=True)
+        enriched = enriched[:limit]
+        return {
+            "ok": True,
+            "query": query,
+            "active_file": active_file,
+            "candidates_reranked": len(results),
+            "shown": len(enriched),
+            "results": enriched,
+            "engine": "fsearch_memory_symbiosis_v1.9"
+        }
+
+    @staticmethod
+    def _calc_path_proximity(active: str | None, candidate: str) -> float:
+        if not active or not active.strip(): return 0.1
+        a_parts = Path(active.strip()).parts
+        c_parts = Path(candidate.strip()).parts
+        common = 0
+        for a, c in zip(a_parts, c_parts):
+            if a == c: common += 1
+            else: break
+        max_l = max(len(a_parts), len(c_parts), 1)
+        return max(0.1, min(1.0, (common / max_l) * 0.8 + 0.1))
+
 def _emit(value: dict[str, Any]) -> None:
     print(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
 
@@ -1540,6 +1637,10 @@ def dispatch_request(fabric: MemoryFabric, req: dict[str, Any]) -> dict[str, Any
         if action == "merge-proposal":
             return fabric.federate_merge_proposal(str(req.get("peer_vault", "")), str(req.get("relpath", "")), req.get("provider"))
         return {"ok": False, "error": "unknown federate action; use status, search, or merge-proposal"}
+    if op == "symbiosis" or op == "code-symbiosis":
+        return fabric.code_symbiosis(str(req.get("query", "")), req.get("active_file"), req.get("repo_root"), int(req.get("limit", 10)), req.get("provider"))
+    if op == "fuzzy-sections":
+        return fabric.fuzzy_sections(str(req.get("source_ref") or req.get("target") or ""), str(req.get("pattern", "")), req.get("provider"))
     if op == "resolve": return fabric.resolve_alarm(str(req.get("alarm_id", "")))
     return {"ok": False, "error": "unsupported memory operation"}
 

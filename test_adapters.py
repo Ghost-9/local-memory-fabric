@@ -53,6 +53,8 @@ class TestAdapterMatrix(unittest.TestCase):
         self.assertIn("memory_fabric_context", tool_names)
         self.assertIn("memory_fabric_compact", tool_names)
         self.assertIn("memory_fabric_federate", tool_names)
+        self.assertIn("memory_fabric_symbiosis", tool_names)
+        self.assertIn("memory_fabric_fuzzy_sections", tool_names)
 
         # Check annotations
         for t in tools:
@@ -74,6 +76,16 @@ class TestAdapterMatrix(unittest.TestCase):
         self.assertIn("[PROJECT: my-cool-app]", instruction)
         self.assertIn("LOCAL-MEMORY-FABRIC-T3-CODE", instruction)
 
+
+
+    def test_fsearch_symbiosis_and_fuzzy_sections(self):
+        server = McpServer()
+        # Test fuzzy score
+        score = server.fabric._fuzzy_score("arch", "architecture-overview")
+        self.assertGreater(score, 0.5)
+        # Test path proximity
+        prox = server.fabric._calc_path_proximity("rust/src/retrieval.rs", "rust/src/main.rs")
+        self.assertGreater(prox, 0.5)
 
 if __name__ == "__main__":
     unittest.main()

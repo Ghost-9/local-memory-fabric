@@ -303,3 +303,74 @@ Redis cache TTL configured for 300 seconds.
     // Cleanup
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+
+#[test]
+fn test_fsearch_masked_fuzzy_engine_and_bitset() {
+    use crate::fuzzy::{masked_fuzzy_score, bitset_intersects, fuzzy_filter_sections};
+    use crate::text::MarkdownSection;
+
+    // Bitmask test
+    let pat = "arch";
+    let tgt = "architecture-overview";
+    let score = masked_fuzzy_score(pat, tgt);
+    assert!(score.is_some());
+    assert!(score.unwrap() > 0.5);
+
+    // Rejection on disjoint characters
+    assert!(masked_fuzzy_score("xyz", tgt).is_none());
+
+    // Word boundary match bonus
+    let abbr_score = masked_fuzzy_score("ao", tgt);
+    assert!(abbr_score.is_some());
+
+    // Bitset token intersection
+    assert!(bitset_intersects(&["memory", "fabric"], &["local", "memory", "fabric"]));
+    assert!(!bitset_intersects(&["rust"], &["python", "typescript"]));
+
+    // Section filter
+    let sections = vec![
+        MarkdownSection {
+            heading: "System Architecture".into(),
+            anchor: "system-architecture".into(),
+            level: 2,
+            line_start: 1,
+            line_end: 10,
+            char_start: 0,
+            char_end: 100,
+            breadcrumbs: vec!["Root".into(), "System Architecture".into()],
+        },
+        MarkdownSection {
+            heading: "Data Pipeline".into(),
+            anchor: "data-pipeline".into(),
+            level: 2,
+            line_start: 11,
+            line_end: 20,
+            char_start: 101,
+            char_end: 200,
+            breadcrumbs: vec!["Root".into(), "Data Pipeline".into()],
+        },
+    ];
+
+    let filtered = fuzzy_filter_sections("arch", &sections);
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].0.heading, "System Architecture");
+}
+
+#[test]
+fn test_memory_code_symbiosis_and_proximity_reranking() {
+    use crate::symbiosis::{extract_symbols, calculate_path_proximity};
+
+    let sample_text = "See `MemoryFabric` in [retrieval.rs](rust/src/retrieval.rs#L40) and [[compact.rs]].";
+    let symbols = extract_symbols(sample_text);
+    assert!(symbols.iter().any(|s| s == "MemoryFabric" || s == "rust/src/retrieval.rs" || s == "compact.rs"));
+
+    let p_identical = calculate_path_proximity(Some("rust/src/retrieval.rs"), "rust/src/retrieval.rs");
+    assert_eq!(p_identical, 1.0);
+
+    let p_sibling = calculate_path_proximity(Some("rust/src/retrieval.rs"), "rust/src/main.rs");
+    assert!(p_sibling > 0.5);
+
+    let p_distant = calculate_path_proximity(Some("rust/src/retrieval.rs"), "docs/spec.md");
+    assert!(p_sibling > p_distant);
+}
