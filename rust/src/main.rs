@@ -7,6 +7,7 @@ mod retrieval;
 mod text;
 mod shm;
 mod semantic;
+mod federate;
 
 #[cfg(test)]
 mod tests;
@@ -128,6 +129,32 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
             req["provider"].as_str(),
         ),
         "alarms" => fabric.alarms(),
+        "federate" => match req["action"].as_str().unwrap_or("status") {
+            "status" => fabric.federate_status(),
+            "search" => {
+                let empty_peers: Vec<String> = Vec::new();
+                let peers: Vec<String> = req["peer_vaults"]
+                    .as_array()
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .unwrap_or(empty_peers);
+                fabric.federate_search(
+                    req["query"].as_str().unwrap_or(""),
+                    req["scope"].as_str().unwrap_or("all"),
+                    req["limit"].as_u64().unwrap_or(5) as usize,
+                    &peers,
+                    req["provider"].as_str(),
+                    req["as_of"].as_str(),
+                    req["loopback"].as_bool(),
+                    req["token_budget"].as_u64().map(|b| b as usize),
+                )
+            }
+            "merge-proposal" => fabric.federate_merge_proposal(
+                req["peer_vault"].as_str().unwrap_or(""),
+                req["relpath"].as_str().unwrap_or(""),
+                req["provider"].as_str(),
+            ),
+            _ => Ok(json_error("unknown federate action; use status, search, or merge-proposal")),
+        },
         "resolve" => fabric.resolve_alarm(req["alarm_id"].as_str().unwrap_or("")),
         _ => Ok(json_error("unsupported memory operation")),
     }

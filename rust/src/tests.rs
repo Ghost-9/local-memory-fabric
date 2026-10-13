@@ -213,3 +213,56 @@ fn test_semantic_quantized_vector_and_rrf() {
     assert!(expanded.contains(&"prefix".to_string()));
     assert!(expanded.contains(&"cache".to_string()));
 }
+
+
+#[test]
+fn test_federate_cross_worktree_multi_vault() {
+    let tmp = std::env::temp_dir().join(format!("mf-fed-{}", uuid::Uuid::new_v4().simple()));
+    let primary_home = tmp.join("primary-home");
+    let primary_vault = tmp.join("primary-vault");
+    let peer_home = tmp.join("peer-home");
+    let peer_vault = tmp.join("peer-vault");
+
+    std::fs::create_dir_all(primary_vault.join("projects")).unwrap();
+    std::fs::create_dir_all(peer_vault.join("projects")).unwrap();
+
+    std::fs::write(primary_vault.join("projects/local.md"), "# Local note
+
+Local content unique to primary.
+").unwrap();
+    std::fs::write(peer_vault.join("projects/peer.md"), "# Peer note
+
+Peer content in worktree.
+").unwrap();
+
+    let fab = crate::MemoryFabric::with_paths(primary_home, primary_vault.clone()).unwrap();
+    fab.index(true).unwrap();
+
+    let peer_fab = crate::MemoryFabric::with_paths(peer_home, peer_vault.clone()).unwrap();
+    peer_fab.index(true).unwrap();
+
+    // 1. Status
+    let st = fab.federate_status().unwrap();
+    assert_eq!(st["ok"], true);
+    assert_eq!(st["federated_enabled"], true);
+
+    // 2. Federated Search
+    let peers = vec![peer_vault.to_string_lossy().to_string()];
+    let res = fab.federate_search("content", "all", 10, &peers, Some("ollama"), None, Some(true), None).unwrap();
+    assert_eq!(res["ok"], true);
+    assert_eq!(res["federated"], true);
+    let results = res["results"].as_array().unwrap();
+    assert!(results.len() >= 2, "federated search should return results from both primary and peer vaults");
+
+    // Check vault_origin tags
+    let origins: Vec<&str> = results.iter().filter_map(|r| r["vault_origin"].as_str()).collect();
+    assert!(origins.contains(&"primary"), "should contain primary origin");
+    assert!(origins.iter().any(|o| *o != "primary"), "should contain peer origin");
+
+    // 3. Merge proposal for new note from peer
+    let merge_prop = fab.federate_merge_proposal(&peer_vault.to_string_lossy(), "projects/peer.md", Some("ollama")).unwrap(); println!("merge_prop: {}", merge_prop);
+    assert_eq!(merge_prop["ok"], true);
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&tmp);
+}

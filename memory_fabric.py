@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 # Sandbox bounds. Tool output is the target: anything materially larger than a screenful is
 # refused rather than silently truncated, and the head returned with the handle stays small
 # because retrieving deliberately is the entire point.
@@ -1353,6 +1353,113 @@ class MemoryFabric:
                 continue
         return {"ok": True, "proposals": items}
 
+    def detect_git_origin(self) -> dict[str, Any]:
+        vault_path = str(self.vault)
+        git_root = None
+        origin_url = None
+        branch = None
+        worktrees = []
+        try:
+            r = subprocess.run(["git", "-C", vault_path, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+            if r.returncode == 0: git_root = r.stdout.strip()
+            r = subprocess.run(["git", "-C", vault_path, "remote", "get-url", "origin"], capture_output=True, text=True)
+            if r.returncode == 0: origin_url = r.stdout.strip()
+            r = subprocess.run(["git", "-C", vault_path, "branch", "--show-current"], capture_output=True, text=True)
+            if r.returncode == 0 and r.stdout.strip(): branch = r.stdout.strip()
+            r = subprocess.run(["git", "-C", vault_path, "worktree", "list", "--porcelain"], capture_output=True, text=True)
+            if r.returncode == 0:
+                for line in r.stdout.splitlines():
+                    if line.startswith("worktree "):
+                        wt = line[len("worktree "):].strip()
+                        if wt and wt not in worktrees: worktrees.append(wt)
+        except Exception:
+            pass
+        return {"git_root": git_root, "origin_url": origin_url, "branch": branch, "worktrees": worktrees}
+
+    def federate_status(self) -> dict[str, Any]:
+        info = self.detect_git_origin()
+        home = os.environ.get("HOME", "")
+        global_mem = Path(home) / "system-memory"
+        discovered = []
+        if global_mem.exists() and global_mem.is_dir() and global_mem.resolve() != self.vault.resolve():
+            discovered.append(str(global_mem))
+        for wt in info["worktrees"]:
+            candidate = Path(wt) / ".memory"
+            if candidate.exists() and candidate.is_dir() and candidate.resolve() != self.vault.resolve():
+                discovered.append(str(candidate))
+        extra = os.environ.get("MEMORY_FABRIC_PEER_VAULTS", "")
+        if extra:
+            for part in extra.split(":"):
+                p = Path(part.strip())
+                if p.exists() and p.is_dir() and p.resolve() != self.vault.resolve() and str(p) not in discovered:
+                    discovered.append(str(p))
+        return {
+            "ok": True,
+            "git_root": info["git_root"],
+            "origin_url": info["origin_url"],
+            "branch": info["branch"],
+            "worktrees": info["worktrees"],
+            "primary_vault": str(self.vault.resolve()),
+            "peer_vaults": discovered,
+            "federated_enabled": True
+        }
+
+    def federate_search(self, query: str, scope: str = "all", limit: int = 5, peer_vaults: list[str] | None = None,
+                        provider: str | None = None, as_of: str | None = None, loopback: bool | None = None,
+                        token_budget: int | None = None) -> dict[str, Any]:
+        primary = self.search(query, scope=scope, limit=limit * 2, provider=provider, as_of=as_of, loopback=loopback, token_budget=token_budget)
+        if not primary.get("ok"):
+            return primary
+        all_res = []
+        seen = set()
+        for r in primary.get("results", []):
+            seen.add(r["source_ref"])
+            r["vault_origin"] = "primary"
+            all_res.append(r)
+        queried = 0
+        for peer in (peer_vaults or []):
+            pp = Path(peer)
+            if not pp.exists() or not pp.is_dir():
+                continue
+            queried += 1
+            peer_home = Path(tempfile.gettempdir()) / f"mf-peer-{hashlib.sha256(peer.encode()).hexdigest()[:8]}"
+            try:
+                peer_fab = MemoryFabric(home=peer_home, vault=pp)
+                peer_fab.index(force=False)
+                pres = peer_fab.search(query, scope=scope, limit=limit, provider=provider, as_of=as_of, loopback=loopback, token_budget=token_budget)
+                for pr in pres.get("results", []):
+                    ukey = f"{peer}:{pr['source_ref']}"
+                    if ukey not in seen:
+                        seen.add(ukey)
+                        pr["vault_origin"] = peer
+                        all_res.append(pr)
+            except Exception:
+                continue
+        all_res.sort(key=lambda x: (-x.get("rrf_score", 0.0), -x.get("bm25_rank", 0.0), x.get("source_ref", "")))
+        all_res = all_res[:max(1, min(int(limit), 20))]
+        return {"ok": True, "federated": True, "results": all_res, "shown": len(all_res), "peers_queried": queried}
+
+    def federate_merge_proposal(self, peer_vault: str, relpath: str, provider: str | None = None) -> dict[str, Any]:
+        if not self.is_local_provider(provider):
+            return {"ok": False, "blocked": "Federated merge proposals require an authorized local provider."}
+        local_f = self.vault / relpath
+        peer_f = Path(peer_vault) / relpath
+        if not peer_f.exists():
+            return {"ok": False, "error": f"peer file does not exist: {peer_f}"}
+        peer_text = peer_f.read_text(encoding="utf-8")
+        if not local_f.exists():
+            local_f.parent.mkdir(parents=True, exist_ok=True)
+            local_f.write_text(peer_text, encoding="utf-8")
+            self.index(force=False)
+            return {"ok": True, "status": "synchronized_new_card", "relpath": relpath, "peer_vault": peer_vault}
+        local_text = local_f.read_text(encoding="utf-8")
+        if local_text == peer_text:
+            return {"ok": True, "status": "up_to_date", "message": "Local and peer note contents are byte-identical."}
+        prop = self.propose(relpath[9:-3] if relpath.startswith("projects/") and relpath.endswith(".md") else "peer", relpath, "Sync", peer_text, [], provider)
+        prop["merge_status"] = "conflict_free_proposal"
+        prop["peer_vault"] = peer_vault
+        return prop
+
 
 def _emit(value: dict[str, Any]) -> None:
     print(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
@@ -1376,6 +1483,14 @@ def dispatch_request(fabric: MemoryFabric, req: dict[str, Any]) -> dict[str, Any
     if op == "proposal-show": return fabric.proposal_show(str(req.get("proposal_id", "")), req.get("provider"))
     if op == "proposal-list": return fabric.proposal_list()
     if op == "alarms": return fabric.alarms()
+    if op == "federate":
+        action = req.get("action", "status")
+        if action == "status": return fabric.federate_status()
+        if action == "search":
+            return fabric.federate_search(str(req.get("query", "")), str(req.get("scope", "all")), int(req.get("limit", 5)), req.get("peer_vaults", []), req.get("provider"), req.get("as_of"), req.get("loopback"), int(req["token_budget"]) if req.get("token_budget") is not None else None)
+        if action == "merge-proposal":
+            return fabric.federate_merge_proposal(str(req.get("peer_vault", "")), str(req.get("relpath", "")), req.get("provider"))
+        return {"ok": False, "error": "unknown federate action; use status, search, or merge-proposal"}
     if op == "resolve": return fabric.resolve_alarm(str(req.get("alarm_id", "")))
     return {"ok": False, "error": "unsupported memory operation"}
 
