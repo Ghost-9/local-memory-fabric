@@ -1286,7 +1286,7 @@ class MemoryFabric:
             if not row:
                 return {"ok": False, "error": f"no indexed document matches {safe_ref}"}
             relpath, title, scope, body, export_policy = row
-            if self.export_enforced and export_policy != "allow_remote":
+            if bool(self.config.get("enforce_export_policy", False)) and export_policy != "allow_remote":
                 return {"ok": False, "blocked": "This source is not approved for export to a non-local model provider; nothing was returned."}
             lines = body.splitlines()
             sections_list = []
