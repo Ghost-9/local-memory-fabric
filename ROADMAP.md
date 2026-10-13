@@ -147,6 +147,10 @@ flowchart TD
 | **#73** | Phase 2 Local Quantized Hybrid Retrieval (BM25 + all-MiniLM-L6-v2 + RRF-60) | 1.5.0 | enhancement, retrieval | Open | Planned v1.5.0 |
 | **#74** | Federated Cross-Worktree Multi-Vault Synchronization | 1.6.0 | enhancement | Open | Planned v1.6.0 |
 | **#75** | Autonomous Background Knowledge Distillation & Invariant Compactor | 1.7.0 | enhancement | Open | Planned v1.7.0 |
+| **#76** | Native Agent Adapter Matrix: T3 Code, Pi Agent, Antigravity, OpenCode & Codex | 1.8.0 | enhancement, integration | Open | Planned v1.8.0 |
+| **#77** | Agent Model-Context Protocol (MCP) Streamable Tool Surface with Zero-Bust KV Prefixes | 1.8.0 | enhancement, performance | Open | Planned v1.8.0 |
+| **#78** | Dual-Engine Memory-to-Code Symbiosis: fsearch Lexical Indexer + AST Memory Fabric | 1.9.0 | enhancement, retrieval | Open | Planned v1.9.0 |
+| **#79** | Masked Fuzzy Scoring & SIMD Bitset Intersection Engine for Instant AST Filter | 1.9.0 | performance, retrieval | Open | Planned v1.9.0 |
 
 ---
 
@@ -183,3 +187,18 @@ To surpass Mem0, Letta, MemGPT, and Cursor local indexers by orders of magnitude
   - Autonomous distillation worker running on idle cycles: identifies candidate clusters of outdated episodic notes and near-duplicate project cards.
   - Generates unified, high-density invariant cards with explicit `supersedes: [[...]]` lineage.
   - Prepares non-destructive reviewed PR proposals with git rollback hashes.
+
+
+### Milestone 1.8.0 — Full Native AI Agent Runtime Matrix (T3 Code, Pi, Antigravity, Codex)
+- **Problem**: Different agent harnesses (T3 Code with worktree threads, Pi Agent with in-process extensions, Antigravity with persistent tool catalogs, OpenCode/Codex with stdio MCP) require differing parameter encodings, context management hooks, and thread handoffs.
+- **Solution**:
+  - **T3 Code**: Native tool registry integration with thread-scoped worktree memory handoff (`workspaceStrategy`), thread transfers (`t3_worktree_handoff`), and zero-loss parent-to-child memory propagation.
+  - **Pi Agent**: In-process extension hooks (`index.ts`) with dynamic token budgeting, context scrub DLP filters, and interactive CLI commands (`/memory-fabric`).
+  - **Antigravity / OpenCode / Codex**: Robust JSON-RPC 2.0 stdio & socket MCP server with parameter coercions (`arg_num`, `arg_str` handling float/string numbers), read-only annotations (`readOnlyHint: true`, `destructiveHint: false`), and deterministic KV-cache prefix stability (>98% cache hit rate).
+
+### Milestone 1.9.0 — Fsearch Beta Convergence: Zero-Latency Lexical-Code Memory Unification
+- **Problem**: Memory invariants and source code files live in separate silos; agents must make separate file searches and memory lookups, losing symbol context.
+- **Solution**:
+  - **Dual-Engine Symbiosis**: Integrate memory fabric directly with `fsearch` 0.2.x daemon primitives. When an agent queries memory for an architectural invariant or runbook, the fabric cross-references live code definitions via fsearch's sub-millisecond symbol index.
+  - **Masked Fuzzy AST Search**: Port fsearch 0.2.1 masked fuzzy scoring and whole-word bitset intersections directly into the Rust memory search engine for zero-copy memory reads.
+  - **Agent Nearness Reranking**: Reorder the top 256 candidates using workspace proximity (active git repository slug and open file buffer) so the most contextually relevant memory cards rank #1 deterministically.
