@@ -137,3 +137,53 @@ fn proposals_lifecycle_show_and_list() {
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn shm_ring_buffer_roundtrip() {
+    let tmp = std::env::temp_dir().join(format!("mf-shm-test-{}", uuid::Uuid::new_v4().simple()));
+    let server_mapping = crate::shm::ShmMapping::open_or_create(&tmp, true).unwrap();
+    let client_mapping = crate::shm::ShmMapping::open_or_create(&tmp, false).unwrap();
+
+    let req_payload = b"{\"op\":\"status\"}";
+    client_mapping.write_req(req_payload).unwrap();
+
+    assert_eq!(server_mapping.ctrl().status.load(std::sync::atomic::Ordering::Acquire), crate::shm::STATUS_REQ_PENDING);
+    assert_eq!(server_mapping.req_buf(), req_payload);
+
+    let resp_payload = b"{\"ok\":true,\"documents\":10}";
+    server_mapping.write_resp(resp_payload, 0).unwrap();
+
+    assert_eq!(client_mapping.ctrl().status.load(std::sync::atomic::Ordering::Acquire), crate::shm::STATUS_RESP_READY);
+    assert_eq!(client_mapping.resp_buf(), resp_payload);
+
+    drop(server_mapping);
+    drop(client_mapping);
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn shm_benchmark_throughput() {
+    let tmp = std::env::temp_dir().join(format!("mf-shm-bench-{}", uuid::Uuid::new_v4().simple()));
+    let server_mapping = crate::shm::ShmMapping::open_or_create(&tmp, true).unwrap();
+    let client_mapping = crate::shm::ShmMapping::open_or_create(&tmp, false).unwrap();
+
+    let req_payload = b"{\"op\":\"status\"}";
+    let resp_payload = b"{\"ok\":true}";
+
+    let start = std::time::Instant::now();
+    let n = 10_000;
+    for _ in 0..n {
+        client_mapping.write_req(req_payload).unwrap();
+        assert_eq!(server_mapping.ctrl().status.load(std::sync::atomic::Ordering::Acquire), crate::shm::STATUS_REQ_PENDING);
+        server_mapping.write_resp(resp_payload, 0).unwrap();
+        assert_eq!(client_mapping.ctrl().status.load(std::sync::atomic::Ordering::Acquire), crate::shm::STATUS_RESP_READY);
+        client_mapping.ctrl().status.store(crate::shm::STATUS_IDLE, std::sync::atomic::Ordering::Release);
+    }
+    let elapsed = start.elapsed();
+    let per_op_micros = (elapsed.as_nanos() as f64 / n as f64) / 1000.0;
+    println!("SHM 10,000 round-trips: {:?} total, {:.3} µs per op", elapsed, per_op_micros);
+    assert!(per_op_micros < 5.0, "SHM IPC took more than 5 µs per op");
+    drop(server_mapping);
+    drop(client_mapping);
+    let _ = std::fs::remove_file(&tmp);
+}

@@ -5,6 +5,7 @@ mod policy;
 mod propose;
 mod retrieval;
 mod text;
+mod shm;
 
 #[cfg(test)]
 mod tests;
@@ -35,7 +36,7 @@ pub(crate) struct MemoryFabric {
     pub(crate) config: Config,
 }
 
-fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, String> {
+pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, String> {
     let op = req["op"].as_str().unwrap_or("");
     if ["index", "propose", "apply", "sandbox", "resolve", "proposal-revert"].contains(&op) {
         invalidate_cache();
@@ -457,6 +458,27 @@ fn main() {
         serve_mcp().map(|_| 0)
     } else if args.iter().any(|a| a == "--serve") {
         serve().map(|_| 0)
+    } else if let Some(shm_idx) = args.iter().position(|a| a == "--shm") {
+        let default_shm = PathBuf::from("/tmp/memory-fabric.shm");
+        let path = args.get(shm_idx + 1)
+            .filter(|p| !p.starts_with("--"))
+            .map(PathBuf::from)
+            .unwrap_or(default_shm);
+        shm::serve_shm(&path).map(|_| 0)
+    } else if let Some(call_idx) = args.iter().position(|a| a == "--shm-call") {
+        let default_shm = PathBuf::from("/tmp/memory-fabric.shm");
+        let path = args.get(call_idx + 1)
+            .filter(|p| !p.starts_with("--"))
+            .map(PathBuf::from)
+            .unwrap_or(default_shm);
+        (|| -> Result<i32, String> {
+            let mut input = Vec::new();
+            io::stdin().read_to_end(&mut input).map_err(|e| e.to_string())?;
+            let resp = shm::client_shm_call(&path, &input)?;
+            io::stdout().write_all(&resp).map_err(|e| e.to_string())?;
+            io::stdout().write_all(b"\n").map_err(|e| e.to_string())?;
+            Ok(0)
+        })()
     } else if let Some(sock_idx) = args.iter().position(|a| a == "--socket") {
         let default_sock = dirs_or_home_socket_path();
         let path = args.get(sock_idx + 1)

@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 # Sandbox bounds. Tool output is the target: anything materially larger than a screenful is
 # refused rather than silently truncated, and the head returned with the handle stays small
 # because retrieving deliberately is the entire point.
