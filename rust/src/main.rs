@@ -8,6 +8,7 @@ mod text;
 mod shm;
 mod semantic;
 mod federate;
+mod compact;
 
 #[cfg(test)]
 mod tests;
@@ -129,6 +130,10 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
             req["provider"].as_str(),
         ),
         "alarms" => fabric.alarms(),
+        "compact" => fabric.compact(
+            req["project"].as_str(),
+            req["provider"].as_str(),
+        ),
         "federate" => match req["action"].as_str().unwrap_or("status") {
             "status" => fabric.federate_status(),
             "search" => {

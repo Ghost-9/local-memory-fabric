@@ -266,3 +266,40 @@ Peer content in worktree.
     // Cleanup
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+
+#[test]
+fn test_autonomous_knowledge_distillation_and_compactor() {
+    let tmp = std::env::temp_dir().join(format!("mf-compact-{}", uuid::Uuid::new_v4().simple()));
+    let home = tmp.join("state");
+    let vault = tmp.join("vault");
+
+    std::fs::create_dir_all(vault.join("projects")).unwrap();
+    std::fs::write(vault.join("projects/atlas-ep1.md"), "# Atlas Note 1
+
+Database connection pool size set to 25.
+").unwrap();
+    std::fs::write(vault.join("projects/atlas-ep2.md"), "# Atlas Note 2
+
+Redis cache TTL configured for 300 seconds.
+").unwrap();
+
+    let fab = crate::MemoryFabric::with_paths(home, vault.clone()).unwrap();
+    fab.index(true).unwrap();
+
+    let res = fab.compact(Some("atlas"), Some("ollama")).unwrap();
+    assert_eq!(res["ok"], true);
+    assert!(res["compacted_count"].as_u64().unwrap() >= 2);
+    assert_eq!(res["invariant_card"], "projects/atlas-invariants.md");
+
+    // Verify invariant file was created with supersedes links
+    let inv_path = vault.join("projects/atlas-invariants.md");
+    assert!(inv_path.exists());
+    let inv_content = std::fs::read_to_string(inv_path).unwrap();
+    assert!(inv_content.contains("Supersedes:"));
+    assert!(inv_content.contains("[[projects/atlas-ep1.md]]"));
+    assert!(inv_content.contains("Database connection pool"));
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&tmp);
+}

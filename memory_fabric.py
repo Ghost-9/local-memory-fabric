@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 # Sandbox bounds. Tool output is the target: anything materially larger than a screenful is
 # refused rather than silently truncated, and the head returned with the handle stays small
 # because retrieving deliberately is the entire point.
@@ -1452,6 +1452,54 @@ class MemoryFabric:
             local_f.write_text(peer_text, encoding="utf-8")
             self.index(force=False)
             return {"ok": True, "status": "synchronized_new_card", "relpath": relpath, "peer_vault": peer_vault}
+
+    def compact(self, project: str | None = None, provider: str | None = None) -> dict[str, Any]:
+        if not self.is_local_provider(provider):
+            return {"ok": False, "blocked": "Knowledge distillation is available only to an explicitly allowed local model provider."}
+        target_project = project or "atlas"
+        with closing(self._connect()) as con:
+            rows = con.execute("SELECT relpath, title, body, source_status FROM documents WHERE (scope='episodic' OR relpath LIKE ?) AND source_status != 'superseded' ORDER BY mtime_ns DESC LIMIT 50", (f"projects/{target_project}%",)).fetchall()
+        if not rows:
+            return {"ok": True, "compacted_count": 0, "message": "No uncompacted episodic notes found for this project."}
+        inv_rel = f"projects/{target_project}-invariants.md"
+        superseded = []
+        points = []
+        for r in rows:
+            rel, title, body = r[0], r[1], r[2]
+            superseded.append(f"[[{rel}]]")
+            first_line = title
+            for line in body.splitlines():
+                if line.strip() and not line.startswith("#"):
+                    first_line = line.strip()
+                    break
+            points.append(f"- **{title}**: {first_line}")
+        sup_str = ", ".join(superseded)
+        now_str = utc_now()
+        header = f"# {target_project.upper()} Invariants & Architectural Anchors\n\n> Compacted distillation generated at {now_str}\n> Supersedes: {sup_str}\n\n## Consolidated Architectural Invariants\n\n"
+        distilled = header + "\n".join(points) + "\n"
+        git_head = "unversioned"
+        try:
+            r = subprocess.run(["git", "-C", str(self.vault), "rev-parse", "HEAD"], capture_output=True, text=True)
+            if r.returncode == 0: git_head = r.stdout.strip()
+        except Exception:
+            pass
+        target_f = self.vault / inv_rel
+        if target_f.exists():
+            prop = self.propose(target_project, inv_rel, "Consolidated Architectural Invariants", distilled, [r[0] for r in rows], provider)
+        else:
+            target_f.parent.mkdir(parents=True, exist_ok=True)
+            target_f.write_text(distilled, encoding="utf-8")
+            self.index(force=False)
+            prop = {"ok": True, "status": "created_invariant_card", "target": inv_rel}
+        return {
+            "ok": True,
+            "project": target_project,
+            "compacted_count": len(rows),
+            "invariant_card": inv_rel,
+            "superseded_notes": superseded,
+            "git_rollback_hash": git_head,
+            "proposal": prop
+        }
         local_text = local_f.read_text(encoding="utf-8")
         if local_text == peer_text:
             return {"ok": True, "status": "up_to_date", "message": "Local and peer note contents are byte-identical."}
@@ -1483,6 +1531,7 @@ def dispatch_request(fabric: MemoryFabric, req: dict[str, Any]) -> dict[str, Any
     if op == "proposal-show": return fabric.proposal_show(str(req.get("proposal_id", "")), req.get("provider"))
     if op == "proposal-list": return fabric.proposal_list()
     if op == "alarms": return fabric.alarms()
+    if op == "compact": return fabric.compact(req.get("project"), req.get("provider"))
     if op == "federate":
         action = req.get("action", "status")
         if action == "status": return fabric.federate_status()
