@@ -1,7 +1,7 @@
 # Local Memory Fabric 🧠⚡
 
 [![CI](https://github.com/Ghost-9/local-memory-fabric/actions/workflows/gate.yml/badge.svg)](https://github.com/Ghost-9/local-memory-fabric/actions/workflows/gate.yml)
-[![License: Attribution & Permission](https://img.shields.io/badge/license-Attribution%20%26%20Permission-red.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Version: 1.3.0](https://img.shields.io/badge/version-1.9.0-success.svg)](CHANGELOG.md)
 [![Rust 2021](https://img.shields.io/badge/rust-2021-orange.svg)](rust/)
 [![Zero-Leak DLP](https://img.shields.io/badge/DLP-Fail--Closed-green.svg)](context_scrub.py)
@@ -169,6 +169,6 @@ See [ROADMAP.md](ROADMAP.md) for the active forward-looking milestones and compl
 
 ## 📄 License
 
-[Source-Available Attribution & Prior Authorization License](LICENSE) &copy; 2026 Mayank Batra (Ghost-9). All rights reserved.
+This software is released under the **GNU Affero General Public License v3.0 (AGPL-3.0)** &copy; 2026 Mayank Batra (Ghost-9).
 
-Usage, deployment, modification, integration, and commercial exploitation require explicit prior written permission and mandatory author attribution.
+Under AGPL-3.0, you are free to run, study, modify, and redistribute this software. In accordance with the AGPL-3.0 terms, any derivative works, modified versions, or software services providing network-accessible interaction (e.g., hosted AI agent memory servers, cloud backends, SaaS memory fabrics) must also make their complete corresponding source code available under the AGPL-3.0 with original copyright attribution preserved.

@@ -18,7 +18,7 @@ quality that is currently **not competitive**. Both halves of that sentence are 
 
 | # | System | Stars* | Licence | Backend | Model in the read path? | Vault can stay on-disk? | Self-host without a cloud tier? |
 |---|---|---|---|---|---|---|---|
-| 1 | **local-memory-fabric (this)** | n/a (new) | Attribution + Permission Required | SQLite FTS5 + Rust | **No — never** | **Yes, by construction** | **Yes, zero deps** |
+| 1 | **local-memory-fabric (this)** | n/a (new) | AGPL-3.0 | SQLite FTS5 + Rust | **No — never** | **Yes, by construction** | **Yes, zero deps** |
 | 2 | Mem0 | ~63K | Apache-2.0 | Vector (+ optional graph) | **Yes** — LLM extraction | No (store is the product) | Core yes; hosted is the paved road |
 | 3 | Cognee | ~30K | Apache-2.0 | Graph pipeline (SQLite/LanceDB/Kuzu) | **Yes** — cognify/memify | Partly | Yes, embedded defaults |
 | 4 | Graphiti / Zep | ~29.8K | Apache-2.0 | Temporal KG (Neo4j/FalkorDB) | **Yes** — entity extraction | No | Graphiti yes; **Zep CE deprecated** |
