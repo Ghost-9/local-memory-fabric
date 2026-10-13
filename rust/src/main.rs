@@ -21,7 +21,7 @@ use crate::text::json_error;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::env;
-use std::io::{self, BufRead, Read, Write};
+use std::io::{self, BufRead, Read, Write, IsTerminal};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -540,12 +540,221 @@ fn watch_loop() -> Result<(), String> {
     }
 }
 
+fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
+    let cmd = args.first()?.as_str();
+    match cmd {
+        "status" => Some(json!({ "op": "status" })),
+        "index" => {
+            let force = args.iter().any(|a| a == "--force");
+            Some(json!({ "op": "index", "force": force }))
+        }
+        "search" => {
+            let query = args.get(1)?.clone();
+            let mut scope = "all".to_string();
+            let mut limit = 5u64;
+            let mut as_of: Option<String> = None;
+            let mut i = 2;
+            while i < args.len() {
+                if args[i] == "--scope" && i + 1 < args.len() {
+                    scope = args[i + 1].clone();
+                    i += 2;
+                } else if args[i] == "--limit" && i + 1 < args.len() {
+                    limit = args[i + 1].parse().unwrap_or(5);
+                    i += 2;
+                } else if args[i] == "--as-of" && i + 1 < args.len() {
+                    as_of = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            let mut obj = json!({
+                "op": "search",
+                "query": query,
+                "scope": scope,
+                "limit": limit,
+                "provider": "lmstudio",
+                "loopback": true
+            });
+            if let Some(a) = as_of {
+                obj["as_of"] = json!(a);
+            }
+            Some(obj)
+        }
+        "context" => {
+            let query = args.get(1)?.clone();
+            let mut project: Option<String> = None;
+            let mut token_budget = 1200u64;
+            let mut as_of: Option<String> = None;
+            let mut i = 2;
+            while i < args.len() {
+                if args[i] == "--project" && i + 1 < args.len() {
+                    project = Some(args[i + 1].clone());
+                    i += 2;
+                } else if args[i] == "--token-budget" && i + 1 < args.len() {
+                    token_budget = args[i + 1].parse().unwrap_or(1200);
+                    i += 2;
+                } else if args[i] == "--as-of" && i + 1 < args.len() {
+                    as_of = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            let mut obj = json!({
+                "op": "context",
+                "query": query,
+                "token_budget": token_budget,
+                "provider": "lmstudio",
+                "loopback": true
+            });
+            if let Some(p) = project {
+                obj["project"] = json!(p);
+            }
+            if let Some(a) = as_of {
+                obj["as_of"] = json!(a);
+            }
+            Some(obj)
+        }
+        "read" => {
+            let source_ref = args.get(1)?.clone();
+            let mut heading: Option<String> = None;
+            let mut i = 2;
+            while i < args.len() {
+                if args[i] == "--heading" && i + 1 < args.len() {
+                    heading = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            let mut obj = json!({
+                "op": "read",
+                "source_ref": source_ref,
+                "provider": "lmstudio",
+                "loopback": true
+            });
+            if let Some(h) = heading {
+                obj["heading"] = json!(h);
+            }
+            Some(obj)
+        }
+        "audit" => Some(json!({ "op": "audit" })),
+        "alarms" => Some(json!({ "op": "alarms" })),
+        "resolve" => {
+            let alarm_id = args.get(1)?.clone();
+            Some(json!({ "op": "resolve", "alarm_id": alarm_id }))
+        }
+        "sections" => {
+            let source_ref = args.get(1)?.clone();
+            Some(json!({
+                "op": "sections",
+                "source_ref": source_ref,
+                "provider": "lmstudio",
+                "loopback": true
+            }))
+        }
+        "compact" => Some(json!({
+            "op": "compact",
+            "provider": "lmstudio",
+            "loopback": true
+        })),
+        "symbiosis" => {
+            let query = args.get(1)?.clone();
+            let active_file = args.get(2).cloned();
+            let mut obj = json!({
+                "op": "symbiosis",
+                "query": query,
+                "provider": "lmstudio",
+                "loopback": true
+            });
+            if let Some(af) = active_file {
+                obj["active_file"] = json!(af);
+            }
+            Some(obj)
+        }
+        "propose" => {
+            let target = args.get(1)?.clone();
+            let content = args.get(2)?.clone();
+            Some(json!({
+                "op": "propose",
+                "target": target,
+                "content": content,
+                "provider": "lmstudio",
+                "loopback": true
+            }))
+        }
+        "apply" => {
+            let proposal_id = args.get(1)?.clone();
+            Some(json!({
+                "op": "apply",
+                "proposal_id": proposal_id,
+                "provider": "lmstudio",
+                "loopback": true
+            }))
+        }
+        _ => None,
+    }
+}
+
+fn print_help() {
+    println!(r#"Engram / Local Memory Fabric CLI (v{})
+Universal, zero-dependency, ultra-fast local memory engine.
+
+USAGE:
+    engram <COMMAND> [OPTIONS]
+
+COMMANDS:
+    status                          Show index status, doc counts, and security alarms
+    index [--force]                 Index or incrementally reindex Markdown files
+    search <QUERY> [OPTIONS]        Lexical BM25 & semantic search across memory
+        --scope <SCOPE>                 Scope filter: all (default), user, invariants, projects, etc.
+        --limit <N>                     Max results to return (default: 5)
+        --as-of <TIMESTAMP>             Temporal boundary filter
+    context <QUERY> [OPTIONS]       Assemble token-bounded context packet for LLM injection
+        --project <SLUG>                Filter by project slug
+        --token-budget <TOKENS>         Token budget (default: 1200)
+    read <PATH> [--heading <H>]     Read Markdown document or specific heading
+    sections <PATH>                 List outline AST sections with line bounds
+    propose <PATH> <CONTENT>        Propose a memory modification
+    apply <PROPOSAL_ID>             Apply an approved memory proposal
+    compact                         Autonomous invariant consolidation & distillation
+    symbiosis <QUERY> [FILE]        Code-to-memory symbiosis with buffer proximity reranking
+    audit                           Audit memory health: contradictions, staleness, broken links
+    alarms                          List active secret/credential alarms
+    resolve <ALARM_ID>              Resolve a security alarm
+    help                            Show this help guide
+
+DAEMON / PROTOCOL MODES:
+    --mcp                           Run as Model Context Protocol (MCP) stdio server
+    --serve                         Run JSON-RPC stdio line-delimited stream
+    --shm [PATH]                    Run lock-free POSIX Shared Memory daemon (<5µs latency)
+    --socket [PATH]                 Run UNIX domain socket listener
+    --watch                         Watch vault directory and incrementally auto-reindex
+
+GLOBAL FLAGS:
+    -h, --help                      Show this help message
+"#, crate::paths::VERSION);
+}
+
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
+    if args.iter().any(|a| a == "--help" || a == "-h" || a == "help") {
+        print_help();
+        return;
+    }
     let result = if args.iter().any(|a| a == "--mcp") {
         serve_mcp().map(|_| 0)
     } else if args.iter().any(|a| a == "--serve") {
         serve().map(|_| 0)
+    } else if let Some(req) = parse_cli_subcommand(&args) {
+        (|| -> Result<i32, String> {
+            let fabric = MemoryFabric::new()?;
+            let response = dispatch(&fabric, &req)
+                .unwrap_or_else(|e| json_error(&crate::db::busy_message(&e, "dispatch")));
+            println!("{}", serde_json::to_string_pretty(&response).unwrap_or_default());
+            Ok(exit_code_for(&response))
+        })()
     } else if let Some(shm_idx) = args.iter().position(|a| a == "--shm") {
         let default_shm = PathBuf::from("/tmp/memory-fabric.shm");
         let path = args.get(shm_idx + 1)
@@ -576,6 +785,9 @@ fn main() {
         serve_socket(&path).map(|_| 0)
     } else if args.iter().any(|a| a == "--watch") {
         watch_loop().map(|_| 0)
+    } else if args.is_empty() && io::stdin().is_terminal() {
+        print_help();
+        Ok(0)
     } else {
         one_shot(args.iter().any(|a| a == "--quiet"))
     };

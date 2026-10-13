@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
@@ -244,7 +244,11 @@ function providerOf(ctx: { model?: { provider?: string; baseUrl?: string } }): s
 function insideVault(value: string, cwd: string): boolean {
 	const expanded = value.trim().replace(/^~(?=$|[/\\])/, homedir());
 	const target = resolve(cwd, expanded);
-	return target === VAULT_ROOT || target.startsWith(VAULT_ROOT + sep);
+	let realTarget = target;
+	try {
+		if (existsSync(target)) realTarget = realpathSync(target);
+	} catch {}
+	return realTarget === VAULT_ROOT || realTarget.startsWith(VAULT_ROOT + sep);
 }
 
 function inputTargetsVault(value: unknown, cwd: string, key = ""): boolean {

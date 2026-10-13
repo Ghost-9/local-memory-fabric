@@ -7,8 +7,10 @@ pub(crate) const DEFAULT_INCLUDE_DIRS: &[&str] = &[
     "company",
     "daily",
     "evidence",
+    "invariants",
     "pi-harness",
     "projects",
+    "user",
 ];
 pub(crate) const DEFAULT_INCLUDE_FILES: &[&str] =
     &["README.md", "ROADMAP.md", "STATUS.md", "Welcome.md"];

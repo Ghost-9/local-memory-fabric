@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-VERSION = "1.9.0"
+VERSION = "2.0.0"
 # Sandbox bounds. Tool output is the target: anything materially larger than a screenful is
 # refused rather than silently truncated, and the head returned with the handle stays small
 # because retrieving deliberately is the entire point.
@@ -26,7 +26,7 @@ SANDBOX_HEAD_CHARS = 480
 
 def sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
-DEFAULT_INCLUDE_DIRS = ["agents", "company", "daily", "evidence", "pi-harness", "projects"]
+DEFAULT_INCLUDE_DIRS = ["agents", "company", "daily", "evidence", "invariants", "pi-harness", "projects", "user"]
 DEFAULT_INCLUDE_FILES = ["README.md", "ROADMAP.md", "STATUS.md", "Welcome.md"]
 DEFAULT_EXCLUDED_DIRS = {".git", ".obsidian", ".trash", "archive", "archives", "templates", "apple-notes", "apple_notes", "notes-export", "notes_export"}
 STOPWORDS = set("a an and are as at be been being but by can could did do does for from had has have how i in into is it its may might of on or our should so than that the their then there these this those to was we were what when where which who why will with would you your".split())
