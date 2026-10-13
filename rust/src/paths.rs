@@ -3,7 +3,7 @@ use std::env;
 use std::fs::{self, OpenOptions};
 use std::path::{Component, Path, PathBuf};
 
-pub(crate) const VERSION: &str = "1.7.0";
+pub(crate) const VERSION: &str = "1.8.0";
 pub(crate) const MAX_REQUEST_BYTES: usize = 131_072;
 pub(crate) const MAX_RESULT_CHARS_DEFAULT: usize = 6_000;
 

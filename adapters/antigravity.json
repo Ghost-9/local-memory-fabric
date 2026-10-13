@@ -1,0 +1,20 @@
+{
+  "name": "local-memory-fabric",
+  "version": "1.8.0",
+  "description": "Deterministic local-first architectural memory fabric for Antigravity AI agents",
+  "mcpServers": {
+    "local-memory-fabric": {
+      "command": "python3",
+      "args": ["adapters/mcp.py"],
+      "env": {
+        "MEMORY_FABRIC_LOCAL_PROVIDER": "ollama",
+        "PI_MEMORY_LOCAL_PROVIDERS": "ollama,lmstudio,llama.cpp"
+      }
+    }
+  },
+  "capabilities": {
+    "kv_cache_preservation": true,
+    "line_anchored_citations": true,
+    "non_destructive_proposals": true
+  }
+}

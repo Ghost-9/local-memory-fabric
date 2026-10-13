@@ -147,8 +147,8 @@ flowchart TD
 | **#73** | Phase 2 Local Quantized Hybrid Retrieval (BM25 + all-MiniLM-L6-v2 + RRF-60) | 1.5.0 | enhancement, retrieval | Closed |  |
 | **#74** | Federated Cross-Worktree Multi-Vault Synchronization | 1.6.0 | enhancement | Closed |  |
 | **#75** | Autonomous Background Knowledge Distillation & Invariant Compactor | 1.7.0 | enhancement | Closed |  |
-| **#76** | Native Agent Adapter Matrix: T3 Code, Pi Agent, Antigravity, OpenCode & Codex | 1.8.0 | enhancement, integration | Open | Planned v1.8.0 |
-| **#77** | Agent Model-Context Protocol (MCP) Streamable Tool Surface with Zero-Bust KV Prefixes | 1.8.0 | enhancement, performance | Open | Planned v1.8.0 |
+| **#76** | Native Agent Adapter Matrix: T3 Code, Pi Agent, Antigravity, OpenCode & Codex | 1.8.0 | enhancement, integration | Closed |  |
+| **#77** | Agent Model-Context Protocol (MCP) Streamable Tool Surface with Zero-Bust KV Prefixes | 1.8.0 | enhancement, performance | Closed |  |
 | **#78** | Dual-Engine Memory-to-Code Symbiosis: fsearch Lexical Indexer + AST Memory Fabric | 1.9.0 | enhancement, retrieval | Open | Planned v1.9.0 |
 | **#79** | Masked Fuzzy Scoring & SIMD Bitset Intersection Engine for Instant AST Filter | 1.9.0 | performance, retrieval | Open | Planned v1.9.0 |
 
