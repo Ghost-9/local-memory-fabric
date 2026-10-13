@@ -379,6 +379,49 @@ export default function (pi: ExtensionAPI) {
 		description: "Explicit, local-only access to the approved Markdown memory index. No network calls; excerpts are returned only to a configured local model provider. Durable changes are proposals, never automatic writes.",
 	};
 
+	let statusInjected = false;
+	pi.on("before_agent_start", async (event, ctx) => {
+		if (!providerAllowed(ctx.model)) return;
+		const additions: string[] = [];
+
+		if (!statusInjected) {
+			statusInjected = true;
+			const statusPath = resolve(homedir(), "system-memory", "STATUS.md");
+			if (existsSync(statusPath)) {
+				try {
+					const body = readFileSync(statusPath, "utf8");
+					const open = [...body.matchAll(/^- \\[ \\]\\s+(.+)$/gm)].map((m) => m[1].trim()).slice(0, 8);
+					const done = [...body.matchAll(/^- \\[x\\]\\s+(.+)$/gim)].length;
+					if (open.length > 0) {
+						additions.push(`\n## Memory status (session start)\nOpen items (${open.length} shown, ${done} done): ${open.join("; ")}\nFull record: ~/system-memory/STATUS.md. Read with engram before asking.`);
+					}
+				} catch {}
+			}
+		}
+
+		const prompt = event.prompt ?? "";
+		if (prompt.length >= 24) {
+			try {
+				const searchRes = await callFabric({
+					op: "search",
+					query: prompt,
+					scope: "all",
+					limit: 3,
+					provider: providerOf(ctx),
+					loopback: isLoopbackModel(ctx.model),
+				});
+				const hits = Array.isArray(searchRes.results) ? searchRes.results : [];
+				if (hits.length > 0) {
+					additions.push(`\n## Memory has relevant notes\n${hits.map((h: any) => `[[${h.source_ref}]]`).join(" ")}\nRead these first via engram or view_file before re-deriving.`);
+				}
+			} catch {}
+		}
+
+		if (additions.length > 0) {
+			return { message: { customType: "vault-context", content: additions.join("\n") } };
+		}
+	});
+
 	pi.registerTool(defineTool({
 		name: "memory_fabric_context",
 		label: "Local Memory Context",
