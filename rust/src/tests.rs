@@ -187,3 +187,29 @@ fn shm_benchmark_throughput() {
     drop(client_mapping);
     let _ = std::fs::remove_file(&tmp);
 }
+
+
+#[test]
+fn test_semantic_quantized_vector_and_rrf() {
+    let v1 = crate::semantic::quantize_vector("prefix cache stability in LLM tokens");
+    let v2 = crate::semantic::quantize_vector("prefix cache stability in LLM tokens");
+    let v3 = crate::semantic::quantize_vector("completely unrelated cooking recipes soup");
+
+    let sim_same = crate::semantic::cosine_similarity(&v1, &v2);
+    let sim_diff = crate::semantic::cosine_similarity(&v1, &v3);
+
+    assert!((sim_same - 1.0).abs() < 1e-4, "identical text should have cosine sim ~ 1.0, got {}", sim_same);
+    assert!(sim_diff < 0.3, "unrelated text should have low cosine sim, got {}", sim_diff);
+
+    // Test RRF-60
+    let rrf_top = crate::semantic::rrf_score(1, 1);
+    let rrf_low = crate::semantic::rrf_score(10, 10);
+    assert!(rrf_top > rrf_low, "top ranks should yield higher RRF-60 score");
+    assert!((rrf_top - (1.0/61.0 + 1.0/61.0)).abs() < 1e-6);
+
+    let mut terms = std::collections::BTreeSet::new();
+    terms.insert("forgets".to_string());
+    let expanded = crate::semantic::expand_semantic_terms(&terms);
+    assert!(expanded.contains(&"prefix".to_string()));
+    assert!(expanded.contains(&"cache".to_string()));
+}

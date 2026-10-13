@@ -6,6 +6,7 @@ mod propose;
 mod retrieval;
 mod text;
 mod shm;
+mod semantic;
 
 #[cfg(test)]
 mod tests;

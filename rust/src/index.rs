@@ -216,12 +216,14 @@ impl MemoryFabric {
             }
             tx.execute("INSERT INTO documents(relpath,title,scope,classification,source_status,valid_from,valid_to,superseded_by,provider_policy,export_policy,body,content_hash,mtime_ns,indexed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'loopback_allowlist_only','deny_remote',?9,?10,?11,?12) ON CONFLICT(relpath) DO UPDATE SET title=excluded.title,scope=excluded.scope,classification=excluded.classification,source_status=excluded.source_status,valid_from=excluded.valid_from,valid_to=excluded.valid_to,superseded_by=excluded.superseded_by,provider_policy=excluded.provider_policy,export_policy=excluded.export_policy,body=excluded.body,content_hash=excluded.content_hash,mtime_ns=excluded.mtime_ns,indexed_at=excluded.indexed_at",
                 params![rel,title,scope,classification,status,valid_from,valid_to,superseded_by,text,digest,mtime_ns,now_utc()]).map_err(|e| e.to_string())?;
+            let slug_clean = rel.trim_end_matches(".md").replace('/', " ").replace('-', " ").replace('_', " ");
+            let full_headings = format!("{headings}\n{slug_clean}");
             tx.execute(
                 "INSERT INTO documents_fts(relpath,title,headings,body) VALUES(?1,?2,?3,?4)",
-                params![rel, title, headings, text],
+                params![rel, title, full_headings, text],
             )
             .map_err(|e| e.to_string())?;
-            let all_terms = tokenize(&format!("{title}\n{headings}\n{text}"));
+            let all_terms = tokenize(&format!("{title}\n{full_headings}\n{text}"));
             for term in all_terms {
                 tx.execute(
                     "INSERT OR IGNORE INTO doc_terms(relpath,term) VALUES(?1,?2)",

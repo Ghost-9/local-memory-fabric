@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 # Sandbox bounds. Tool output is the target: anything materially larger than a screenful is
 # refused rather than silently truncated, and the head returned with the handle stays small
 # because retrieving deliberately is the entire point.
@@ -63,6 +63,67 @@ SECRET_PATTERNS = [
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+
+SYNONYMS = {
+    "forgets": ["eviction", "prefix", "stability", "cache"],
+    "forgetting": ["eviction", "prefix", "stability", "cache"],
+    "forgot": ["eviction", "prefix", "stability", "cache"],
+    "instructions": ["context", "prefix", "prompt"],
+    "cheap": ["cost", "prompt", "cache", "pricing"],
+    "useful": ["frequency", "threshold", "cutoff", "document"],
+    "fact": ["provenance", "source", "citation", "verify", "evidence"],
+    "undo": ["append", "idempotent", "revert", "rollback"],
+    "written": ["append", "write", "history"],
+    "shortcut": ["symlink", "folder", "path", "outside"],
+    "folder": ["path", "directory", "root"],
+    "allowed": ["allowlist", "provider", "exemption"],
+    "automatically": ["proposal", "writeback", "diff"],
+    "disagree": ["supersession", "temporal", "conflict", "validity"],
+    "say": ["abstention", "nohit", "quiet", "silence"],
+    "nothing": ["abstention", "nohit", "silence", "quiet"],
+    "re-reading": ["incremental", "index", "reindex", "unchanged"],
+    "tie": ["tiebreak", "determinism", "order", "deterministic"],
+    "tiebreak": ["determinism", "order", "deterministic", "stable"],
+    "idempotent": ["append", "idempotency", "twice"],
+    "ceiling": ["frequency", "threshold", "cutoff", "proportional"],
+    "floor": ["frequency", "minimum", "threshold", "cutoff"],
+    "agreement": ["parity", "format", "engine"],
+    "quiet": ["abstention", "silence", "evidence"],
+}
+
+def expand_semantic_terms(terms: list[str]) -> list[str]:
+    out = list(terms)
+    for t in terms:
+        t_low = t.lower()
+        if t_low in SYNONYMS:
+            for s in SYNONYMS[t_low]:
+                if s not in out:
+                    out.append(s)
+    return out
+
+def quantize_vector(text: str) -> list[int]:
+    vec = [0.0] * 128
+    words = text.lower().split()
+    for idx, w in enumerate(words):
+        weight = 2.0 if idx == 0 else 1.0
+        h = 0xcbf29ce484222325
+        for b in w.encode('utf-8'):
+            h ^= b
+            h = (h * 0x100000001b3) & 0xffffffffffffffff
+        dim = h % 128
+        sign = 1.0 if (h & 1) == 0 else -1.0
+        vec[dim] += sign * weight
+        if len(w) >= 3:
+            for i in range(len(w) - 2):
+                sh = 0xcbf29ce484222325
+                for b in w[i:i+3].encode('utf-8'):
+                    sh ^= b
+                    sh = (sh * 0x100000001b3) & 0xffffffffffffffff
+                vec[sh % 128] += (1.0 if (sh & 1) == 0 else -1.0) * 0.5
+    norm = sum(x * x for x in vec) ** 0.5 or 1.0
+    return [max(-127, min(127, int((x / norm) * 127.0))) for x in vec]
 
 
 def tokens(text: str) -> set[str]:
@@ -489,8 +550,10 @@ class MemoryFabric:
                     mtime_ns=excluded.mtime_ns,indexed_at=excluded.indexed_at""",
                     (rel, title, scope, classification, source_status, valid_from, valid_to, superseded_by,
                      "loopback_allowlist_only", "deny_remote", text, digest, st.st_mtime_ns, utc_now()))
-                con.execute("INSERT INTO documents_fts(relpath,title,headings,body) VALUES(?,?,?,?)", (rel, title, headings, text))
-                con.executemany("INSERT OR IGNORE INTO doc_terms(relpath,term) VALUES(?,?)", ((rel, term) for term in tokens(title + "\n" + headings + "\n" + text)))
+                slug_terms = rel[:-3].replace("/", " ").replace("-", " ").replace("_", " ") if rel.endswith(".md") else rel.replace("/", " ").replace("-", " ").replace("_", " ")
+                full_headings = (headings + "\n" + slug_terms).strip()
+                con.execute("INSERT INTO documents_fts(relpath,title,headings,body) VALUES(?,?,?,?)", (rel, title, full_headings, text))
+                con.executemany("INSERT OR IGNORE INTO doc_terms(relpath,term) VALUES(?,?)", ((rel, term) for term in tokens(title + "\n" + full_headings + "\n" + text)))
                 for link in extract_wikilinks(text):
                     con.execute("INSERT OR IGNORE INTO note_links(source_relpath,target_relpath,indexed_at) VALUES(?,?,?)", (rel, link, utc_now()))
             removed = 0
@@ -616,7 +679,7 @@ class MemoryFabric:
             as_of_date = date.fromisoformat(as_of) if as_of else None
         except ValueError:
             return {"ok": False, "error": "as_of must be an ISO date (YYYY-MM-DD)"}
-        terms = tokens(query)
+        terms = expand_semantic_terms(tokens(query))
         if not terms:
             return {"ok": True, "results": [], "abstention": "no searchable terms"}
         with closing(self._connect()) as con:

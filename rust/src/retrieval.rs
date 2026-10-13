@@ -39,7 +39,8 @@ impl MemoryFabric {
             },
             None => None,
         };
-        let terms = tokenize(query);
+        let raw_terms = tokenize(query);
+        let terms = crate::semantic::expand_semantic_terms(&raw_terms);
         if terms.is_empty() {
             return Ok(json!({"ok":true,"results":[],"abstention":"no searchable terms"}));
         }

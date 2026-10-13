@@ -70,15 +70,15 @@ def run_engine(engine: str, cases, home: Path, vault: Path) -> dict:
 def is_hit(expected: list[str], refs: list[str]) -> bool:
     """Whether any returned ref satisfies any expected label.
 
-    `*filler*` is a wildcard: the 91 filler notes are identical apart from their entry number, so
+     is a wildcard: the 91 filler notes are identical apart from their entry number, so
     pinning one of them as "the" answer would be a fixture bug - any of them is equally correct.
     Labelling them with one arbitrary path made retrieval look worse than it was.
     """
+    import fnmatch
     for ref in refs:
         for exp in expected:
             if "*" in exp:
-                head = exp.split("*")[0]
-                if head and ref.startswith(head):
+                if fnmatch.fnmatch(ref, exp):
                     return True
             elif ref == exp:
                 return True
