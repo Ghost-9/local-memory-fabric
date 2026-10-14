@@ -155,21 +155,21 @@ pub(crate) fn secret_fingerprint(text: &str) -> Option<String> {
     None
 }
 
-
 /// Dynamic streaming Data Loss Prevention (DLP) scanner for outbound excerpts in remote mode.
 /// Redacts confidential tokens and credential strings in-place.
 pub(crate) fn sanitize_remote_excerpt(text: &str) -> String {
     let mut out = text.to_string();
-    let redact_patterns: [(&str, &str); 9] = [
+    let redact_patterns: [(&str, &str); 10] = [
         (r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----", "[REDACTED_PRIVATE_KEY]"),
-        (r"AKIA[0-9A-Z]{16}", "[REDACTED_AWS_KEY]"),
-        (r"(?:gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{30,})", "[REDACTED_GITHUB_TOKEN]"),
-        (r"xox[baprs]-[A-Za-z0-9-]{20,}", "[REDACTED_SLACK_TOKEN]"),
-        (r"(?:sk|rk)_live_[A-Za-z0-9]{16,}", "[REDACTED_STRIPE_KEY]"),
-        (r"AIza[0-9A-Za-z_-]{30,}", "[REDACTED_GOOGLE_KEY]"),
+        (r"\bAKIA[0-9A-Z]{16}\b", "[REDACTED_AWS_KEY]"),
+        (r"\b(?:gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{30,})\b", "[REDACTED_GITHUB_TOKEN]"),
+        (r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b", "[REDACTED_SLACK_TOKEN]"),
+        (r"\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b", "[REDACTED_STRIPE_KEY]"),
+        (r"\bAIza[0-9A-Za-z_-]{30,}\b", "[REDACTED_GOOGLE_KEY]"),
         (r"(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{20,}(?:$|[^A-Za-z0-9])", " [REDACTED_OPENAI_KEY] "),
-        (r"(?i)Bearer\s+[A-Za-z0-9._~+/-]{24,}={0,2}", "Bearer [REDACTED_BEARER_TOKEN]"),
-        (r"(?i)[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@", "protocol://[REDACTED_USER_PASS]@"),
+        (r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\b", "[REDACTED_JWT_TOKEN]"),
+        (r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{24,}={0,2}", "Bearer [REDACTED_BEARER_TOKEN]"),
+        (r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@", "protocol://[REDACTED_USER_PASS]@"),
     ];
 
     for (pat, replacement) in redact_patterns {

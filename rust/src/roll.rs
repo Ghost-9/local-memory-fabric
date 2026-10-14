@@ -15,7 +15,18 @@ impl MemoryRoller {
         max_lines: usize,
         dry_run: bool,
     ) -> Result<Value, String> {
-        let target_path = vault_path.join(rel_target);
+        let safe_rel = match crate::paths::safe_relpath(rel_target) {
+            Ok(r) => r,
+            Err(e) => return Ok(crate::text::json_error(&format!("unsafe target path: {}", e))),
+        };
+        let target_path = vault_path.join(&safe_rel);
+        if let Ok(canon_vault) = vault_path.canonicalize() {
+            if let Ok(canon_target) = target_path.canonicalize() {
+                if !canon_target.starts_with(&canon_vault) {
+                    return Ok(crate::text::json_error("target path escapes vault boundary"));
+                }
+            }
+        }
         if !target_path.exists() {
             return Ok(json!({
                 "ok": false,

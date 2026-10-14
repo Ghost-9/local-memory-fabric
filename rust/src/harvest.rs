@@ -43,6 +43,10 @@ impl SessionHarvester {
             fs::create_dir_all(&drafts_dir).map_err(|e| e.to_string())?;
             for (idx, draft) in candidates_found.iter().enumerate() {
                 let filename = format!("draft-{}-{}.md", crate::paths::now_utc().replace([':', '-'], "").replace('T', "_"), idx + 1);
+                let combined = format!("{} {}", draft["context"].as_str().unwrap_or(""), draft["proposal"].as_str().unwrap_or(""));
+                if crate::policy::secret_signature(&combined).is_some() {
+                    continue; // Skip staging potential credentials
+                }
                 let filepath = drafts_dir.join(&filename);
                 let content = format!(
                     "---\ntitle: \"{}\"\nscope: invariants\ntype: invariant_draft\nextracted_at: \"{}\"\nsource: \"{}\"\nstatus: draft\n---\n\n### Observation & Context\n{}\n\n### Invariant Rule Proposal\n{}\n",
@@ -89,6 +93,9 @@ impl SessionHarvester {
                 let role = val.get("role").or_else(|| val.get("source")).and_then(|v| v.as_str()).unwrap_or("");
                 let content = val.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
+                if crate::policy::secret_signature(content).is_some() {
+                    continue; // Skip any turn containing secret signatures
+                }
                 if role == "user" || role == "USER_EXPLICIT" {
                     // Detect corrections
                     let lower = content.to_lowercase();

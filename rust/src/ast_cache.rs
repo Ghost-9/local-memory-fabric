@@ -34,6 +34,11 @@ impl AstBinaryIndex {
         buf.extend_from_slice(&payload);
 
         fs::write(bin_path, buf).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(bin_path, fs::Permissions::from_mode(0o600));
+        }
 
         Ok(json!({
             "ok": true,
@@ -83,12 +88,18 @@ impl AstBinaryIndex {
         if !current.exists() || !current.is_dir() {
             return Ok(());
         }
+        let excluded = ["apple-notes", "notes_export", "templates", "archive", ".git", ".trash"];
         let entries = fs::read_dir(current).map_err(|e| e.to_string())?;
         for entry in entries.flatten() {
             let path = entry.path();
+            if let Ok(meta) = fs::symlink_metadata(&path) {
+                if meta.file_type().is_symlink() {
+                    continue;
+                }
+            }
             if path.is_dir() {
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if !name.starts_with('.') && name != "archive" {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+                if !name.starts_with('.') && !excluded.contains(&name.as_str()) {
                     Self::scan_and_parse(root, &path, acc)?;
                 }
             } else if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("md") {

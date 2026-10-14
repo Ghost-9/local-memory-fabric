@@ -178,12 +178,18 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
             req["provider"].as_str(),
         ),
                 "harvest" => {
+            if !fabric.is_local_provider(req["provider"].as_str()) {
+                return Ok(json!({ "ok": false, "blocked": "Harvest is restricted to authorized local providers." }));
+            }
             let session_path = req["session"].as_str().map(std::path::Path::new);
             let dry_run = req["dry_run"].as_bool().unwrap_or(false);
             crate::harvest::SessionHarvester::harvest_all(session_path, &fabric.vault, dry_run)
         }
         "check-conflicts" => crate::conflicts::ConflictDetector::scan_vault_conflicts(&fabric.vault),
         "roll" => {
+            if !fabric.is_local_provider(req["provider"].as_str()) {
+                return Ok(json!({ "ok": false, "blocked": "Roll is restricted to authorized local providers." }));
+            }
             let target = req["target"].as_str().unwrap_or("STATUS.md");
             let max_lines = req["max_lines"].as_u64().unwrap_or(500) as usize;
             let dry_run = req["dry_run"].as_bool().unwrap_or(false);
@@ -215,15 +221,24 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
             }
         }
         "scrub-secrets" => {
+            if !fabric.is_local_provider(req["provider"].as_str()) {
+                return Ok(json!({ "ok": false, "blocked": "Scrub-secrets is restricted to authorized local providers." }));
+            }
             let dry_run = req["dry_run"].as_bool().unwrap_or(false);
             crate::governance::GovernanceEngine::scrub_secrets_vault(&fabric.vault, dry_run)
         }
         "learn-preference" => {
+            if !fabric.is_local_provider(req["provider"].as_str()) {
+                return Ok(json!({ "ok": false, "blocked": "Learn-preference is restricted to authorized local providers." }));
+            }
             let txt = req["text"].as_str().unwrap_or("");
             let cat = req["category"].as_str();
             crate::governance::GovernanceEngine::learn_preference(&fabric.vault, txt, cat)
         }
         "sync" => {
+            if !fabric.is_local_provider(req["provider"].as_str()) {
+                return Ok(json!({ "ok": false, "blocked": "Sync is restricted to authorized local providers." }));
+            }
             let rem = req["remote"].as_str();
             let br = req["branch"].as_str();
             crate::governance::GovernanceEngine::vault_sync(&fabric.vault, rem, br)
@@ -790,7 +805,7 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
                     i += 1;
                 }
             }
-            let mut obj = json!({ "op": "harvest", "dry_run": dry_run });
+            let mut obj = json!({ "op": "harvest", "dry_run": dry_run, "provider": "lmstudio", "loopback": true });
             if let Some(s) = session { obj["session"] = json!(s); }
             Some(obj)
         }
@@ -814,7 +829,7 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
                     i += 1;
                 }
             }
-            Some(json!({ "op": "roll", "target": target, "max_lines": max_lines, "dry_run": dry_run }))
+            Some(json!({ "op": "roll", "target": target, "max_lines": max_lines, "dry_run": dry_run, "provider": "lmstudio", "loopback": true }))
         }
         "compile-ast" => Some(json!({ "op": "compile-ast" })),
         "sync-anchors" => {
@@ -831,7 +846,7 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
         }
         "scrub-secrets" => {
             let dry_run = args.iter().any(|a| a == "--dry-run");
-            Some(json!({ "op": "scrub-secrets", "dry_run": dry_run }))
+            Some(json!({ "op": "scrub-secrets", "dry_run": dry_run, "provider": "lmstudio", "loopback": true }))
         }
         "learn-preference" => {
             let text_val = args.get(1)?.clone();
@@ -845,7 +860,7 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
                     i += 1;
                 }
             }
-            let mut obj = json!({ "op": "learn-preference", "text": text_val });
+            let mut obj = json!({ "op": "learn-preference", "text": text_val, "provider": "lmstudio", "loopback": true });
             if let Some(c) = category { obj["category"] = json!(c); }
             Some(obj)
         }
@@ -864,7 +879,7 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
                     i += 1;
                 }
             }
-            let mut obj = json!({ "op": "sync" });
+            let mut obj = json!({ "op": "sync", "provider": "lmstudio", "loopback": true });
             if let Some(r) = remote { obj["remote"] = json!(r); }
             if let Some(b) = branch { obj["branch"] = json!(b); }
             Some(obj)

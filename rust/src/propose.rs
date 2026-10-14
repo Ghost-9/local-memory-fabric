@@ -436,7 +436,13 @@ pub(crate) fn proposal_show(&self, id: &str, provider: Option<&str>) -> Result<V
         if !self.is_local_provider(provider) {
             return Ok(json!({"ok": false, "blocked": "Proposal revert is available only to an explicitly allowed local model provider."}));
         }
+        if !regex(r"^[a-f0-9]{12}$").is_match(id) {
+            return Ok(json_error("invalid proposal id"));
+        }
         let path = self.proposals_path.join(format!("{id}.json"));
+        if path.is_symlink() {
+            return Ok(json_error("proposal path is unsafe"));
+        }
         if !path.exists() {
             return Ok(json_error("proposal not found"));
         }

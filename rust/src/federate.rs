@@ -235,8 +235,21 @@ impl MemoryFabric {
             }));
         }
 
-        let local_file = self.vault.join(relpath);
-        let peer_file = Path::new(peer_vault).join(relpath);
+        let safe_rel = match crate::paths::safe_relpath(relpath) {
+            Ok(r) => r,
+            Err(e) => return Ok(json_error(&format!("unsafe relpath: {e}"))),
+        };
+        let local_file = self.vault.join(&safe_rel);
+        let peer_file = Path::new(peer_vault).join(&safe_rel);
+        if let Ok(canon_vault) = self.vault.canonicalize() {
+            if local_file.exists() {
+                if let Ok(canon_local) = local_file.canonicalize() {
+                    if !canon_local.starts_with(&canon_vault) {
+                        return Ok(json_error("local target escapes vault boundary"));
+                    }
+                }
+            }
+        }
 
         if !peer_file.exists() {
             return Ok(json_error(&format!("peer file does not exist: {}", peer_file.display())));

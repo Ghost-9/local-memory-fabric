@@ -175,7 +175,7 @@ exit 0
         let now = crate::paths::now_utc();
         let content_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
 
-        let entry_payload = format!("{}:{}:{}:{}:{}:{}", index, now, op, target, author, prev_hash);
+        let entry_payload = format!("{}:{}:{}:{}:{}:{}:{}", index, now, op, target, author, prev_hash, content_hash);
         let entry_hash = format!("{:x}", Sha256::digest(entry_payload.as_bytes()));
 
         let record = json!({
@@ -193,11 +193,14 @@ exit 0
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
 
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_path)
-            .map_err(|e| e.to_string())?;
+        let mut opts = OpenOptions::new();
+        opts.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut file = opts.open(log_path).map_err(|e| e.to_string())?;
 
         writeln!(file, "{}", serde_json::to_string(&record).unwrap_or_default())
             .map_err(|e| e.to_string())?;
@@ -225,13 +228,24 @@ exit 0
             let current = val.get("hash").and_then(|s| s.as_str()).unwrap_or("");
             let index = val.get("index").and_then(|v| v.as_u64()).unwrap_or(0);
 
-            if prev != expected_prev || index != (idx as u64) {
+            let now = val.get("timestamp").and_then(|s| s.as_str()).unwrap_or("");
+            let op = val.get("op").and_then(|s| s.as_str()).unwrap_or("");
+            let target = val.get("target").and_then(|s| s.as_str()).unwrap_or("");
+            let author = val.get("author").and_then(|s| s.as_str()).unwrap_or("");
+            let content_hash = val.get("content_hash").and_then(|s| s.as_str()).unwrap_or("");
+
+            let entry_payload = format!("{}:{}:{}:{}:{}:{}:{}", index, now, op, target, author, prev, content_hash);
+            let computed_hash = format!("{:x}", Sha256::digest(entry_payload.as_bytes()));
+
+            if prev != expected_prev || index != (idx as u64) || computed_hash != current {
                 return Ok(json!({
                     "ok": false,
                     "tamper_detected": true,
                     "failed_at_index": idx,
                     "expected_prev": expected_prev,
-                    "actual_prev": prev
+                    "actual_prev": prev,
+                    "computed_hash": computed_hash,
+                    "actual_hash": current
                 }));
             }
 
@@ -465,12 +479,18 @@ exit 0
         if !dir.exists() || !dir.is_dir() {
             return;
         }
+        let excluded = ["apple-notes", "notes_export", "templates", "archive", ".git", ".trash"];
         if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
+                if let Ok(meta) = fs::symlink_metadata(&path) {
+                    if meta.file_type().is_symlink() {
+                        continue;
+                    }
+                }
                 if path.is_dir() {
-                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if !name.starts_with('.') {
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+                    if !name.starts_with('.') && !excluded.contains(&name.as_str()) {
                         Self::collect_md_files(&path, acc);
                     }
                 } else if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
