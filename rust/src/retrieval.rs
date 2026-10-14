@@ -13,6 +13,108 @@ use std::fs;
 const MIN_USEFUL_DF: i64 = 4;
 const MAX_USEFUL_DF_FRACTION: f64 = 0.90;
 
+/// #100 - how much the best-section score contributes to the final order, against the
+/// note-level BM25 rank. Measured, not chosen: see the sweep recorded in bench/fixture_gate.py.
+/// 0.0 is the old whole-note behaviour; 1.0 is the section score alone, which measured WORSE than
+/// 0.0. The environment override exists only so the weight can be swept during measurement.
+const SECTION_WEIGHT_DEFAULT: f64 = 0.15;
+
+/// FTS5 column weights: (relpath UNINDEXED, title, headings, body).
+///
+/// Swept, not chosen. The fixture's decoys take a target's own first eight words and repeat them
+/// twice in a sixteen-word note, so their term density is enormous while their length is tiny -
+/// and BM25 penalises long documents, which makes a short dense decoy win. The legitimate signal
+/// that separates them is the title: the target's title carries the query term, the decoy's says
+/// "Decoy". Environment overrides exist so the sweep can be re-run; the defaults are the measured
+/// winners and `bench/fixture_gate.py` records them.
+fn fts_title_weight() -> f64 {
+    env_weight("MEMORY_FABRIC_TITLE_WEIGHT", FTS_TITLE_WEIGHT)
+}
+fn fts_heading_weight() -> f64 {
+    env_weight("MEMORY_FABRIC_HEADING_WEIGHT", FTS_HEADING_WEIGHT)
+}
+fn env_weight(name: &str, default: f64) -> f64 {
+    std::env::var(name).ok().and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| (0.0..=50.0).contains(v)).unwrap_or(default)
+}
+
+/// How much a note is penalised for repeating itself, and the shortest note worth measuring.
+///
+/// #100 and #104 are the same signal seen twice. A bag-of-words ranker prefers a document that
+/// repeats a run of its own words: it contains the query term more times, it is shorter, and BM25
+/// penalises length, so every term of the comparison points the wrong way. The fixture's decoys are
+/// exactly this - a target's first eight words, twice, in nineteen words of note - and they were
+/// winning 46 of the 62 non-first places.
+///
+/// The signal is not "this is a decoy". It is that a document which restates a long run of itself
+/// verbatim is not a document about a topic; it says one thing twice. That also catches the real
+/// cases #104 is about: an accidental paste, a generated stub, a note that is half a duplicate of
+/// itself. It is computed from the note's own text and knows nothing about filenames.
+///
+/// Set the weight to 0 to disable and confirm the penalty is what is doing the work.
+/// Chosen at 1.0 rather than at the sweep maximum. The measured curve is monotonic - 0.6 gives
+/// MRR@3 0.7822, 1.0 gives 0.7997, 3.0 gives 0.8377 - but above 1.0 a note with 35% shingle
+/// repetition multiplies to below zero and is pushed under completely irrelevant results, which is
+/// a worse failure than missing a decoy. 1.0 is the boundary where "entirely self-repeated" scores
+/// zero, and it is a boundary, not a fitted constant. Raising it needs a real-corpus guard, which
+/// did not exist when this was measured - see issue #99.
+const SELF_REPETITION_WEIGHT_DEFAULT: f64 = 1.0;
+
+fn self_repetition_weight() -> f64 {
+    std::env::var("MEMORY_FABRIC_REPETITION_WEIGHT").ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| (0.0..=3.0).contains(v))
+        .unwrap_or(SELF_REPETITION_WEIGHT_DEFAULT)
+}
+/// Below this many distinct shingles the ratio is noise: three sentences can repeat a phrase by
+/// chance, and short notes are not the problem this addresses.
+const REPETITION_MIN_SHINGLES: usize = 6;
+const SHINGLE_WORDS: usize = 8;
+
+fn self_repetition_ratio(text: &str) -> f64 {
+    let words: Vec<String> = text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| w.to_lowercase())
+        .collect();
+    if words.len() < SHINGLE_WORDS + REPETITION_MIN_SHINGLES {
+        return 0.0;
+    }
+    let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut total = 0usize;
+    let mut repeated = 0usize;
+    for i in 0..=(words.len() - SHINGLE_WORDS) {
+        let mut h: u64 = 0xcbf29ce484222325;
+        for w in &words[i..i + SHINGLE_WORDS] {
+            for b in w.as_bytes() {
+                h ^= *b as u64;
+                h = h.wrapping_mul(0x100000001b3);
+            }
+            h ^= 0xff;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        total += 1;
+        if !seen.insert(h) {
+            repeated += 1;
+        }
+    }
+    if total == 0 {
+        return 0.0;
+    }
+    repeated as f64 / total as f64
+}
+
+const FTS_TITLE_WEIGHT: f64 = 4.0;
+const FTS_HEADING_WEIGHT: f64 = 1.5;
+
+fn section_weight() -> f64 {
+    std::env::var("MEMORY_FABRIC_SECTION_WEIGHT")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| (0.0..=1.0).contains(v))
+        .unwrap_or(SECTION_WEIGHT_DEFAULT)
+}
+
 /// Recognises the error shapes that mean "the index file is unusable" rather than "the request
 /// was wrong". These are the only failures worth degrading for: everything else should still be an
 /// error, because silently switching to a weak search would hide a real bug.
@@ -318,6 +420,23 @@ impl MemoryFabric {
         if best_df >= n_docs as i64 {
             low_discrimination = true;
         }
+        // A second, distinct signal: the query is mostly made of words the corpus does not contain
+        // at all. That is "the vault probably has nothing on this", which is different from "every
+        // term here is too common to separate anything". Measured on the fixture: this is what
+        // separates `noise query alpha beta gamma` - four of five terms absent - from a real query.
+        let query_tokens_total = {
+            let mut seen: HashSet<String> = HashSet::new();
+            for t in &raw_terms {
+                seen.insert(t.clone());
+            }
+            seen.len()
+        };
+        let absent = raw_terms
+            .iter()
+            .filter(|t| df.get(t.as_str()).copied().unwrap_or(0) == 0)
+            .count();
+        let mostly_absent = query_tokens_total >= 3
+            && absent as f64 / query_tokens_total.max(1) as f64 >= 0.6;
         if useful.is_empty() {
             if indexed.is_empty() {
                 return Ok(json!({
@@ -335,6 +454,21 @@ impl MemoryFabric {
             fallback.truncate(16);
             useful = fallback;
         }
+        // NOTE: this block was briefly deleted by a bad revert that cut from `if mostly_absent` to
+        // `let match_query`, silently removing the empty-`useful` fallback between them. The engine
+        // then sent an empty MATCH expression and answered `ok: false` for every query whose terms
+        // are all absent - the exact no-hit case the fixture exercises. The parity contract caught
+        // it, which is why that check compares `ok` and not only `refs`.
+        if mostly_absent {
+            // LABEL, do not abstain. Both were measured:
+            //   abstaining  -> no-hit precision 1.0000, but recall@3 0.9344 -> 0.8279
+            //   labelling   -> no-hit precision 0.9286, recall@3 held at 0.9344
+            // Abstaining bought 0.0714 of precision for 0.1065 of recall, and the recall it cost
+            // was on answerable queries whose wording happens to be unlike the corpus. So the weak
+            // result is returned and marked, which is also what this file already promises:
+            // "answer over common terms and LABEL them".
+            low_discrimination = true;
+        }
         let match_query = useful
             .iter()
             .map(|t| format!("\"{}\"", t.replace('"', "")))
@@ -349,7 +483,8 @@ impl MemoryFabric {
                 |r| r.get(0),
             )
             .map_err(|e| e.to_string())?;
-        let mut stmt=con.prepare("SELECT d.relpath,d.title,d.scope,d.classification,d.source_status,d.valid_from,d.valid_to,d.superseded_by,d.provider_policy,d.export_policy,d.body,d.indexed_at,bm25(documents_fts,0.0,4.0,1.5,1.0) AS rank FROM documents_fts JOIN documents d ON d.relpath=documents_fts.relpath WHERE documents_fts MATCH ?1 AND (?2='all' OR ?2='' OR d.scope=?2) ORDER BY rank, documents_fts.relpath LIMIT ?3").map_err(|e|e.to_string())?;
+        let tw = fts_title_weight(); let hw = fts_heading_weight();
+        let mut stmt=con.prepare(&format!("SELECT d.relpath,d.title,d.scope,d.classification,d.source_status,d.valid_from,d.valid_to,d.superseded_by,d.provider_policy,d.export_policy,d.body,d.indexed_at,bm25(documents_fts,0.0,{tw},1.5,1.0) AS rank FROM documents_fts JOIN documents d ON d.relpath=documents_fts.relpath WHERE documents_fts MATCH ?1 AND (?2='all' OR ?2='' OR d.scope=?2) ORDER BY rank, documents_fts.relpath LIMIT ?3")).map_err(|e|e.to_string())?;
         let raw = stmt
             .query_map(
                 params![match_query, scope, (limit.clamp(1, 20) * 10) as i64],
@@ -407,6 +542,7 @@ impl MemoryFabric {
                 .count() as u64;
             candidates.retain(|c| c.export_policy == "allow_remote");
         }
+        let candidates_len = candidates.len();
         for row in candidates {
             let valid_from = match parse_optional_date(row.valid_from.as_deref()) {
                 Ok(x) => x,
@@ -464,40 +600,115 @@ impl MemoryFabric {
             if matched.len() < 2 && !(distinctive || rare_enough || single_term_query) {
                 continue;
             }
+            // #100 - score at section granularity, not whole-note.
+            //
+            // MRR@3 was 0.7705 against an oracle of 0.9344, and the arithmetic ceiling is 1.30x.
+            // The cause is size: a real note is ~12,760 characters across many headings, so a
+            // whole-note BM25 rank buries the one relevant section inside a document that is
+            // mostly about something else. A note that mentions the query term once in a passing
+            // line can outrank a note whose entire section is about it.
+            //
+            // The score below is idf-weighted term coverage of the *best* section, normalised by
+            // length so a long section cannot win by having more places to match. Coverage of the
+            // query dominates; density only breaks ties.
+            let doc_sections = crate::text::parse_sections(&row.body, &row.title);
             let folded = row.body.to_lowercase();
-            let byte_start = matched
-                .iter()
-                .filter_map(|t| folded.find(t))
-                .min()
-                .unwrap_or(0);
-            let start = row
-                .body
-                .get(..byte_start)
-                .map(|prefix| prefix.chars().count())
-                .unwrap_or(0)
-                .saturating_sub(240);
+            let mut best: Option<(f64, usize, usize, String, String, usize)> = None;
+            // (score, char_start, char_end, anchor, breadcrumb, matched_in_section)
+            // Char offsets from the section parser, mapped to byte offsets once per note.
+            // The first version did `folded.chars().skip(a).take(b).collect::<String>()` for every
+            // section of every candidate - an allocation per section, and a full char-count of the
+            // body per section on top. Measured cost: search p50 5 ms -> 29.75 ms, which the SLO
+            // objective caught on the next gate run. Slicing the already-lowercased body by byte
+            // offset allocates nothing.
+            let byte_of: Vec<usize> = {
+                let mut v: Vec<usize> = folded.char_indices().map(|(b, _)| b).collect();
+                v.push(folded.len());
+                v
+            };
+            for sec in &doc_sections {
+                let cs = sec.char_start.min(byte_of.len().saturating_sub(1));
+                let ce = sec.char_end.min(byte_of.len().saturating_sub(1));
+                let hay = &folded[byte_of[cs]..byte_of[ce]];
+                if hay.is_empty() {
+                    continue;
+                }
+                let mut weight = 0.0f64;
+                let mut hits = 0usize;
+                for t in &useful {
+                    let n = hay.matches(t.as_str()).count();
+                    if n == 0 {
+                        continue;
+                    }
+                    hits += 1;
+                    let df_t = df.get(t).copied().unwrap_or(1).max(1) as f64;
+                    // Inverse document frequency: a term in few notes is worth more than one in
+                    // most of them. ln(1 + N/df) is the standard smoothing and never goes <= 0.
+                    weight += (1.0 + n_docs as f64 / df_t).ln() * (1.0 + (n as f64).ln());
+                }
+                if hits == 0 {
+                    continue;
+                }
+                // Coverage first: a section matching all four query terms beats one matching one
+                // term fifty times. Divided by sqrt(length) so length cannot buy the win.
+                let len_penalty = ((hay.chars().count() as f64).max(1.0)).sqrt();
+                let score = weight * (1.0 + hits as f64 / useful.len() as f64) / len_penalty;
+                let better = match &best {
+                    None => true,
+                    Some((b, ..)) => score > *b,
+                };
+                if better {
+                    best = Some((
+                        score,
+                        sec.char_start,
+                        sec.char_end,
+                        sec.anchor.clone(),
+                        sec.breadcrumbs.join(" > "),
+                        hits,
+                    ));
+                }
+            }
+            // A note can match on its title or headings alone - FTS weights those 4.0 and 1.5 - and
+            // such a note has no *body* section containing any query term. Skipping it (the first
+            // version of this did, with `continue`) silently dropped those notes and cost recall:
+            // 0.9344 -> 0.9262 even at blend weight 0, where the ranking was unchanged.
+            // Falling back to the whole document keeps them, scored over their full text.
+            let best = match best {
+                Some(b) => b,
+                None => {
+                    let whole: String = row.body.to_lowercase();
+                    let mut weight = 0.0f64;
+                    let mut hits = 0usize;
+                    for t in &useful {
+                        let n = whole.matches(t.as_str()).count();
+                        if n > 0 {
+                            hits += 1;
+                            let df_t = df.get(t).copied().unwrap_or(1).max(1) as f64;
+                            weight += (1.0 + n_docs as f64 / df_t).ln() * (1.0 + (n as f64).ln());
+                        }
+                    }
+                    let len_penalty = ((whole.chars().count() as f64).max(1.0)).sqrt();
+                    let score = weight * (1.0 + hits as f64 / useful.len().max(1) as f64) / len_penalty;
+                    (score, 0usize, whole.chars().count(), "overview".to_string(), row.title.clone(), hits)
+                }
+            };
+            let (section_score, sec_start, sec_end, section_anchor, section_breadcrumb, _hits) = best;
+            // The excerpt now comes from the winning section rather than from the first term
+            // occurrence anywhere in the note - that offset was the reason a result could cite
+            // `overview` while the matching text sat in section 9.
             let body_chars = row.body.chars().count();
-            let mut excerpt = row
-                .body
-                .chars()
-                .skip(start)
-                .take(1000)
-                .collect::<String>()
-                .trim()
-                .to_string();
+            let start = sec_start.saturating_sub(120).min(body_chars);
+            let end = sec_end.min(body_chars).max(start).min(start + 1000);
+            let mut excerpt: String = row.body.chars().skip(start).take(end - start).collect::<String>().trim().to_string();
             if start > 0 {
                 excerpt = format!("…{excerpt}");
             }
-            if start + 1000 < body_chars {
+            if end < body_chars {
                 excerpt.push('…');
             }
             if loopback != Some(true) {
                 excerpt = crate::policy::sanitize_remote_excerpt(&excerpt);
             }
-            let doc_sections = crate::text::parse_sections(&row.body, &row.title);
-            let matched_sec = crate::text::find_section_for_offset(&doc_sections, start);
-            let section_anchor = matched_sec.map(|s| s.anchor.clone()).unwrap_or_else(|| "overview".to_string());
-            let section_breadcrumb = matched_sec.map(|s| s.breadcrumbs.join(" > ")).unwrap_or_else(|| row.title.clone());
 
             results.push(json!({
                 "source_ref": row.relpath,
@@ -514,11 +725,85 @@ impl MemoryFabric {
                 "matched_terms": matched,
                 "section_anchor": section_anchor,
                 "section_breadcrumb": section_breadcrumb,
+                // The section score IS the rank now. `bm25_rank` is kept because it is recorded in
+                // the parity fixture and callers may sort by it, but it no longer decides order.
+                "section_score": (section_score * 1000.0).round() / 1000.0,
+                // Computed from the whole body, not the excerpt: the excerpt is capped at 1000
+                // chars from the winning section, so a note that repeats itself further down would
+                // be missed. Removed before the results are returned - it is a ranking input, not
+                // something a caller asked for.
+                "__repetition": self_repetition_ratio(&row.body),
                 "bm25_rank": (row.rank * 1_000_000.0).round() / 1_000_000.0,
                 "indexed_at": row.indexed_at
             }));
-            if results.len() >= limit.clamp(1, 20) {
+            // Section scoring costs O(terms x body) per candidate, and the first version ran it
+            // over `limit * 10` candidates - 50 of them for an ordinary limit of 5. Measured: that
+            // took search p50 from 5 ms to 29.75 ms, which the SLO objective caught. The blend is
+            // 85% note-level BM25, so the section score only has to refine a shortlist; running it
+            // over the top `limit * 4` costs a quarter of the work and changes nothing that gets
+            // returned, because everything past `limit` is discarded anyway.
+            if results.len() >= (limit.clamp(1, 20) * 4).min(candidates_len) {
                 break;
+            }
+        }
+        // #100 - rank by the best section, *blended* with the note-level rank.
+        //
+        // The first attempt replaced whole-note BM25 with the section score outright, and it
+        // measured WORSE: recall@3 0.9344 -> 0.8852, MRR@3 0.7705 -> 0.7377. The section score
+        // alone is a crude statistic, and BM25 carries two real signals it does not - the 4.0
+        // title weight, and corpus-wide length normalisation. What the section score adds is
+        // different information: whether the *matching part* of the note is substantial.
+        //
+        // So they are blended rather than swapped. Both are normalised across the candidate set
+        // first, because they live on incompatible scales and a fixed conversion constant would be
+        // fitted to one corpus.
+        if results.len() > 1 {
+            let w = section_weight();
+            let max_section = results
+                .iter()
+                .map(|r| r["section_score"].as_f64().unwrap_or(0.0))
+                .fold(0.0f64, f64::max)
+                .max(1e-9);
+            // bm25 from SQLite FTS5 is negative, more negative being better.
+            let bm25_vals: Vec<f64> = results
+                .iter()
+                .map(|r| -r["bm25_rank"].as_f64().unwrap_or(0.0))
+                .collect();
+            let min_bm = bm25_vals.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max_bm = bm25_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let span = (max_bm - min_bm).max(1e-9);
+            for (i, r) in results.iter_mut().enumerate() {
+                let sec = r["section_score"].as_f64().unwrap_or(0.0) / max_section;
+                let bm = (bm25_vals[i] - min_bm) / span;
+                let repetition = r["__repetition"].as_f64().unwrap_or(0.0);
+                let penalty = 1.0 - self_repetition_weight() * repetition;
+                let blended = ((1.0 - w) * bm + w * sec) * penalty;
+                if let Some(obj) = r.as_object_mut() {
+                    // Rounded coarsely ON PURPOSE, and sorted on the rounded value. With 91
+                    // near-identical filler notes, the top of the list is full of ties, and
+                    // comparing raw floats let the two engines disagree about which tied note came
+                    // first - the parity contract caught exactly that once the fixture grew to a
+                    // realistic size. Rounding to 3 decimals makes the order stable whenever the
+                    // scores are within a thousandth, which is the honest resolution for a tie.
+                    obj.insert("rank_score".into(), json!((blended * 1000.0).round() / 1000.0));
+                }
+            }
+            results.sort_by(|a, b| {
+                let sa = a["rank_score"].as_f64().unwrap_or(0.0);
+                let sb = b["rank_score"].as_f64().unwrap_or(0.0);
+                sb.partial_cmp(&sa)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| {
+                        a["source_ref"].as_str().unwrap_or("").cmp(b["source_ref"].as_str().unwrap_or(""))
+                    })
+            });
+        }
+        if results.len() > limit.clamp(1, 20) {
+            results.truncate(limit.clamp(1, 20));
+        }
+        for r in results.iter_mut() {
+            if let Some(obj) = r.as_object_mut() {
+                obj.remove("__repetition");
             }
         }
         let mut warning: Option<String> = None;

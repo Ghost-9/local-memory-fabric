@@ -263,21 +263,85 @@ CASES: list[tuple[str, str, str]] = [
 ]
 
 
+# #99 - the fixture used to be ~181 bytes of body per note against the real corpus's ~13,151, so
+# every capacity, ranking and cost number derived from it was optimistic by one to two orders of
+# magnitude. Padding brings it inside the 2x band the issue asks for.
+#
+# The padding is deliberately VARIED rather than a repeated block: repeating one paragraph would
+# make every note self-similar, and the ranking now demotes self-repeating text (the same signal
+# that catches an accidental paste). A fixture that trips its own quality penalty would measure
+# the wrong thing. Each line carries a distinct number, so the 8-word shingles differ throughout.
+PAD_TARGET_BYTES = 13_000
+# The vocabulary is invented rather than English. Two reasons: an invented lexicon can never
+# collide with a query term and silently change document frequency, and it can be sized on purpose.
+# The distribution is Zipf-ish - a small head of frequent roots and a long tail - because a corpus
+# where every word appeared exactly once would give every term df 1 and make BM25 behave nothing
+# like it does on prose.
+_PAD_ROOTS = tuple(
+    f"{a}{b}" for a in ("cor", "vel", "tan", "mir", "lop", "fen", "dal", "rus", "kin", "wob",
+                        "zep", "quar", "nib", "hax", "pel", "jor", "vex", "lum", "gath", "sern",
+                        "brim", "cade", "durn", "flet", "gorm", "hurn", "kest", "lorn", "marn",
+                        "nurl", "obex", "prad", "quim", "rist", "sarn", "turl", "ulkan", "vurn",
+                        "wex", "yarn")
+    for b in ("is", "or", "un", "ate", "ive", "ent", "al", "ic", "um", "ax",
+              "ery", "oid", "ance", "ish", "ment", "ure", "ade", "osis", "able", "esce")
+)
+# No English words. A padding word that collides with a query term silently changes document
+# frequency and can make 91 filler notes match a query that was meant to hit one real note.
+_PAD_TAIL = ("zubris", "quonal", "vexim", "tarnel", "ruskit", "nibard", "lorvex", "peldun")
+
+
+def _pad_word(i: int) -> str:
+    """Deterministic root choice with a heavy head: i % 7 gives the head most of the mass."""
+    j = i % 7
+    if j < 4:
+        return _PAD_ROOTS[i % 60]
+    return _PAD_ROOTS[(i * 31 + j * 17) % len(_PAD_ROOTS)]
+
+
+def _padding(seed: int, target: int) -> str:
+    """Deterministic neutral filler of roughly `target` bytes.
+
+    Varied line by line so no 8-word shingle repeats: the ranking demotes self-repeating text (the
+    signal that catches an accidental paste), and a fixture that tripped its own quality penalty
+    would be measuring the wrong thing.
+    """
+    out: list[str] = []
+    size = 0
+    line = 0
+    while size < target:
+        line += 1
+        words = [_pad_word(seed * 7919 + line * 13 + k) for k in range(16)]
+        words.append(_PAD_TAIL[(seed * 3 + line) % len(_PAD_TAIL)])
+        words.append(str(seed * 1000 + line))
+        row = " ".join(words)
+        out.append(row)
+        size += len(row) + 2
+    return "\n\n".join(out)
+
+
 def create(root: Path) -> list[dict[str, object]]:
     projects = root / "projects"
     projects.mkdir(parents=True, exist_ok=True)
-    for slug, title, body in NOTES:
-        (projects / f"{slug}.md").write_text(f"# {title}\n\n{body}\n", encoding="utf-8")
+    for i, (slug, title, body) in enumerate(NOTES):
+        pad = _padding(i + 1, max(0, PAD_TARGET_BYTES - len(body)))
+        (projects / f"{slug}.md").write_text(f"# {title}\n\n{body}\n\n{pad}\n", encoding="utf-8")
     # Decoys reuse each target's own vocabulary so frequency alone ranks them competitively.
     for slug, _title, body in NOTES:
         words = body.split()
         decoy = " ".join(words[:8] + words[:8])
+        # Decoys are NOT padded. Their whole point is to be a short dense copy of a target's
+        # opening words; making them note-sized would remove the property under test.
         (projects / f"decoy-{slug}.md").write_text(f"# Decoy {slug}\n\n{decoy}\n", encoding="utf-8")
     filler = projects / "filler"
     filler.mkdir(parents=True, exist_ok=True)
     for i in range(91):
+        # Padded too. These are 91 of the 139 documents, so leaving them tiny would hold the
+        # average body size down regardless of how large the hand-written notes are - which is
+        # exactly how the fixture ended up 72x smaller than the corpus it stands in for.
+        pad = _padding(500 + i, PAD_TARGET_BYTES)
         (filler / f"note-{i:03}.md").write_text(
-            f"# Synthetic filler note {i:03}\n\n{FILLER} Entry {i:03}.\n", encoding="utf-8")
+            f"# Synthetic filler note {i:03}\n\n{FILLER} Entry {i:03}.\n\n{pad}\n", encoding="utf-8")
     return [{"query": q, "expected": [e] if e else [], "kind": k} for q, e, k in CASES]
 
 

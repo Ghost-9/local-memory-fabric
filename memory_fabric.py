@@ -6,6 +6,7 @@ import argparse
 import difflib
 import hashlib
 import json
+import math
 import os
 import re
 import sqlite3
@@ -169,6 +170,122 @@ def extract_wikilinks(text: str) -> list[str]:
     matches = re.findall(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]", text)
     cleaned = sorted({m.strip() for m in matches if m.strip()})
     return cleaned
+
+def _section_spans(body: str) -> list[tuple[int, int]]:
+    """Character spans of the note's sections, in order.
+
+    Mirrors the Rust `parse_sections`, reduced to what ranking needs. Python returns no section
+    anchors from search, so this exists only for the score - and it must agree with Rust on the
+    ORDER that score produces, because the recorded retrieval contract compares ref order.
+    """
+    spans: list[tuple[int, int]] = []
+    heading_re = re.compile(r"^(#{1,6})\s+(.+?)\s*#*$", re.MULTILINE)
+    starts = [m.start() for m in heading_re.finditer(body)]
+    if not starts or starts[0] != 0:
+        starts = [0] + starts
+    for i, start in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else len(body)
+        spans.append((start, end))
+    return spans
+
+
+_SHINGLE = 8
+_REP_MIN_SHINGLES = 6
+
+
+def _self_repetition_ratio(text: str) -> float:
+    """#100/#104 - how much of the note is a verbatim repeat of itself.
+
+    Ported from Rust for the same reason the ranking was: the recorded contract compares ref order,
+    and if only one engine demoted self-repeating notes the two would disagree on every decoy.
+    """
+    words = [w for w in re.split(r"[^0-9A-Za-z]+", text.casefold()) if w]
+    if len(words) < _SHINGLE + _REP_MIN_SHINGLES:
+        return 0.0
+    seen: set[tuple[str, ...]] = set()
+    total = 0
+    repeated = 0
+    for i in range(len(words) - _SHINGLE + 1):
+        gram = tuple(words[i:i + _SHINGLE])
+        total += 1
+        if gram in seen:
+            repeated += 1
+        else:
+            seen.add(gram)
+    return repeated / total if total else 0.0
+
+
+def _section_weight() -> float:
+    return _env_float("MEMORY_FABRIC_SECTION_WEIGHT", 0.15, 0.0, 1.0)
+
+
+def _repetition_weight() -> float:
+    return _env_float("MEMORY_FABRIC_REPETITION_WEIGHT", 1.0, 0.0, 3.0)
+
+
+def _env_float(name: str, default: float, low: float, high: float) -> float:
+    try:
+        value = float(os.environ.get(name, ""))
+    except (TypeError, ValueError):
+        return default
+    return value if low <= value <= high else default
+
+
+def rank_results(results: list[dict[str, Any]], useful: list[str], df: dict[str, int],
+                 n_docs: int, bodies: dict[str, str], limit: int) -> list[dict[str, Any]]:
+    """#100 - rank by the best matching section, blended with note-level BM25.
+
+    Replacing BM25 with the section score outright measured WORSE (recall@3 0.9344 -> 0.8852),
+    because BM25 carries the 4.0 title weight and corpus length normalisation. They are blended:
+    the section score adds whether the *matching part* of the note is substantial, which BM25
+    cannot see inside a 12,760-character document.
+
+    A self-repetition penalty is applied on top. It is not decoy-detection: a document that
+    restates a long run of itself verbatim is not a document about a topic, and the same signal
+    catches a real accidental paste.
+    """
+    if len(results) <= 1:
+        return results[:max(1, min(int(limit), 20))]
+    w = _section_weight()
+    rw = _repetition_weight()
+    # --- section score: idf-weighted coverage of the best section, divided by sqrt(length) ---
+    section_scores: list[float] = []
+    for r in results:
+        body = bodies.get(r["source_ref"], "")
+        folded = body.casefold()
+        best = 0.0
+        for start, end in _section_spans(body):
+            hay = folded[start:end]
+            if not hay:
+                continue
+            weight = 0.0
+            hits = 0
+            for t in useful:
+                n = hay.count(t)
+                if not n:
+                    continue
+                hits += 1
+                weight += math.log(1.0 + n_docs / max(1, df.get(t, 1))) * (1.0 + math.log(n))
+            if not hits:
+                continue
+            score = weight * (1.0 + hits / max(1, len(useful))) / math.sqrt(max(1, len(hay)))
+            best = max(best, score)
+        section_scores.append(best)
+    max_section = max(section_scores) or 1e-9
+    bm_vals = [-float(r.get("bm25_rank") or 0.0) for r in results]
+    lo, hi = min(bm_vals), max(bm_vals)
+    span = (hi - lo) or 1e-9
+    for i, r in enumerate(results):
+        sec = section_scores[i] / max_section
+        bm = (bm_vals[i] - lo) / span
+        penalty = 1.0 - rw * _self_repetition_ratio(bodies.get(r["source_ref"], ""))
+        # Rounded to 3 decimals to match the Rust engine: with many near-identical
+        # documents the top of the list is ties, and comparing raw floats let the two
+        # engines disagree about which tied note came first.
+        r["rank_score"] = round(((1.0 - w) * bm + w * sec) * penalty, 3)
+    results.sort(key=lambda r: (-float(r.get("rank_score") or 0.0), str(r.get("source_ref") or "")))
+    return results[:max(1, min(int(limit), 20))]
+
 
 def headings_for(text: str) -> str:
     return "\n".join(line.strip() for line in text.splitlines() if re.match(r"^#{1,6}\s+", line))
@@ -737,6 +854,14 @@ class MemoryFabric:
                             "abstention": "no indexed source contains these terms"}
                 low_discrimination = True
                 useful = sorted(indexed, key=lambda t: (df[t], -len(t), t))[:16]
+            # Mirror of the Rust signal: the query is mostly made of words the corpus does not
+            # contain at all, which is "the vault probably has nothing on this" rather than "every
+            # term is too common to separate anything". Labelled, not abstained: both were measured
+            # and abstaining reached no-hit precision 1.0000 only by dropping recall@3 to 0.8279.
+            query_tokens_total = len({t for t in terms})
+            absent = sum(1 for t in terms if df.get(t, 0) == 0)
+            if query_tokens_total >= 3 and absent / max(1, query_tokens_total) >= 0.6:
+                low_discrimination = True
             match_query = " OR ".join('"' + t.replace('"', '') + '"' for t in useful)
             where = ["documents_fts MATCH ?"]
             params: list[Any] = [match_query]
@@ -777,6 +902,7 @@ class MemoryFabric:
                     if str(row["export_policy"]) != "allow_remote":
                         withheld += 1
                 rows = [r for r in rows if str(r["export_policy"]) == "allow_remote"]
+            bodies_for_rank: dict[str, str] = {}
             for row in rows:
                 try:
                     valid_from = date.fromisoformat(row["valid_from"]) if row["valid_from"] else None
@@ -822,14 +948,22 @@ class MemoryFabric:
                     excerpt = "…" + excerpt
                 if start + 1000 < len(body):
                     excerpt += "…"
+                bodies_for_rank[row["relpath"]] = body
                 results.append({"source_ref": row["relpath"], "title": row["title"], "scope": row["scope"],
                     "classification": row["classification"], "source_status": row["source_status"],
                     "valid_from": row["valid_from"], "valid_to": row["valid_to"], "superseded_by": row["superseded_by"],
                     "provider_policy": row["provider_policy"], "export_policy": row["export_policy"],
                     "excerpt": excerpt, "matched_terms": matched,
                     "bm25_rank": round(float(row["rank"]), 6), "indexed_at": row["indexed_at"]})
-                if len(results) >= max(1, min(int(limit), 20)):
+                # limit*4, not *10: the section score costs O(terms x body) per candidate and only
+                # has to refine a shortlist. Measured on the Rust engine: limit*10 took search p50
+                # from 5 ms to 29.75 ms; limit*4 gives 12.98 ms with recall and MRR unchanged. The
+                # engines must agree on the candidate window or the recorded contract drifts.
+                if len(results) >= max(1, min(int(limit), 20)) * 4:
                     break
+            # #100 - rank here rather than in SQL, so the section score and the repetition penalty
+            # are applied to every candidate before the page is cut.
+            results = rank_results(results, useful, df, n_docs, bodies_for_rank, limit)
         warning = None
         for i, left in enumerate(results):
             for right in results[i + 1:]:

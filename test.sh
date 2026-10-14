@@ -6,22 +6,26 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-echo "== 1/19 python policy suite (security contract) =="
+echo "== 1/20 python policy suite (security contract) =="
 python3 test_memory_fabric.py
 
-echo "== 2/19 extension policy suite (read, scrub and write gates) =="
+echo "== 2/20 extension policy suite (read, scrub and write gates) =="
 node --experimental-strip-types --test remote-policy.test.ts
 # Engine breaker + respawn guard. These rules bound the cost of a broken engine: without them a
 # failed worker costs a spawn and a timeout on every turn, and the only way to check the fix was
 # to break a real engine and watch.
 node --experimental-strip-types --test engine-health.test.ts
+# #97/#105: the injected block must be byte-stable across turns or every cache prefix after the
+# first change is void. Detecting that needs an account that can be told a size and asked whether
+# it changed - which is why it is a module and not four variables inline.
+node --experimental-strip-types --test injection.test.ts
 
-echo "== 3/19 context scrub suite (what may leave the machine) =="
+echo "== 3/20 context scrub suite (what may leave the machine) =="
 # index.ts itself cannot be imported without the Pi runtime, which is why the scrub predicate
 # was extracted to scrub.ts: this suite is the first coverage that file ever had.
 node --experimental-strip-types --test scrub.test.ts
 
-echo "== 4/19 typescript parses (syntax; no type checker assumed present) =="
+echo "== 4/20 typescript parses (syntax; no type checker assumed present) =="
 node --input-type=module -e '
 import { stripTypeScriptTypes } from "node:module";
 import { readFileSync } from "node:fs";
@@ -33,18 +37,18 @@ for (const f of ["index.ts", "remote-policy.ts", "scrub.ts", "remote-policy.test
 process.exit(bad ? 1 : 0);
 '
 
-echo "== 5/19 rust unit tests =="
+echo "== 5/20 rust unit tests =="
 ( cd rust && cargo test --release --locked --quiet )
 
-echo "== 6/19 python/rust parity =="
+echo "== 6/20 python/rust parity =="
 python3 rust/tests/parity.py
 
-echo "== 7/19 retrieval determinism: identical request, identical bytes =="
+echo "== 7/20 retrieval determinism: identical request, identical bytes =="
 # A regression guard for the prefix cache, not a proof of tie ordering -- see the docstring in
 # bench/determinism.py for exactly what it can and cannot show.
 python3 bench/determinism.py
 
-echo "== 8/19 real-vault probe: the failure modes the synthetic corpus cannot see =="
+echo "== 8/20 real-vault probe: the failure modes the synthetic corpus cannot see =="
 # bench/recall.py scores 1.0 on a corpus generated from the terms it queries, so it cannot
 # detect the failures this vault actually had (over-abstention, camelCase, acronyms). This runs
 # the live vault read-only and fails if parity breaks. It reports, it does not assert a score -
@@ -61,7 +65,7 @@ else
   exit 1
 fi
 
-echo "== 9/19 gold fixture: >=100 queries, recall/MRR + no-hit precision =="
+echo "== 9/20 gold fixture: >=100 queries, recall/MRR + no-hit precision =="
 # bench/recall.py scores 1.0 on a corpus built from the terms it queries, so it cannot detect a
 # ranking regression. bench/fixture_score.py runs 136 hand-written cases over a corpus built to
 # BREAK retrieval: camelCase, two-letter acronyms, near-universal terms, paraphrase, and decoys
@@ -77,7 +81,7 @@ if ! python3 bench/fixture_score.py --json > /tmp/mf-fixture.json 2>/dev/null; t
 fi
 python3 bench/fixture_gate.py /tmp/mf-fixture.json
 
-echo "== 10/19 benchmark harness: recall/MRR + exit-code taxonomy =="
+echo "== 10/20 benchmark harness: recall/MRR + exit-code taxonomy =="
 # Fastest signal that retrieval quality or the exit-code contract regressed. Fails on
 # recall@5 drift, any non-ok response, or an exit code the taxonomy does not promise.
 python3 bench/recall.py | python3 -c 'import json,sys; r=json.load(sys.stdin); bad=[]; \
@@ -91,26 +95,26 @@ print("  recall@5", r.get("python_recall_at_5"), "/", r.get("rust_recall_at_5"),
       "| exit mismatches", r.get("python_spawn_exit_mismatches")); \
 sys.exit("GATE: benchmark harness regression: " + ",".join(bad) if bad else 0)'
 
-echo "== 11/19 agent adapters (the first-class agent surface) =="
+echo "== 11/20 agent adapters (the first-class agent surface) =="
 # adapters/ is the whole supported-agent surface - mcp.py, t3_code.py and the IDE JSON
 # configs - and it had six passing tests that this gate never ran. Breaking every adapter
 # left all steps green.
 python3 test_adapters.py || { echo "  GATE FAILURE: an adapter is broken" >&2; exit 1; }
 
-echo "== 12/19 cold-path A/B smoke (does the harness run and do both arms answer?) =="
+echo "== 12/20 cold-path A/B smoke (does the harness run and do both arms answer?) =="
 # No latency threshold on purpose: wall-clock assertions flake in CI and would be turned off
 # within a week. This proves the cold harness executes and both arms respond, which is the
 # part that can silently rot. Compare numbers by hand with: python3 bench/ab_cold.py A B
 B="$(ls -d rust/target/release/memory-fabric)"
 python3 bench/ab_cold.py "$B" "$B" 2>&1 | tail -3 || { echo "  GATE FAILURE: cold A/B harness did not run" >&2; exit 1; }
 
-echo "== 13/19 recorded retrieval contract (parity without the oracle) =="
+echo "== 13/20 recorded retrieval contract (parity without the oracle) =="
 # rust/tests/parity.py compares Rust to the Python engine live, which makes the oracle
 # load-bearing for every parity check. This replays a recorded fixture instead, so the contract
 # survives independently of any second binary.
 python3 bench/parity_golden.py check || { echo "  GATE FAILURE: retrieval contract drifted" >&2; exit 1; }
 
-echo "== 14/19 vault recoverability (is the memory base revertable?) =="
+echo "== 14/20 vault recoverability (is the memory base revertable?) =="
 # Fails only when the vault is NOT under version control - that is a real failure, because
 # nothing can be recovered. A dirty tree is normal during work, so it warns rather than fails;
 # the authoritative check is engram status, which is also what makes this visible in use.
@@ -136,7 +140,7 @@ print(f"  unresolved secret alarms: {st.get('unresolved_alarms', 0)} (oldest {st
 print(f"  growth: {st.get('bytes_per_document')} B/doc, warns at {st.get('growth_warn_at_documents')} documents")
 PYCHECK
 
-echo "== 15/19 pre-write revert point (D5) and crash-consistency scan (D6) =="
+echo "== 15/20 pre-write revert point (D5) and crash-consistency scan (D6) =="
 # D5: proves the pre-write content of a vault write is recoverable, and that without the
 # mechanism it is lost - so the assertion means something.
 python3 test_revert_point.py || exit 1
@@ -160,14 +164,14 @@ if c["damaged_total"]:
     raise SystemExit(1)
 PYVER
 
-echo "== 16/19 reliability: availability (A1), corruption (C2), migration (C1/C3), isolation (A2) =="
+echo "== 16/20 reliability: availability (A1), corruption (C2), migration (C1/C3), isolation (A2) =="
 # Each of these asserts something that can fail, and each uses the real index, so each copies the
 # fixture aside and restores it.
 python3 test_availability.py || exit 1
 python3 test_migration.py || exit 1
 python3 test_isolation.py || exit 1
 
-echo "== 17/19 contract and objectives: index format (C4), SLOs (O1), index hygiene (P2) =="
+echo "== 17/20 contract and objectives: index format (C4), SLOs (O1), index hygiene (P2) =="
 python3 bench/format_contract.py || exit 1
 python3 bench/slo.py || exit 1
 # P2 reports; it rewrites 13 MB only when asked, so the gate reports rather than vacuums.
@@ -185,7 +189,28 @@ if d["orphan_doc_terms"] or d["orphan_term_df"]:
     print("  note: orphans present - run the vacuum command with force to reclaim them")
 '
 
-echo "== 18/19 backup freshness and the last restore drill (D7) =="
+echo "== 18/20 usage record and what it can answer (#95) =="
+# The record exists to answer "what has this served". This step proves the viewer runs and that it
+# refuses to invent the two numbers it cannot know (read-through, token cost).
+python3 bench/usage_report.py --json > /tmp/mf-usage.json 2>&1 || {
+  echo "  GATE FAILURE: bench/usage_report.py did not run" >&2; exit 1; }
+python3 - <<'PYUSAGE'
+import json
+try:
+    d = json.load(open("/tmp/mf-usage.json"))
+except Exception:
+    print("  usage record is empty; the viewer prints its own explanation rather than a zero")
+    raise SystemExit(0)
+print(f"  records={d['records']} kinds={d['by_kind']}")
+print(f"  sessions_with_refs={d['sessions_with_refs']} injections={d['injections']} "
+      f"injected_chars={d['injected_chars_total']} prefix_breaks={d['prefix_breaks']}")
+if d["prefix_breaks"]:
+    print(f"  GATE FAILURE: {d['prefix_breaks']} prefix breaks - the injected block changed mid-session",
+          file=sys.stderr)
+    raise SystemExit(1)
+PYUSAGE
+
+echo "== 19/20 backup freshness and the last restore drill (D7) =="
 # A backup nobody checks is a hope. This reads the drill's own record and fails when it is older
 # than the window, so a silently broken backup cannot pass CI. It does NOT re-run the drill -
 # that belongs on a schedule, not in every gate.
@@ -215,7 +240,7 @@ elif age > 7:
     sys.exit(1)
 PYDRILL
 
-echo "== 19/19 typescript type check (types, not just syntax) =="
+echo "== 20/20 typescript type check (types, not just syntax) =="
 # index.ts, remote-policy.ts and scrub.ts are security predicate files. A type error in one
 # ships silently, so this step is not optional.
 #

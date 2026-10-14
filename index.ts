@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineTool, type AgentToolResult, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createInjectionAccount } from "./injection.ts";
 import { Type } from "typebox";
 import { createHealth } from "./engine-health.ts";
 import {
@@ -122,6 +123,34 @@ function logUsage(record: Record<string, unknown>): void {
 		appendFileSync(USAGE_LOG, `${JSON.stringify({ t: new Date().toISOString(), ...record })}\n`, { mode: 0o600 });
 	} catch { /* Telemetry must never cost a turn. */ }
 }
+
+/**
+ * #90 - queue backpressure, counted rather than silently dropped.
+ *
+ * The cap used to resolve a generic error with nothing recording that it happened, so
+ * backpressure was invisible until it presented as "memory is flaky". Counted here, logged once per
+ * session, and exposed by memory_fabric_health.
+ */
+let queueRejections = 0;
+let queueRejectionsLogged = false;
+
+/**
+ * #91 - refusals worth knowing about.
+ *
+ * An oversize or credential-shaped payload is correctly refused, but a user whose payloads are
+ * always refused saw only an empty result. Reason and byte count are recorded; the payload never
+ * is - recording why something was refused must not mean copying the thing that was refused.
+ */
+let sandboxRefusals = 0;
+
+/**
+ * #97 / #105 - injected characters, per turn and per session.
+ *
+ * The accounting lives in injection.ts, unit-tested, for the same reason the scrub predicate does:
+ * logic inline here cannot be tested, and untested logic is how a detector ships that detects
+ * nothing. The first injection sets the baseline; any later difference is a prefix break.
+ */
+const injections = createInjectionAccount();
 process.once("exit", () => rustChild?.kill());
 
 function failRustWorker(child: ChildProcessWithoutNullStreams, message: string): void {
@@ -161,8 +190,18 @@ function callRust(request: Response): Promise<Response> {
 			return;
 		}
 		if (rustQueue.length + rustInFlight.length >= 128) {
-			logUsage({ kind: "queue_full", pending: rustQueue.length + rustInFlight.length });
-			resolveResult({ ok: false, error: "Rust memory request queue is full." });
+			queueRejections += 1;
+			// Log the first per session, then count silently: a full queue in a loop would otherwise
+			// write thousands of identical lines and turn telemetry into the problem.
+			if (!queueRejectionsLogged) {
+				queueRejectionsLogged = true;
+				logUsage({ kind: "queue_full", pending: rustQueue.length + rustInFlight.length, rejection: queueRejections });
+			}
+			resolveResult({
+				ok: false,
+				error: `Rust memory request queue is full (${rustQueue.length + rustInFlight.length} pending, ${queueRejections} rejected this session).`,
+				queue_rejected: true,
+			});
 			return;
 		}
 		if (!rustChild || rustChild.killed) {
@@ -584,10 +623,29 @@ export default function (pi: ExtensionAPI) {
 					provider: providerOf(ctx),
 					loopback: isLoopbackModel(ctx.model),
 				});
-				const hits: Array<{ source_ref?: string }> = Array.isArray(searchRes.results) ? searchRes.results : [];
-				sessionRefs = hits.map((h) => String(h.source_ref ?? "")).filter(Boolean);
+				const hits: Array<{ source_ref?: string; section_anchor?: string }> =
+					Array.isArray(searchRes.results) ? searchRes.results : [];
+				// #107 - a section pointer, not a whole-note pointer.
+				//
+				// A real note is ~12,760 characters across many headings, so `[[projects/x]]` cites the
+				// whole note when one section is what matched. The engine already ranks by best
+				// section, so the anchor it chose IS the relevant one - carrying it costs a few
+				// characters and tells the reader where to look instead of making them scan.
+				// `overview` means the engine could not localise the match, so it is omitted rather
+				// than emitted as a pointer to nowhere in particular.
+				sessionRefs = hits
+					.map((h) => {
+						const ref = String(h.source_ref ?? "");
+						const anchor = String(h.section_anchor ?? "");
+						return ref && anchor && anchor !== "overview" ? `${ref}#${anchor}` : ref;
+					})
+					.filter(Boolean);
 				logUsage({
 					kind: "session_refs", refs: sessionRefs.length, chars: sessionRefs.join(" ").length,
+					// The ref list itself, so the record can answer "which notes does this actually
+					// serve" rather than only how many. Note *paths* only - this is the same
+					// information already injected, not vault content.
+					refs_list: sessionRefs,
 					latency: latencySummary(), writes: sessionWrites,
 					shown: searchRes.shown ?? null, withheld: searchRes.withheld_export ?? null,
 				});
@@ -600,7 +658,16 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 		if (sessionRefs && sessionRefs.length > 0) {
-			additions.push(`\n## Memory has relevant notes\n${sessionRefs.map((r) => `[[${r}]]`).join(" ")}\nRead these first via engram or view_file before re-deriving.`);
+			const block = `\n## Memory has relevant notes\n${sessionRefs.map((r) => `[[${r}]]`).join(" ")}\nRead these first via engram or view_file before re-deriving.`;
+			additions.push(block);
+			const rec = injections.record(block.length, sessionRefs.length);
+			if (rec.prefixBreak) {
+				// The block changed mid-session, which breaks every cache prefix after it. A regression
+				// signal, not a normal event: refs are resolved once per session and never re-resolved.
+				logUsage({ kind: "prefix_break", turn: rec.turn, chars: rec.chars, refs: rec.refs });
+			}
+			logUsage({ kind: "inject", turn: rec.turn, chars: rec.chars, refs: rec.refs,
+				session_chars: rec.sessionChars, prefix_break: rec.prefixBreak });
 		}
 
 		if (additions.length > 0) {
@@ -714,6 +781,19 @@ export default function (pi: ExtensionAPI) {
 		async execute(_id, params, _signal, ctx) {
 			const result = await callFabric({ op: "sandbox", title: params.title, text: params.text,
 				scope: params.scope ?? "episodic", provider: providerOf(ctx), loopback: isLoopbackModel(ctx.model) });
+			// #91 - a refusal that leaves no trace reads as "it returned nothing".
+			// The byte count and the reason are recorded; the payload is never recorded, because
+			// the reason a credential-shaped payload was refused is exactly why it must not be copied.
+			if (result && result.ok === false) {
+				sandboxRefusals += 1;
+				const reason = String(result.rejected ?? result.blocked ?? result.error ?? "refused");
+				logUsage({
+					kind: "sandbox_refused",
+					reason,
+					bytes: Buffer.byteLength(String(params.text ?? ""), "utf8"),
+					refusals: sandboxRefusals,
+				});
+			}
 			return toolResult(result);
 		},
 	}));
@@ -928,6 +1008,49 @@ export default function (pi: ExtensionAPI) {
 				return toolResult(res);
 			}
 			return toolResult({ ok: false, error: "Unsupported project action" });
+		},
+	}));
+
+	// #88 / #89 / #90 / #91 - the health surface.
+	//
+	// The breaker, the respawn guard, the queue cap and the sandbox refusals all existed, and all
+	// four were invisible: a session that had stopped calling the engine looked exactly like a
+	// session with nothing to say. This is the one place that answers "is memory working right
+	// now", and it reports the reasons it is not - because "0 injections" is not a diagnosis.
+	pi.registerTool(defineTool({
+		name: "memory_fabric_health",
+		label: "Memory Fabric Health",
+		description: "Report whether the local memory engine is actually working: circuit breaker state, respawn refusals, rejected requests, refused payloads, and what this session injected. Use when memory appears to be doing nothing.",
+		exposure: "deferred",
+		namespace,
+		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+		parameters: Type.Object({}),
+		async execute() {
+			const now = Date.now();
+			const breakerOpen = !health.allow(now);
+			return toolResult({
+				ok: true,
+				engine: {
+					breaker_open: breakerOpen,
+					consecutive_failures: health.state.consecutiveFailures,
+					local_refusals: health.state.refusals,
+					respawn_refusals: health.state.respawnRefusals,
+					worker_alive: Boolean(rustChild && !rustChild.killed),
+					message: breakerOpen ? health.refusalMessage(now) : null,
+				},
+				requests: {
+					queued: rustQueue.length,
+					in_flight: rustInFlight.length,
+					queue_rejections: queueRejections,
+				},
+				injection: {
+					refs: sessionRefs?.length ?? 0,
+					...injections.state(),
+				},
+				payloads: { sandbox_refusals: sandboxRefusals },
+				writes: { used: sessionWrites, budget: SESSION_WRITE_BUDGET },
+				latency: latencySummary(),
+			});
 		},
 	}));
 
