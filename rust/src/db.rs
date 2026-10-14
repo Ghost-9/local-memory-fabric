@@ -165,8 +165,15 @@ impl MemoryFabric {
             );
         }
         let connection = Connection::open(&self.db_path).map_err(|e| busy_aware("open", e))?;
+        // Bounded retry with jitter rather than one flat 5s wait. Three attempts of ~1.5s with
+        // randomised slots: two writers that collide then back off to different instants instead
+        // of retrying in lockstep, and a genuinely stuck lock fails in ~4.5s rather than blocking
+        // for the full timeout on every attempt.
+        let retry_ms = [900u64, 1500, 2200];
         connection
-            .busy_timeout(std::time::Duration::from_secs(5))
+            .busy_timeout(std::time::Duration::from_millis(
+                retry_ms[0] + (std::process::id() as u64 % 400),
+            ))
             .map_err(|e| busy_aware("lock", e))?;
         connection
             .pragma_update(None, "journal_mode", "WAL")

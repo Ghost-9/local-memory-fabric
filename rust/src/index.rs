@@ -13,6 +13,34 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, UNIX_EPOCH};
 
+
+/// Whether the knowledge base is under version control, and how stale its baseline is.
+///
+/// Read-only: shells out to `git` in the vault and mutates nothing. Used by `status` so that
+/// recoverability is *reported* rather than assumed - a vault with history but nine uncommitted
+/// files is not fully recoverable, and status should say so rather than imply it is.
+fn vault_history(vault: &std::path::Path) -> serde_json::Value {
+    use std::process::Command;
+    let run = |args: &[&str]| -> Option<String> {
+        let out = Command::new("git").arg("-C").arg(vault).args(args).output().ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    };
+    let head = run(&["log", "-1", "--format=%H %cI"]);
+    let dirty = run(&["status", "--porcelain"])
+        .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count());
+    json!({
+        "under_version_control": head.is_some(),
+        "head": head.as_ref().and_then(|h| h.split_whitespace().next())
+            .map(|h| h.chars().take(8).collect::<String>()),
+        "head_committed_at": head.as_ref().and_then(|h| h.split_whitespace().nth(1)),
+        "uncommitted_files": dirty,
+        "fully_recoverable": head.is_some() && dirty == Some(0),
+    })
+}
+
 impl MemoryFabric {
     pub(crate) fn sources(&self) -> Result<Vec<PathBuf>, String> {
         let meta = fs::symlink_metadata(&self.vault)
@@ -414,8 +442,27 @@ impl MemoryFabric {
             )
             .optional()
             .map_err(|e| e.to_string())?;
+        let unresolved: i64 = con
+            .query_row("SELECT COUNT(*) FROM secret_alarms WHERE resolved_at IS NULL", [], |r| r.get(0))
+            .unwrap_or(0);
+        let oldest_alarm: Option<String> = con
+            .query_row(
+                "SELECT MIN(detected_at) FROM secret_alarms WHERE resolved_at IS NULL",
+                [], |r| r.get(0),
+            )
+            .optional()
+            .unwrap_or(None);
+        let index_bytes = std::fs::metadata(&self.db_path).map(|m| m.len()).unwrap_or(0);
+        let bytes_per_doc = if docs > 0 { index_bytes / docs as u64 } else { 0 };
+        let growth_warn_at_docs = if bytes_per_doc > 0 { (512 * 1024 * 1024u64 / bytes_per_doc) as i64 } else { 0 };
+        let growth_warning = growth_warn_at_docs > 0 && docs >= growth_warn_at_docs;
+        let git = vault_history(&self.vault);
         Ok(
             json!({"ok":true,"version":VERSION,"indexed":true,"documents":docs,"last_indexed_at":last,
+                   "index_bytes":index_bytes,"bytes_per_document":bytes_per_doc,
+                   "growth_warn_at_documents":growth_warn_at_docs,"growth_warning":growth_warning,
+                   "unresolved_alarms":unresolved,"oldest_unresolved_alarm":oldest_alarm,
+                   "vault_history":git,
                    // Reported so the operator can see the knob without reading the config:
                    // both the scrub and the export gate change what a session receives.
                    "enforce_export_policy":self.export_enforced(),

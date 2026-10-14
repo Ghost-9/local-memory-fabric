@@ -70,6 +70,36 @@ let sessionRefs: string[] | null = null;
 /** Engine breaker + respawn guard. The rules live in engine-health.ts and are tested there. */
 const health = createHealth();
 
+/**
+ * Per-session write budget (A4). Remote write-back is on by default, so a misconfigured or
+ * looping provider can write without limit. A hard ceiling with a counted refusal is the
+ * cheapest guard that makes runaway behaviour visible instead of merely possible.
+ */
+const SESSION_WRITE_BUDGET = 50;
+let sessionWrites = 0;
+
+/**
+ * Rolling per-operation latency (O4), held in memory and flushed only when a usage record is
+ * already being written. Per-request logging would add I/O to the hot path for a measurement
+ * nobody reads at request time; this costs nothing and still answers "has this got slower?"
+ */
+const opLatency: Record<string, number[]> = {};
+function recordLatency(op: string, ms: number): void {
+	const bucket = (opLatency[op] ??= []);
+	bucket.push(ms);
+	if (bucket.length > 200) bucket.shift();
+}
+function latencySummary(): Record<string, { n: number; p50: number; p95: number }> {
+	const out: Record<string, { n: number; p50: number; p95: number }> = {};
+	for (const [op, xs] of Object.entries(opLatency)) {
+		if (xs.length === 0) continue;
+		const sorted = [...xs].sort((a, b) => a - b);
+		const pick = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? 0;
+		out[op] = { n: sorted.length, p50: Math.round(pick(0.5)), p95: Math.round(pick(0.95)) };
+	}
+	return out;
+}
+
 const USAGE_LOG = resolve(homedir(), ".pi/agent/scratch/memory-fabric/usage.jsonl");
 function logUsage(record: Record<string, unknown>): void {
 	try {
@@ -239,7 +269,14 @@ function callPythonFabric(request: Response): Promise<Response> {
 	});
 }
 
-function callFabric(request: Response): Promise<Response> {
+async function callFabric(request: Response): Promise<Response> {
+	const started = Date.now();
+	const response = await callFabricInner(request);
+	recordLatency(String(request.op ?? "unknown"), Date.now() - started);
+	return response;
+}
+
+function callFabricInner(request: Response): Promise<Response> {
 	let requestBytes: number;
 	try { requestBytes = Buffer.byteLength(JSON.stringify(request), "utf8"); }
 	catch { return Promise.resolve({ ok: false, error: "Local memory request could not be serialized." }); }
@@ -434,6 +471,17 @@ export default function (pi: ExtensionAPI) {
 			} catch { /* Observing a call must never break it. */ }
 		}
 		const writeTool = event.toolName === "write" || event.toolName === "edit";
+		if (writeTool && explicitVaultPath && mayWriteToMemory(ctx.model)) {
+			// Permitted, but counted. The budget exists so a loop is bounded and visible.
+			sessionWrites += 1;
+			logUsage({ kind: "write", n: sessionWrites, tool: event.toolName });
+			if (sessionWrites > SESSION_WRITE_BUDGET) {
+				return {
+					block: true,
+					reason: `Canonical-memory write budget exhausted for this session (${SESSION_WRITE_BUDGET}). This is a guard against a loop, not a policy: restart the session to continue.`,
+				};
+			}
+		}
 		if (writeTool && explicitVaultPath && !mayWriteToMemory(ctx.model)) {
 			return {
 				block: true,
@@ -499,6 +547,7 @@ export default function (pi: ExtensionAPI) {
 				sessionRefs = hits.map((h) => String(h.source_ref ?? "")).filter(Boolean);
 				logUsage({
 					kind: "session_refs", refs: sessionRefs.length, chars: sessionRefs.join(" ").length,
+					latency: latencySummary(), writes: sessionWrites,
 					shown: searchRes.shown ?? null, withheld: searchRes.withheld_export ?? null,
 				});
 			} catch {
