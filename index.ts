@@ -38,6 +38,16 @@ let rustInFlight: Pending[] = [];
 let rustQueue: Pending[] = [];
 
 /**
+ * Tools whose use of a vault path counts as *reading* a note, for the read-through measure.
+ * Covers both paths deliberately: the built-in file tools, and the fabric's own retrieval, so
+ * one hook observes whichever route the session takes.
+ */
+const READ_TOOLS = new Set([
+	"read", "grep", "glob", "find", "ls",
+	"memory_fabric_read", "memory_fabric_search", "memory_fabric_context",
+]);
+
+/**
  * Refs are resolved once per session and injected once, instead of re-searched on every turn.
  *
  * Two measured reasons. Cost: the hook fires per turn, and on this machine's history that meant
@@ -378,6 +388,26 @@ export default function (pi: ExtensionAPI) {
 		}
 		const explicitVaultPath = inputTargetsVault(event.input, ctx.cwd);
 		const cwdIsVault = insideVault(".", ctx.cwd);
+		// Read instrumentation, and the reason it lives here rather than in an analysis script:
+		// read-through is the only honest denominator for whether injected refs earned their
+		// tokens, and it cannot be reconstructed afterwards. Fabric tool results are stripped
+		// from history by the scrub, and reads normally go through the built-in `read`/`grep`
+		// tools, so a post-hoc scan sees neither. Measured attempt: a loose detector reported 78%
+		// by matching the injection itself, a strict one reported 0% because the evidence is not
+		// in the transcript. Recording it at the moment it happens is the only way it exists.
+		// Best-effort and non-blocking: it must never affect the call it observes.
+		if (explicitVaultPath && sessionRefs && sessionRefs.length > 0 && READ_TOOLS.has(event.toolName)) {
+			try {
+				const raw = JSON.stringify(event.input);
+				for (const ref of sessionRefs) {
+					const stem = ref.split("/").pop() ?? ref;
+					if (raw.includes(ref) || (stem.length > 0 && raw.includes(stem))) {
+						logUsage({ kind: "read", ref, tool: event.toolName });
+						break;
+					}
+				}
+			} catch { /* Observing a call must never break it. */ }
+		}
 		const writeTool = event.toolName === "write" || event.toolName === "edit";
 		if (writeTool && explicitVaultPath && !mayWriteToMemory(ctx.model)) {
 			return {
