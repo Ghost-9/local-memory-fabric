@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
@@ -36,6 +36,32 @@ type Pending = { request: Response; resolve: (value: Response) => void; timer?: 
 let rustChild: ChildProcessWithoutNullStreams | undefined;
 let rustInFlight: Pending[] = [];
 let rustQueue: Pending[] = [];
+
+/**
+ * Refs are resolved once per session and injected once, instead of re-searched on every turn.
+ *
+ * Two measured reasons. Cost: the hook fires per turn, and on this machine's history that meant
+ * 1,077 searches across 84 sessions, about 13 per session. Stability: a block whose content
+ * changes each turn sits in the prompt prefix, so the provider re-bills everything after it -
+ * measured, the injected refs took 16 distinct values in 19 consecutive turns.
+ *
+ * The tradeoff is explicit and accepted: refs track the session's first substantive prompt. A
+ * later change of topic should use memory_fabric_search - that is what the on-demand tools are
+ * for, and a pointer worth reading is worth less than a stable prefix.
+ */
+let sessionRefs: string[] | null = null;
+
+/**
+ * Minimal behavioural record, so "what has this served?" is answerable from state instead of by
+ * re-parsing session transcripts. At most one line per session plus one per withholding, never
+ * on the hot path, and never allowed to break a turn.
+ */
+const USAGE_LOG = resolve(homedir(), ".pi/agent/scratch/memory-fabric/usage.jsonl");
+function logUsage(record: Record<string, unknown>): void {
+	try {
+		appendFileSync(USAGE_LOG, `${JSON.stringify({ t: new Date().toISOString(), ...record })}\n`, { mode: 0o600 });
+	} catch { /* Telemetry must never cost a turn. */ }
+}
 process.once("exit", () => rustChild?.kill());
 
 function failRustWorker(child: ChildProcessWithoutNullStreams, message: string): void {
@@ -400,7 +426,9 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		const prompt = event.prompt ?? "";
-		if (prompt.length >= 24) {
+		// Resolve refs once per session; every later turn reuses them, so the injected block is
+		// byte-stable and no further search is issued.
+		if (prompt.length >= 24 && sessionRefs === null) {
 			try {
 				const searchRes = await callFabric({
 					op: "search",
@@ -410,11 +438,18 @@ export default function (pi: ExtensionAPI) {
 					provider: providerOf(ctx),
 					loopback: isLoopbackModel(ctx.model),
 				});
-				const hits = Array.isArray(searchRes.results) ? searchRes.results : [];
-				if (hits.length > 0) {
-					additions.push(`\n## Memory has relevant notes\n${hits.map((h: any) => `[[${h.source_ref}]]`).join(" ")}\nRead these first via engram or view_file before re-deriving.`);
-				}
-			} catch {}
+				const hits: Array<{ source_ref?: string }> = Array.isArray(searchRes.results) ? searchRes.results : [];
+				sessionRefs = hits.map((h) => String(h.source_ref ?? "")).filter(Boolean);
+				logUsage({
+					kind: "session_refs", refs: sessionRefs.length, chars: sessionRefs.join(" ").length,
+					shown: searchRes.shown ?? null, withheld: searchRes.withheld_export ?? null,
+				});
+			} catch {
+				sessionRefs = [];
+			}
+		}
+		if (sessionRefs && sessionRefs.length > 0) {
+			additions.push(`\n## Memory has relevant notes\n${sessionRefs.map((r) => `[[${r}]]`).join(" ")}\nRead these first via engram or view_file before re-deriving.`);
 		}
 
 		if (additions.length > 0) {
