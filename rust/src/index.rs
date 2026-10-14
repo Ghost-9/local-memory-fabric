@@ -424,16 +424,304 @@ impl MemoryFabric {
         Ok(json!({"ok": true, "alarm_id": aid, "relpath": relpath, "already_resolved": already, "unresolved_remaining": remaining}))
     }
 
+    /// D6 - crash-consistency and index/vault divergence scan.
+    ///
+    /// A crash, a kill, or an editor that truncates a file can all leave a note that parses as
+    /// *something* but is not what was written. Nothing in the engine would notice, because a
+    /// partial note is still valid Markdown. This scans for the specific shapes damage takes and
+    /// reports them; it deliberately repairs nothing, because guessing at a half-written note is
+    /// how you destroy the half that survived.
+    pub(crate) fn verify(&self) -> Result<Value, String> {
+        let mut zero_byte: Vec<String> = Vec::new();
+        let mut not_utf8: Vec<String> = Vec::new();
+        let mut unterminated_frontmatter: Vec<String> = Vec::new();
+        let mut missing_on_disk: Vec<String> = Vec::new();
+        let mut stale: Vec<String> = Vec::new();
+        let mut contradictory_dates: Vec<String> = Vec::new();
+        let mut indexed: HashSet<String> = HashSet::new();
+
+        let mut on_disk: HashSet<String> = HashSet::new();
+        // Reuse the index's own walker so both sides see the same file universe.
+        for path in self.sources()? {
+            let Ok(rel) = path.strip_prefix(&self.vault).map(|p| p.to_string_lossy().to_string())
+            else {
+                continue;
+            };
+            if rel.starts_with('.') || rel.contains("/.") {
+                continue;
+            }
+            on_disk.insert(rel.clone());
+            match fs::read(&path) {
+                Ok(bytes) if bytes.is_empty() => zero_byte.push(rel.clone()),
+                Ok(bytes) => match String::from_utf8(bytes) {
+                    Ok(text) => {
+                        if text.trim_start().starts_with("---") {
+                            let after = &text[text.find("---").unwrap_or(0) + 3..];
+                            if !after.contains("\n---") {
+                                unterminated_frontmatter.push(rel.clone());
+                            }
+                        }
+                    }
+                    Err(_) => not_utf8.push(rel.clone()),
+                },
+                Err(_) => missing_on_disk.push(rel.clone()),
+            }
+        }
+
+        let mut docs = 0usize;
+        let mut bytes_indexed: i64 = 0;
+        if self.db_path.exists() {
+            let con = self.connect()?;
+            let mut stmt = con
+                .prepare("SELECT relpath,content_hash,mtime_ns,valid_from,valid_to,LENGTH(body) FROM documents")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                        r.get::<_, Option<String>>(4)?,
+                        r.get::<_, Option<i64>>(5)?,
+                    ))
+                })
+                .map_err(|e| e.to_string())?;
+            for row in rows.flatten() {
+                docs += 1;
+                bytes_indexed += row.5.unwrap_or(0);
+                indexed.insert(row.0.clone());
+                let abs = self.vault.join(&row.0);
+                if !abs.exists() {
+                    missing_on_disk.push(row.0.clone());
+                    continue;
+                }
+                if let (Some(from), Some(to)) = (row.3.as_deref(), row.4.as_deref()) {
+                    if !from.is_empty() && !to.is_empty() && to < from {
+                        contradictory_dates.push(row.0.clone());
+                    }
+                }
+                if let Ok(meta) = fs::symlink_metadata(&abs) {
+                    let mtime = meta
+                        .modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                        .map(|d| d.as_nanos() as i64)
+                        .unwrap_or(0);
+                    if mtime != 0 && row.2 != 0 && mtime != row.2 {
+                        stale.push(row.0.clone());
+                    }
+                }
+            }
+        }
+
+        // On disk but never indexed: invisible to search, which is the failure that hides.
+        let mut unindexed: Vec<String> = on_disk.difference(&indexed).cloned().collect();
+        unindexed.sort();
+        stale.sort();
+        zero_byte.sort();
+        not_utf8.sort();
+        unterminated_frontmatter.sort();
+        missing_on_disk.sort();
+        missing_on_disk.dedup();
+        contradictory_dates.sort();
+
+        let sample = |v: &Vec<String>| -> Value {
+            json!(v.iter().take(10).collect::<Vec<_>>())
+        };
+        let damaged = zero_byte.len()
+            + not_utf8.len()
+            + unterminated_frontmatter.len()
+            + contradictory_dates.len();
+        Ok(json!({
+            "ok": true,
+            "crash_consistency": {
+                "zero_byte": zero_byte.len(),
+                "not_utf8": not_utf8.len(),
+                "unterminated_frontmatter": unterminated_frontmatter.len(),
+                "contradictory_dates": contradictory_dates.len(),
+                "damaged_total": damaged,
+                "sample": {
+                    "zero_byte": sample(&zero_byte),
+                    "not_utf8": sample(&not_utf8),
+                    "unterminated_frontmatter": sample(&unterminated_frontmatter),
+                    "contradictory_dates": sample(&contradictory_dates),
+                },
+            },
+            "divergence": {
+                "documents_indexed": docs,
+                "files_on_disk": on_disk.len(),
+                "indexed_but_missing_on_disk": missing_on_disk.len(),
+                "on_disk_but_not_indexed": unindexed.len(),
+                "stale_mtime": stale.len(),
+                "sample": {
+                    "indexed_but_missing_on_disk": sample(&missing_on_disk),
+                    "on_disk_but_not_indexed": sample(&unindexed),
+                    "stale_mtime": sample(&stale),
+                },
+            },
+            "indexed_bytes": bytes_indexed,
+            "clean": damaged == 0 && missing_on_disk.is_empty(),
+        }))
+    }
+
+    /// C2 - corruption detection and repair.
+    ///
+    /// The index is derived data, so the correct repair is always "throw it away and rebuild" - and
+    /// that is exactly why this must never happen silently. A rebuild that fires on a transient
+    /// error would discard a good index and, worse, hide the fault that caused it.
+    ///
+    /// So: check first, report what was found, and only move the file aside when it is actually
+    /// unusable or the caller forces it. The bad file is *moved*, never deleted - it is the only
+    /// evidence of what went wrong, and it costs 13 MB to keep.
+    pub(crate) fn repair(&self, force: bool) -> Result<Value, String> {
+        // An absent index carries no integrity verdict; saying "ok" about a file that is not there
+        // would be a lie the next reader believes.
+        let mut integrity = String::from("absent");
+        if self.db_path.exists() {
+            match self.connect() {
+                Ok(con) => {
+                    integrity = con
+                        .query_row("PRAGMA quick_check", [], |r| r.get::<_, String>(0))
+                        .unwrap_or_else(|e| format!("error: {e}"));
+                }
+                Err(e) => integrity = format!("error: {e}"),
+            }
+        }
+        let healthy = integrity == "ok";
+        if healthy && !force {
+            return Ok(json!({
+                "ok": true,
+                "repaired": false,
+                "integrity": integrity,
+                "message": "Index passed its integrity check; nothing to repair. Pass force to rebuild anyway.",
+            }));
+        }
+        let stamp = now_utc().replace([':', '.'], "-");
+        let mut quarantined: Vec<String> = Vec::new();
+        for suffix in ["", "-wal", "-shm"] {
+            let p = PathBuf::from(format!("{}{}", self.db_path.display(), suffix));
+            if p.exists() {
+                let dest = PathBuf::from(format!("{}.corrupt-{}", p.display(), stamp));
+                fs::rename(&p, &dest).map_err(|e| format!("quarantine {}: {e}", p.display()))?;
+                if let Some(name) = dest.file_name() {
+                    quarantined.push(name.to_string_lossy().to_string());
+                }
+            }
+        }
+        let rebuilt = self.index(true)?;
+        Ok(json!({
+            "ok": true,
+            "repaired": true,
+            "integrity_before": integrity,
+            "forced": force,
+            "quarantined": quarantined,
+            "quarantine_note": "The unusable file was moved aside, not deleted: it is the only evidence of the fault.",
+            "rebuilt": rebuilt,
+        }))
+    }
+
+    /// P2 - reclaim what the index no longer needs, and say what that is before doing it.
+    ///
+    /// SQLite does not shrink a file when rows are deleted; space returns to its internal free
+    /// list, and only VACUUM rewrites the file smaller. Deleted notes therefore leave the index
+    /// permanently larger than its contents justify, which is a slow leak rather than a fault.
+    ///
+    /// VACUUM is a full rewrite, so it happens only when asked (force). The default is a report,
+    /// because the number is the interesting part and rewriting 13 MB should be a decision.
+    pub(crate) fn vacuum(&self, force: bool) -> Result<Value, String> {
+        if !self.db_path.exists() {
+            return Ok(json!({"ok": true, "indexed": false, "message": "No index to vacuum."}));
+        }
+        let con = self.connect()?;
+        let count = |sql: &str| -> i64 { con.query_row(sql, [], |r| r.get(0)).unwrap_or(0) };
+        let docs = count("SELECT COUNT(*) FROM documents");
+        let doc_terms = count("SELECT COUNT(*) FROM doc_terms");
+        let term_df = count("SELECT COUNT(*) FROM term_df");
+        // Orphans: rows whose document is gone. The index path prunes these for notes it knows
+        // were removed, so anything here arrived another way - a crash mid-delete, or a manual
+        // index edit.
+        let orphan_terms = count(
+            "SELECT COUNT(*) FROM doc_terms WHERE relpath NOT IN (SELECT relpath FROM documents)",
+        );
+        let orphan_df = count(
+            "SELECT COUNT(*) FROM term_df WHERE term NOT IN (SELECT DISTINCT term FROM doc_terms)",
+        );
+        let dead_df = count(
+            "SELECT COUNT(*) FROM term_df WHERE df > (SELECT COUNT(*) FROM documents)",
+        );
+        let size_before: i64 = fs::metadata(&self.db_path).map(|m| m.len() as i64).unwrap_or(0);
+        let freelist = count("PRAGMA freelist_count");
+        let page_size = count("PRAGMA page_size");
+        let reclaimable = freelist * page_size;
+
+        let mut removed = json!(null);
+        if force {
+            con.execute("DELETE FROM doc_terms WHERE relpath NOT IN (SELECT relpath FROM documents)", [])
+                .map_err(|e| e.to_string())?;
+            con.execute("DELETE FROM term_df WHERE term NOT IN (SELECT DISTINCT term FROM doc_terms)", [])
+                .map_err(|e| e.to_string())?;
+            con.execute("DELETE FROM note_links WHERE source NOT IN (SELECT relpath FROM documents)", [])
+                .map_err(|e| e.to_string())?;
+            // VACUUM cannot run inside a transaction.
+            con.execute_batch("VACUUM").map_err(|e| e.to_string())?;
+            con.execute_batch("PRAGMA optimize").ok();
+            let after: i64 = fs::metadata(&self.db_path).map(|m| m.len() as i64).unwrap_or(0);
+            removed = json!({
+                "orphan_doc_terms": orphan_terms,
+                "orphan_term_df": orphan_df,
+                "bytes_before": size_before,
+                "bytes_after": after,
+                "bytes_reclaimed": size_before - after,
+            });
+        }
+        Ok(json!({
+            "ok": true,
+            "vacuumed": force,
+            "documents": docs,
+            "doc_terms": doc_terms,
+            "term_df": term_df,
+            "orphan_doc_terms": orphan_terms,
+            "orphan_term_df": orphan_df,
+            "term_df_rows_above_document_count": dead_df,
+            "freelist_pages": freelist,
+            "reclaimable_bytes": reclaimable,
+            "index_bytes": size_before,
+            "written": removed,
+            "note": "VACUUM rewrites the whole file, so it runs only with force. Without it this reports.",
+        }))
+    }
+
     pub(crate) fn status(&self) -> Result<Value, String> {
         if !self.db_path.exists() {
             return Ok(
                 json!({"ok":true,"version":VERSION,"indexed":false,"documents":0,"message":"Run the explicit index command to initialize."}),
             );
         }
-        let con = self.connect()?;
+        // status is the command you run *because* something is wrong, so it must not itself fail
+        // when the index is unreadable. It did: a damaged header made `connect()` error and status
+        // returned nothing, which is the one moment its answer matters most.
+        let con = match self.connect() {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(json!({
+                    "ok": true,
+                    "version": VERSION,
+                    "indexed": true,
+                    "readable": false,
+                    "integrity": format!("error: {e}"),
+                    "integrity_ok": false,
+                    "documents": Value::Null,
+                    "message": "The index exists but cannot be opened. Search will fall back to a linear scan of the vault. Run the repair command to quarantine and rebuild it.",
+                }))
+            }
+        };
+        let integrity: String = con
+            .query_row("PRAGMA quick_check", [], |r| r.get::<_, String>(0))
+            .unwrap_or_else(|e| format!("error: {e}"));
         let docs: i64 = con
             .query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))
-            .map_err(|e| e.to_string())?;
+            .unwrap_or(0);
         let last: Option<String> = con
             .query_row(
                 "SELECT value FROM metadata WHERE key='last_indexed_at'",
@@ -458,7 +746,9 @@ impl MemoryFabric {
         let growth_warning = growth_warn_at_docs > 0 && docs >= growth_warn_at_docs;
         let git = vault_history(&self.vault);
         Ok(
-            json!({"ok":true,"version":VERSION,"indexed":true,"documents":docs,"last_indexed_at":last,
+            json!({"ok":true,"version":VERSION,"indexed":true,"integrity": integrity,
+            "integrity_ok": integrity == "ok",
+            "documents":docs,"last_indexed_at":last,
                    "index_bytes":index_bytes,"bytes_per_document":bytes_per_doc,
                    "growth_warn_at_documents":growth_warn_at_docs,"growth_warning":growth_warning,
                    "unresolved_alarms":unresolved,"oldest_unresolved_alarm":oldest_alarm,

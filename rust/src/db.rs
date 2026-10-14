@@ -1,5 +1,5 @@
 use crate::MemoryFabric;
-use crate::paths::{MAX_CONTEXT_CHARS_DEFAULT, MAX_RESULT_CHARS_DEFAULT, home_dir, safe_relpath, set_mode, set_open_mode};
+use crate::paths::{MAX_CONTEXT_CHARS_DEFAULT, MAX_RESULT_CHARS_DEFAULT, SCHEMA_VERSION, home_dir, safe_relpath, set_mode, set_open_mode};
 use crate::policy::{
     DEFAULT_EXCLUDED_DIRS, DEFAULT_INCLUDE_DIRS, DEFAULT_INCLUDE_FILES, apple_path_re,
 };
@@ -270,7 +270,8 @@ impl MemoryFabric {
             )
             .optional()
             .map_err(|e| e.to_string())?;
-        let mut migrated = version.as_deref() != Some("2");
+        let from_version = version.unwrap_or_else(|| "0".into());
+        let mut migrated = from_version != SCHEMA_VERSION;
         let mut columns = HashSet::new();
         let mut stmt = con
             .prepare("PRAGMA table_info(documents)")
@@ -281,6 +282,27 @@ impl MemoryFabric {
         for col in iter {
             columns.insert(col.map_err(|e| e.to_string())?);
         }
+        // C1 - an expand-only migration ladder. Every step adds a column with a default, which is
+        // the property that makes the change safe in both directions: an older engine still reads
+        // the table (it ignores columns it does not know), and a newer one sees the default for
+        // rows written before the change. Nothing here rewrites or drops, so a failed step leaves
+        // the schema valid at the previous rung - there is no half-migrated state to recover from.
+        //
+        // C3 - reconcile around the migration. A structural change must not alter data: the row
+        // counts before and after have to match, or the migration did something it was not
+        // supposed to. That check is the difference between "the ALTER returned OK" and "the data
+        // is intact".
+        let counts = |c: &Connection| -> Result<(i64, i64, i64), String> {
+            let one = |sql: &str| -> Result<i64, String> {
+                c.query_row(sql, [], |r| r.get(0)).map_err(|e| e.to_string())
+            };
+            Ok((
+                one("SELECT COUNT(*) FROM documents")?,
+                one("SELECT COUNT(*) FROM doc_terms")?,
+                one("SELECT COUNT(*) FROM term_df")?,
+            ))
+        };
+        let before = counts(con).unwrap_or((0, 0, 0));
         let migrations = [
             ("source_status", "TEXT NOT NULL DEFAULT 'unspecified'"),
             ("valid_from", "TEXT"),
@@ -292,18 +314,114 @@ impl MemoryFabric {
             ),
             ("export_policy", "TEXT NOT NULL DEFAULT 'deny_remote'"),
         ];
+        let mut steps: Vec<String> = Vec::new();
         for (name, declaration) in migrations {
             if !columns.contains(name) {
                 con.execute(
                     &format!("ALTER TABLE documents ADD COLUMN {name} {declaration}"),
                     [],
                 )
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| format!("migration step {name} failed (schema left at {from_version}): {e}"))?;
+                steps.push(format!("add column documents.{name}"));
                 migrated = true;
             }
         }
-        con.execute("INSERT INTO metadata(key,value) VALUES('schema_version','2') ON CONFLICT(key) DO UPDATE SET value=excluded.value", []).map_err(|e| e.to_string())?;
+        let after = counts(con).map_err(|e| e.to_string())?;
+        if before != after {
+            return Err(format!(
+                "migration reconciliation failed: documents/doc_terms/term_df went {before:?} -> {after:?}. \
+                 An expand-only migration must not change row counts. The schema version was NOT \
+                 advanced, so the next run will retry rather than build on a broken state."
+            ));
+        }
+        // The version is written only after every step succeeded and reconciled. A failure above
+        // returns early, deliberately leaving the old version recorded so the next index run
+        // retries instead of assuming the schema is current.
+        con.execute(
+            &format!(
+                "INSERT INTO metadata(key,value) VALUES('schema_version','{SCHEMA_VERSION}') \
+                 ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+            ),
+            [],
+        )
+        .map_err(|e| e.to_string())?;
+        // Record the transition on every version change, not only when a column was added. A bump
+        // with no structural step still changes what the format *means*, and the next person to
+        // read this table needs to know when it happened.
+        if from_version != SCHEMA_VERSION {
+            con.execute(
+                "INSERT INTO metadata(key,value) VALUES('last_migration',?1) \
+                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                [format!(
+                    "{}->{} steps={:?} reconciled=true at {}",
+                    from_version,
+                    SCHEMA_VERSION,
+                    steps,
+                    crate::paths::now_utc()
+                )],
+            )
+            .map_err(|e| e.to_string())?;
+        }
         Ok(migrated)
+    }
+
+    /// C4 - the index format, stated as data rather than as a comment.
+    ///
+    /// The contract is what other things depend on: the recorded retrieval fixture, the Python
+    /// oracle's parity check, and any future reader. If it drifts silently, a fixture captured
+    /// against the old shape keeps passing while measuring something that no longer exists.
+    /// `bench/golden/format.json` records this and the gate fails when it changes unrecorded.
+    pub(crate) fn schema_contract(&self) -> Result<Value, String> {
+        let con = self.connect()?;
+        let mut tables: Vec<String> = Vec::new();
+        {
+            let mut stmt = con
+                .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([], |r| r.get::<_, String>(0))
+                .map_err(|e| e.to_string())?;
+            for t in rows {
+                tables.push(t.map_err(|e| e.to_string())?);
+            }
+        }
+        // Documents columns matter most: they are what a migration adds to.
+        let mut doc_columns: Vec<String> = Vec::new();
+        {
+            let mut stmt = con
+                .prepare("PRAGMA table_info(documents)")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([], |r| r.get::<_, String>(1))
+                .map_err(|e| e.to_string())?;
+            for c in rows {
+                doc_columns.push(c.map_err(|e| e.to_string())?);
+            }
+        }
+        let recorded: Option<String> = con
+            .query_row("SELECT value FROM metadata WHERE key='schema_version'", [], |r| {
+                r.get(0)
+            })
+            .optional()
+            .unwrap_or(None);
+        let last_migration: Option<String> = con
+            .query_row("SELECT value FROM metadata WHERE key='last_migration'", [], |r| {
+                r.get(0)
+            })
+            .optional()
+            .unwrap_or(None);
+        Ok(json!({
+            "ok": true,
+            "schema_version": recorded,
+            "expected_version": SCHEMA_VERSION,
+            "up_to_date": recorded.as_deref() == Some(SCHEMA_VERSION),
+            "last_migration": last_migration,
+            "tables": tables,
+            "documents_columns": doc_columns,
+            "fts_tokenizer": "porter unicode61",
+            "migration_policy": "expand-only: steps add columns with defaults and never rewrite, rename or drop, so a failure leaves the previous rung valid",
+            "rollback": "none needed by construction; an older engine reads the table and ignores unknown columns",
+        }))
     }
 }
 

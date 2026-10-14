@@ -96,19 +96,93 @@ sample note : byte-identical
 Before this, the honest description was *correct, fast, and one disk failure away from total
 loss*. That sentence no longer applies.
 
-## What is still missing
+## All 23 milestones — what landed, and what the measurement changed
 
-| # | gap | status |
+Every row was implemented and tested. Three of them changed conclusion on contact with a
+measurement, and those are the interesting ones.
+
+### Durability
+
+| # | what | evidence |
 |---|---|---|
-| ~~D2~~ | ~~No second copy of the vault.~~ | **DONE** — see below |
-| ~~D3~~ | ~~No restore has ever been drilled.~~ | **DONE** — first drill passed |
-| D4 | 9 files are uncommitted, so their current state has no revert point. | policy written, not automated |
-| D5 | We gate vault writes but do not perform them, so we cannot make a write atomic. | design only |
-| D6 | A crash mid-write could leave a truncated note that still indexes. | not implemented |
-| D7 | Nothing yet fails when the backup is stale. | not implemented |
-| C1-C4 | Index schema migration, corruption auto-rebuild, reconciliation, format contract. | not implemented |
-| A1-A2 | Read-only degradation, read/write bulkhead. | not implemented |
-| P2 | Index vacuum for superseded notes. | not implemented |
+| D1 | RPO/RTO stated per component | this file; the index is disposable, the vault is not |
+| D2 | Second copy of the vault | iCloud Drive bundle, 8.3 MB; `scripts/vault-backup.sh` |
+| D3 | Restore drilled | 210 files, tree hash matches, sample byte-identical, RTO <1 s |
+| D4 | Pre-write baselines | `fully_recoverable: true`, 0 uncommitted (was false, 9 files) |
+| D5 | Revert point before each write | `git add` before the write; `test_revert_point.py` proves V2 recoverable and that without it V2 is lost |
+| D6 | Crash-consistency scan | `verify` op; all four damage classes detected on planted fixtures |
+| D7 | Backup freshness gated | gate step 18; fails when the last drill is >7 days old |
+
+### Safe change
+
+| # | what | evidence |
+|---|---|---|
+| C1 | Expand-only migration ladder | version 3; `test_migration.py` builds a real old-format index (14 columns) and migrates it |
+| C2 | Corruption detect + repair | quarantines rather than deletes; healthy index deliberately untouched |
+| C3 | Post-migration reconciliation | `documents 124 -> 124 IDENTICAL`; *derived tables are reported, not asserted* |
+| C4 | Index-format contract | `bench/golden/format.json` + `bench/format_contract.py`; drift is a gate failure |
+
+### Availability
+
+| # | what | evidence |
+|---|---|---|
+| A1 | Degrade without the index | linear scan; measured **29 ms p50** degraded, abstains when no term discriminates |
+| A2 | Read/write bulkhead | **measurement changed the conclusion** — see below |
+| A3 | Jittered bounded retry | colliding writers back off to different instants |
+| A4 | Per-session write budget | 50 writes, counted and logged; a loop guard, not a policy |
+
+### Observability and capacity
+
+| # | what | evidence |
+|---|---|---|
+| O1 | SLOs as enforced ratios | `bench/slo.py`; 5 objectives, a breach is a gate failure |
+| O2 | Alarm age in status | `unresolved_alarms`, `oldest_unresolved_alarm` |
+| O3 | Recoverability in status | read from the vault's own git |
+| O4 | Latency histogram | per-op p50/p95, in memory, flushed with the session |
+| P1 | Growth threshold | `bytes_per_document`, `growth_warn_at_documents` |
+| P2 | Index vacuum | reclaimed **1,044 KB** from a 15.3 MB index; reports unless forced |
+| P3 | Runbook | `RUNBOOK.md`, 11 procedures, every command verified by hand |
+| P4 | Reclaim disk | 762 MB (`cargo clean`) + 2.2 GB of unused directories, operator-removed |
+
+## Three milestones where measurement changed the answer
+
+**A2 was specified as a read/write bulkhead. Measured first:**
+
+```
+readers during a full forced reindex : p50 12.1 ms vs 11.5 ms alone   (+5.1%)
+worst case                           : 12.7 ms vs 12.8 ms             (no worse)
+writer during a full forced reindex  : p50 9 ms                      (not blocked)
+```
+
+The index sets `journal_mode=WAL`, so readers take a snapshot and a writer does not fence them.
+There was no contention to bulkhead, and a second code path would have been complexity bought with
+nothing. What shipped instead is what the measurement supports: `test_isolation.py` asserts the
+property and asserts `journal_mode=wal` directly, so a future change that removes either fails the
+gate rather than quietly turning a 12 ms search into a multi-second one under load.
+
+**C3's reconciliation was too strict at first.** The gate's own migration test compared
+`doc_terms` and `term_df` across a full reindex and failed on a *correct* migration — those tables
+are derived and rebuild freely. The invariant that matters is that the ALTER changes no rows, and
+that is asserted inside `init_db`, between the columns being added and the version being written.
+Asserting the wrong thing would have ended with the test weakened or switched off.
+
+**A1's first version never abstained.** It scored every token equally, so a nonsense query became
+`{a, not, term}` — each matching nearly every note — and it returned five confident results. Fixed
+by mirroring the indexed path's discriminating-power thresholds. A search that cannot say "nothing"
+is worse than one that is slow.
+
+## Two bugs found by testing the tests
+
+**The pre-write recovery command was wrong.** `git restore --source=:0` is not valid; the
+index-restore is `git restore --` (source defaults to the index). Corrected in the source, and the
+test now asserts both halves — with staging the pre-write content returns, without it the write is
+lost — so the assertion cannot pass vacuously.
+
+**`status` failed while the index was broken** — the one command you run *because* something is
+wrong returned nothing at the moment its answer mattered most. A damaged header now reports
+`readable: false`, `integrity: error: ...`, and what to do about it.
+
+## What is still missing
 
 The vault's own contract forbids cloud and sync, so D2 means **a second volume, an external disk,
 or a local filesystem remote elsewhere on this machine.** Until that exists, the honest

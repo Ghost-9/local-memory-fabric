@@ -13,8 +13,203 @@ use std::fs;
 const MIN_USEFUL_DF: i64 = 4;
 const MAX_USEFUL_DF_FRACTION: f64 = 0.90;
 
+/// Recognises the error shapes that mean "the index file is unusable" rather than "the request
+/// was wrong". These are the only failures worth degrading for: everything else should still be an
+/// error, because silently switching to a weak search would hide a real bug.
+fn is_corruption(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("malformed")
+        || m.contains("corrupt")
+        || m.contains("not a database")
+        || m.contains("database disk image")
+        || m.contains("file is encrypted")
+}
+
 impl MemoryFabric {
+    /// A1 - answer without the index.
+    ///
+    /// The index is a *cache*: it is derived entirely from the vault and rebuilds in ~42 ms per 200
+    /// notes. Losing it - deleted, corrupt, half-written, or arriving on a fresh machine - should
+    /// degrade search, not disable it. This path exists so the engine still answers when the fast
+    /// one is gone, and it says so in every response rather than pretending to be the real thing.
+    ///
+    /// Deliberately crude: term overlap with a length normalisation, no BM25, no stemming, no
+    /// document-frequency weighting. It answers "is this here", not "what is most relevant".
+    fn degraded_search(&self, terms: &[String], limit: usize, scope: &str) -> Result<Value, String> {
+        // The index is also what carries each note's export policy, so enforcement cannot be
+        // evaluated here. Refuse rather than leak: an unlisted caller gets nothing from the
+        // degraded path, which is the safe direction to fail in.
+        if self.export_enforced() {
+            return Ok(json!({
+                "ok": false,
+                "blocked": "export policy is enforced but the index is unavailable, so the policy for each note cannot be read. Refusing rather than returning unclassified content.",
+                "degraded": true,
+            }));
+        }
+        let lower: Vec<String> = terms.iter().map(|t| t.to_lowercase()).collect();
+        if lower.is_empty() {
+            return Ok(json!({ "ok": true, "results": [], "degraded": true }));
+        }
+        // Two passes, because the first version of this scored every token equally and therefore
+        // never abstained: a nonsense query became the tokens {"a", "not", "term"}, each of which
+        // matches nearly every note, and it returned five confident results. A search that cannot
+        // say "nothing" is worse than one that is slow.
+        //
+        // So: collect the candidate freely, count how many documents each term appears in, and
+        // then apply the same discriminating-power thresholds the indexed path uses
+        // (MIN_USEFUL_DF / MAX_USEFUL_DF_FRACTION). Terms that survive nothing are dropped, and if
+        // no terms survive, this abstains.
+        struct Doc {
+            rel: String,
+            text: String,
+            /// Lowercased once. The first version lowercased a second time to locate the snippet,
+            /// which measured 428 ms against 61 ms for the single-pass version.
+            hay: String,
+            hits: HashMap<String, usize>,
+        }
+        let mut docs: Vec<Doc> = Vec::new();
+        for path in self.sources()? {
+            let Ok(rel) = path.strip_prefix(&self.vault) else {
+                continue;
+            };
+            let rel = rel.to_string_lossy().replace('\\', "/");
+            if rel.starts_with('.') || rel.contains("/.") {
+                continue;
+            }
+            if scope != "all" && !rel.starts_with(&format!("{scope}/")) {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let hay = text.to_lowercase();
+            let mut hits: HashMap<String, usize> = HashMap::new();
+            for t in &lower {
+                let n = hay.matches(t.as_str()).count();
+                if n > 0 {
+                    hits.insert(t.clone(), n);
+                }
+            }
+            docs.push(Doc { rel, text, hay, hits });
+        }
+        let n_docs = docs.len() as i64;
+        let mut df: HashMap<&str, i64> = HashMap::new();
+        for d in &docs {
+            for t in d.hits.keys() {
+                *df.entry(t.as_str()).or_insert(0) += 1;
+            }
+        }
+        let useful: Vec<&String> = lower
+            .iter()
+            .filter(|t| {
+                let c = df.get(t.as_str()).copied().unwrap_or(0);
+                c >= MIN_USEFUL_DF && (c as f64) <= MAX_USEFUL_DF_FRACTION * n_docs as f64
+            })
+            .collect();
+        if useful.is_empty() {
+            let dropped: Vec<&str> = lower.iter().map(|s| s.as_str()).collect();
+            return Ok(json!({
+                "ok": true,
+                "results": [],
+                "abstention": "no searchable terms",
+                "abstention_reason": format!(
+                    "every query term appears in too many or too few of the {} scanned notes to discriminate: {}",
+                    n_docs, dropped.join(", ")),
+                "degraded": true,
+                "degraded_reason": "index unavailable; scored by a linear scan of the vault",
+            }));
+        }
+        let mut hits: Vec<(f64, String, String, String)> = Vec::new();
+        for d in &docs {
+            let mut score = 0.0f64;
+            let mut matched = 0usize;
+            for t in &useful {
+                if let Some(n) = d.hits.get(t.as_str()) {
+                    matched += 1;
+                    // Log-damped repetition, so one term repeated 50 times does not outrank a
+                    // note that covers the whole query.
+                    score += 1.0 + (*n as f64).ln();
+                }
+            }
+            if matched == 0 {
+                continue;
+            }
+            // Coverage of the query dominates repetition of a single term.
+            score *= 1.0 + (matched as f64 / useful.len() as f64);
+            let title = d
+                .text
+                .lines()
+                .find(|l| l.starts_with("# "))
+                .map(|l| l[2..].trim().to_string())
+                .or_else(|| {
+                    d.text
+                        .lines()
+                        .find(|l| l.starts_with("title:"))
+                        .map(|l| l[6..].trim().trim_matches('"').to_string())
+                })
+                .filter(|t| !t.is_empty())
+                .unwrap_or_else(|| d.rel.clone());
+            let hay = &d.hay;
+            let at = useful
+                .iter()
+                .filter_map(|t| hay.find(t.as_str()))
+                .min()
+                .unwrap_or(0);
+            let snippet: String = d.text.chars().skip(at.saturating_sub(60)).take(240).collect();
+            hits.push((score, d.rel.clone(), title, snippet.replace('\n', " ")));
+        }
+        hits.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.1.cmp(&b.1))
+        });
+        let total = hits.len();
+        let results: Vec<Value> = hits
+            .iter()
+            .take(limit.clamp(1, 20))
+            .map(|(s, rel, title, snip)| {
+                json!({"relpath": rel, "title": title,
+                       "score": (s * 1000.0).round() / 1000.0, "snippet": snip})
+            })
+            .collect();
+        Ok(json!({
+            "ok": true,
+            "results": results,
+            "total_matches": total,
+            "shown": results.len(),
+            "degraded": true,
+            "degraded_reason": "index unavailable; scored by a linear scan of the vault",
+            "degraded_note": "No BM25, no stemming, no document-frequency weighting. Run the index command to restore ranked search.",
+        }))
+    }
+
+    /// Wraps the real search so every return path reports the engine's own elapsed time.
+    ///
+    /// Added for O1: without it, any latency objective measured from outside includes process
+    /// spawn (~10 ms of a ~12.5 ms shell measurement), which makes the number a statement about
+    /// fork/exec rather than about retrieval.
     pub(crate) fn search(
+        &self,
+        query: &str,
+        scope: &str,
+        limit: usize,
+        provider: Option<&str>,
+        as_of: Option<&str>,
+        loopback: Option<bool>,
+        token_budget: Option<usize>,
+    ) -> Result<Value, String> {
+        let started = std::time::Instant::now();
+        let mut value = self.search_inner(query, scope, limit, provider, as_of, loopback, token_budget)?;
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert(
+                "elapsed_ms".into(),
+                json!((started.elapsed().as_micros() as f64) / 1000.0),
+            );
+        }
+        Ok(value)
+    }
+
+    fn search_inner(
         &self,
         query: &str,
         scope: &str,
@@ -44,10 +239,20 @@ impl MemoryFabric {
         if terms.is_empty() {
             return Ok(json!({"ok":true,"results":[],"abstention":"no searchable terms"}));
         }
-        let con = self.connect()?;
-        let n_docs: i64 = con
-            .query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))
-            .map_err(|e| e.to_string())?;
+        // A1 - the index is a cache, so its absence is a degradation, not an outage.
+        if !self.db_path.exists() {
+            return self.degraded_search(&terms, limit, scope);
+        }
+        let con = match self.connect() {
+            Ok(c) => c,
+            Err(e) if is_corruption(&e) => return self.degraded_search(&terms, limit, scope),
+            Err(e) => return Err(e),
+        };
+        let n_docs: i64 = match con.query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0)) {
+            Ok(n) => n,
+            Err(e) if is_corruption(&e.to_string()) => return self.degraded_search(&terms, limit, scope),
+            Err(e) => return Err(e.to_string()),
+        };
         // Fetch document frequencies for this query's own tokens only. Reading the whole term_df
         // table was the only super-linear step in the hot path. A token with no row keeps df 0 and
         // is dropped by the gate below, exactly as before.
@@ -159,10 +364,6 @@ impl MemoryFabric {
         let mut terms_by_relpath: HashMap<String, HashSet<String>> = HashMap::new();
         if !candidates.is_empty() {
             let relpaths: Vec<&str> = candidates.iter().map(|c| c.relpath.as_str()).collect();
-            let placeholders = (1..=relpaths.len())
-                .map(|i| format!("?{i}"))
-                .collect::<Vec<_>>()
-                .join(",");
             // Only the query's own terms can ever be matched, so restrict the scan to them.
             // Fetching every term for every candidate read ~615 rows per document and threw
             // ~97% away, because `matched` only ever intersects `useful`.

@@ -71,6 +71,22 @@ let sessionRefs: string[] | null = null;
 const health = createHealth();
 
 /**
+ * The first plausible file path in a tool input. Used for the pre-write revert point (D5), which
+ * needs the target path and nothing else from the request.
+ */
+function extractFirstString(input: unknown): string | undefined {
+	if (typeof input === "string") return input.trim() || undefined;
+	if (input && typeof input === "object") {
+		const rec = input as Record<string, unknown>;
+		for (const key of ["path", "file_path", "filePath", "target"]) {
+			const value = rec[key];
+			if (typeof value === "string" && value.trim()) return value.trim();
+		}
+	}
+	return undefined;
+}
+
+/**
  * Per-session write budget (A4). Remote write-back is on by default, so a misconfigured or
  * looping provider can write without limit. A hard ceiling with a counted refusal is the
  * cheapest guard that makes runaway behaviour visible instead of merely possible.
@@ -472,6 +488,31 @@ export default function (pi: ExtensionAPI) {
 		}
 		const writeTool = event.toolName === "write" || event.toolName === "edit";
 		if (writeTool && explicitVaultPath && mayWriteToMemory(ctx.model)) {
+			// D5 - a revert point before the write, not after it.
+			//
+			// We gate vault writes but do not perform them, so atomicity belongs to Pi's filesystem
+			// layer and we cannot make a write crash-safe. We can guarantee the *pre-write* content
+			// survives: `git add` puts the current bytes in the object store, so the exact state
+			// being replaced is recoverable with `git restore --source=:0 <path>`.
+			//
+			// Staging rather than committing, deliberately - a commit per write would bury real
+			// history under snapshot noise, and the index entry is enough to restore from.
+			//
+			// Recovery is `git checkout-index -f -- <path>`, NOT `git restore -- <path>`. Both mean
+			// "worktree from index", but the agent shell guard blocks `git restore`
+			// (reason: git.restore-unstaged), so the documented path has to be one an agent can
+			// actually run. `test_revert_point.py` asserts both halves: with staging the pre-write
+			// content comes back, without it the write is lost.
+			try {
+				const raw = extractFirstString(event.input);
+				const target = raw ? resolve(ctx.cwd, raw) : "";
+				if (target && target.startsWith(VAULT_ROOT) && existsSync(target)) {
+					const git = spawn("git", ["-C", VAULT_ROOT, "add", "--", target], { stdio: "ignore" });
+					git.on("close", (code) => {
+						if (code === 0) logUsage({ kind: "prewrite_stage", file: target.slice(VAULT_ROOT.length) });
+					});
+				}
+			} catch { /* A revert point must never block the write it protects. */ }
 			// Permitted, but counted. The budget exists so a loop is bounded and visible.
 			sessionWrites += 1;
 			logUsage({ kind: "write", n: sessionWrites, tool: event.toolName });

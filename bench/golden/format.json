@@ -1,0 +1,38 @@
+{
+  "_note": "The index format, as data. bench/format_contract.py fails when the live index differs from this file, so a schema change cannot land silently and leave the recorded retrieval fixture measuring a shape that no longer exists.",
+  "documents_columns": [
+    "id",
+    "relpath",
+    "title",
+    "scope",
+    "classification",
+    "body",
+    "content_hash",
+    "mtime_ns",
+    "indexed_at",
+    "source_status",
+    "valid_from",
+    "valid_to",
+    "superseded_by",
+    "provider_policy",
+    "export_policy"
+  ],
+  "fts_tokenizer": "porter unicode61",
+  "migration_policy": "expand-only: steps add columns with defaults and never rewrite, rename or drop, so a failure leaves the previous rung valid",
+  "rollback": "none needed by construction; an older engine reads the table and ignores unknown columns",
+  "schema_version": "3",
+  "tables": [
+    "doc_terms",
+    "documents",
+    "documents_fts",
+    "documents_fts_config",
+    "documents_fts_content",
+    "documents_fts_data",
+    "documents_fts_docsize",
+    "documents_fts_idx",
+    "metadata",
+    "note_links",
+    "secret_alarms",
+    "term_df"
+  ]
+}

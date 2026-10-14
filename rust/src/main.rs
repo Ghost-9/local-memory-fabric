@@ -53,6 +53,14 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
     }
     match op {
         "status" => fabric.status(),
+        // D6 - crash-consistency and index/vault divergence. Repairs nothing, by design.
+        "verify" => fabric.verify(),
+        // C2 - integrity check, then rebuild only when the index is genuinely unusable.
+        "repair" => fabric.repair(req["force"].as_bool().unwrap_or(false)),
+        // C4 - the index format as data, so the gate can fail when it changes unrecorded.
+        "schema" => fabric.schema_contract(),
+        // P2 - reclaim what the index no longer needs. Reports unless forced.
+        "vacuum" => fabric.vacuum(req["force"].as_bool().unwrap_or(false)),
         "index" => fabric.index(req["force"].as_bool().unwrap_or(false)),
         "search" => {
             let key = format!(
