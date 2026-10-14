@@ -88,8 +88,11 @@ def main() -> int:
     print(f"  distinct notes cited        {len(cited)}")
     print(f"  withholdings                {withheld}")
     print()
-    print(f"  READ-THROUGH                {total_read}/{total_cited}"
-          f"  ({100*total_read/max(total_cited,1):.0f}% of cited notes were then opened)")
+    # Deliberately NOT printed as a rate. The historical window has no usable read measure -
+    # see the method note at the end - so a percentage here would be a number the instrument
+    # cannot support, which is the exact failure this session spent its time removing.
+    print(f"  read-through, history       not computable ({total_cited} refs injected; the read "
+          f"side is not in the transcript)")
     print()
     tok = chars_injected / CHARS_PER_TOKEN
     print(f"  injection cost              {chars_injected:,} chars ~= {tok:,.0f} tokens")
