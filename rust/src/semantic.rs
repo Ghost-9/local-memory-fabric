@@ -100,26 +100,73 @@ pub fn quantize_vector(text: &str) -> [i8; VECTOR_DIMS] {
     out
 }
 
-/// Cosine similarity between two quantized vectors
+/// Cosine similarity between two quantized vectors with platform SIMD acceleration
 #[inline]
 pub fn cosine_similarity(a: &[i8; VECTOR_DIMS], b: &[i8; VECTOR_DIMS]) -> f64 {
-    let mut dot = 0i32;
-    let mut norm_a = 0i32;
-    let mut norm_b = 0i32;
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        use std::arch::aarch64::*;
+        let mut dot_acc = vdupq_n_s32(0);
+        let mut norm_a_acc = vdupq_n_s32(0);
+        let mut norm_b_acc = vdupq_n_s32(0);
 
-    for i in 0..VECTOR_DIMS {
-        let ai = a[i] as i32;
-        let bi = b[i] as i32;
-        dot += ai * bi;
-        norm_a += ai * ai;
-        norm_b += bi * bi;
+        // Process 16 bytes per chunk: 128 / 16 = 8 iterations
+        for chunk in 0..8 {
+            let offset = chunk * 16;
+            let va = vld1q_s8(a.as_ptr().add(offset));
+            let vb = vld1q_s8(b.as_ptr().add(offset));
+
+            // Low 8 bytes
+            let va_low = vmovl_s8(vget_low_s8(va));
+            let vb_low = vmovl_s8(vget_low_s8(vb));
+            dot_acc = vmlal_s16(dot_acc, vget_low_s16(va_low), vget_low_s16(vb_low));
+            dot_acc = vmlal_s16(dot_acc, vget_high_s16(va_low), vget_high_s16(vb_low));
+            norm_a_acc = vmlal_s16(norm_a_acc, vget_low_s16(va_low), vget_low_s16(va_low));
+            norm_a_acc = vmlal_s16(norm_a_acc, vget_high_s16(va_low), vget_high_s16(va_low));
+            norm_b_acc = vmlal_s16(norm_b_acc, vget_low_s16(vb_low), vget_low_s16(vb_low));
+            norm_b_acc = vmlal_s16(norm_b_acc, vget_high_s16(vb_low), vget_high_s16(vb_low));
+
+            // High 8 bytes
+            let va_high = vmovl_s8(vget_high_s8(va));
+            let vb_high = vmovl_s8(vget_high_s8(vb));
+            dot_acc = vmlal_s16(dot_acc, vget_low_s16(va_high), vget_low_s16(vb_high));
+            dot_acc = vmlal_s16(dot_acc, vget_high_s16(va_high), vget_high_s16(vb_high));
+            norm_a_acc = vmlal_s16(norm_a_acc, vget_low_s16(va_high), vget_low_s16(va_high));
+            norm_a_acc = vmlal_s16(norm_a_acc, vget_high_s16(va_high), vget_high_s16(va_high));
+            norm_b_acc = vmlal_s16(norm_b_acc, vget_low_s16(vb_high), vget_low_s16(vb_high));
+            norm_b_acc = vmlal_s16(norm_b_acc, vget_high_s16(vb_high), vget_high_s16(vb_high));
+        }
+
+        let dot = vaddvq_s32(dot_acc);
+        let norm_a = vaddvq_s32(norm_a_acc);
+        let norm_b = vaddvq_s32(norm_b_acc);
+
+        if norm_a == 0 || norm_b == 0 {
+            return 0.0;
+        }
+        return dot as f64 / ((norm_a as f64).sqrt() * (norm_b as f64).sqrt());
     }
 
-    if norm_a == 0 || norm_b == 0 {
-        return 0.0;
-    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        let mut dot = 0i32;
+        let mut norm_a = 0i32;
+        let mut norm_b = 0i32;
 
-    dot as f64 / ((norm_a as f64).sqrt() * (norm_b as f64).sqrt())
+        for i in 0..VECTOR_DIMS {
+            let ai = a[i] as i32;
+            let bi = b[i] as i32;
+            dot += ai * bi;
+            norm_a += ai * ai;
+            norm_b += bi * bi;
+        }
+
+        if norm_a == 0 || norm_b == 0 {
+            return 0.0;
+        }
+
+        dot as f64 / ((norm_a as f64).sqrt() * (norm_b as f64).sqrt())
+    }
 }
 
 #[inline]
