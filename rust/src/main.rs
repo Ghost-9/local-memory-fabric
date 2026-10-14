@@ -842,7 +842,34 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
         }
         "audit-log" => {
             let verify = args.iter().any(|a| a == "--verify");
-            Some(json!({ "op": "audit-log", "verify": verify }))
+            let mut operation: Option<String> = None;
+            let mut target_val: Option<String> = None;
+            let mut author: Option<String> = None;
+            let mut content: Option<String> = None;
+            let mut i = 1;
+            while i < args.len() {
+                if (args[i] == "--operation" || args[i] == "--op") && i + 1 < args.len() {
+                    operation = Some(args[i + 1].clone());
+                    i += 2;
+                } else if args[i] == "--target" && i + 1 < args.len() {
+                    target_val = Some(args[i + 1].clone());
+                    i += 2;
+                } else if args[i] == "--author" && i + 1 < args.len() {
+                    author = Some(args[i + 1].clone());
+                    i += 2;
+                } else if args[i] == "--content" && i + 1 < args.len() {
+                    content = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            let mut obj = json!({ "op": "audit-log", "verify": verify });
+            if let Some(o) = operation { obj["operation"] = json!(o); }
+            if let Some(t) = target_val { obj["target"] = json!(t); }
+            if let Some(a) = author { obj["author"] = json!(a); }
+            if let Some(c) = content { obj["content"] = json!(c); }
+            Some(obj)
         }
         "scrub-secrets" => {
             let dry_run = args.iter().any(|a| a == "--dry-run");

@@ -179,6 +179,7 @@ exit 0
         let entry_hash = format!("{:x}", Sha256::digest(entry_payload.as_bytes()));
 
         let record = json!({
+            "ok": true,
             "index": index,
             "timestamp": now,
             "op": op,
