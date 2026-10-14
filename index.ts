@@ -445,7 +445,11 @@ export default function (pi: ExtensionAPI) {
 					shown: searchRes.shown ?? null, withheld: searchRes.withheld_export ?? null,
 				});
 			} catch {
-				sessionRefs = [];
+				// Deliberately leave sessionRefs null on failure so the next turn retries. Caching []
+				// here would disable injection for the rest of the session after one transient
+				// engine hiccup - and the whole point of resolving once is that the first answer is
+				// reused, so a wrong first answer is expensive in a way a wrong per-turn answer is
+				// not. An empty result from a *successful* search still caches, which is correct.
 			}
 		}
 		if (sessionRefs && sessionRefs.length > 0) {
