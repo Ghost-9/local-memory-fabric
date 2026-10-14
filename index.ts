@@ -7,6 +7,7 @@ import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineTool, type AgentToolResult, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { createHealth } from "./engine-health.ts";
 import {
 	isLoopbackModel as loopbackModelFor,
 	mayWriteToMemory as mayWriteToMemoryFor,
@@ -66,6 +67,9 @@ let sessionRefs: string[] | null = null;
  * re-parsing session transcripts. At most one line per session plus one per withholding, never
  * on the hot path, and never allowed to break a turn.
  */
+/** Engine breaker + respawn guard. The rules live in engine-health.ts and are tested there. */
+const health = createHealth();
+
 const USAGE_LOG = resolve(homedir(), ".pi/agent/scratch/memory-fabric/usage.jsonl");
 function logUsage(record: Record<string, unknown>): void {
 	try {
@@ -81,6 +85,7 @@ function failRustWorker(child: ChildProcessWithoutNullStreams, message: string):
 	rustQueue = [];
 	for (const item of pending) {
 		if (item.timer) clearTimeout(item.timer);
+		health.record(false, Date.now());
 		item.resolve({ ok: false, error: message });
 	}
 	rustChild = undefined;
@@ -103,11 +108,26 @@ function sendNextRustRequest(child: ChildProcessWithoutNullStreams): void {
 
 function callRust(request: Response): Promise<Response> {
 	return new Promise((resolveResult) => {
+		// Refuse locally while the breaker is open, and refuse to respawn into a storm. Both
+		// are counted, and both are cheaper than another spawn plus timeout.
+		if (!health.allow(Date.now())) {
+			resolveResult({ ok: false, error: health.refusalMessage(Date.now()), breaker_open: true });
+			return;
+		}
 		if (rustQueue.length + rustInFlight.length >= 128) {
+			logUsage({ kind: "queue_full", pending: rustQueue.length + rustInFlight.length });
 			resolveResult({ ok: false, error: "Rust memory request queue is full." });
 			return;
 		}
 		if (!rustChild || rustChild.killed) {
+			if (!health.allowRespawn(Date.now())) {
+				logUsage({ kind: "respawn_refused" });
+				resolveResult({
+					ok: false,
+					error: "Local memory engine is crash-looping; not respawning again this session. Run /memory-fabric status.",
+				});
+				return;
+			}
 			const child = spawn(RUST_BIN, ["--serve"], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true, env: process.env });
 			rustChild = child;
 			let stderr = "";
@@ -131,8 +151,13 @@ function callRust(request: Response): Promise<Response> {
 				const item = rustInFlight.shift();
 				if (!item) return;
 				if (item.timer) clearTimeout(item.timer);
-				try { item.resolve(JSON.parse(line) as Response); }
-				catch { item.resolve({ ok: false, error: "Rust memory engine returned an invalid response." }); }
+				try {
+					item.resolve(JSON.parse(line) as Response);
+					health.record(true, Date.now());
+				} catch {
+					health.record(false, Date.now());
+					item.resolve({ ok: false, error: "Rust memory engine returned an invalid response." });
+				}
 				sendNextRustRequest(child);
 			});
 		}

@@ -11,6 +11,10 @@ python3 test_memory_fabric.py
 
 echo "== 2/13 extension policy suite (read, scrub and write gates) =="
 node --experimental-strip-types --test remote-policy.test.ts
+# Engine breaker + respawn guard. These rules bound the cost of a broken engine: without them a
+# failed worker costs a spawn and a timeout on every turn, and the only way to check the fix was
+# to break a real engine and watch.
+node --experimental-strip-types --test engine-health.test.ts
 
 echo "== 3/13 context scrub suite (what may leave the machine) =="
 # index.ts itself cannot be imported without the Pi runtime, which is why the scrub predicate
