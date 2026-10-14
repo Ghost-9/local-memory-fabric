@@ -618,9 +618,11 @@ impl MemoryFabric {
     ) -> Result<Value, String> {
         let effective_budget = if let Some(m) = model {
             let m_low = m.to_lowercase();
-            if m_low.contains("16k") || m_low.contains("lite") || m_low.contains("-mini") || m_low.contains("small") {
+            // Compact / Fast Edge tier: e.g. flash-lite, compact, small local models (<=16k window)
+            if m_low.contains("lite") || m_low.contains("compact") || m_low.contains("16k") || m_low.contains("small") || m_low.contains("edge") {
                 600
-            } else if m_low.contains("200k") || m_low.contains("1m") || m_low.contains("opus") || m_low.contains("gemini-1.5") || m_low.contains("gemini-2.5") {
+            // Frontier Deep / Long-Context tier: e.g. gemini-3.8-flash-high, gemini-3.8-pro, claude-3-7-sonnet, deepseek-v4 (200k - 2M window)
+            } else if m_low.contains("flash-high") || m_low.contains("gemini-3") || m_low.contains("sonnet") || m_low.contains("opus") || m_low.contains("deepseek") || m_low.contains("pro") || m_low.contains("200k") || m_low.contains("1m") || m_low.contains("2m") {
                 4000
             } else {
                 budget

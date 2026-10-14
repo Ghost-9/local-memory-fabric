@@ -1117,7 +1117,7 @@ fn run_native_test_suite(fabric: &MemoryFabric) -> Result<Value, String> {
     checks.push("Predictive invariant cache prewarming verified".to_string());
     passed += 1;
 
-    let ctx = fabric.context_extended(None, "retrieval", Some("lmstudio"), 1200, None, Some(true), None, None, Some("gemini-1.5-pro"))?;
+    let ctx = fabric.context_extended(None, "retrieval", Some("lmstudio"), 1200, None, Some(true), None, None, Some("gemini-3.8-flash-high"))?;
     if ctx["token_budget"].as_u64() != Some(4000) { return Err("Budget coercion failed".into()); }
     checks.push("Dynamic context budget coercion (600/1200/4000 tokens) verified".to_string());
     passed += 1;
