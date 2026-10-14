@@ -1,8 +1,11 @@
-# Local Memory Fabric 🧠⚡
+# Engram 🧠⚡
+
+**Engram** is the memory engine. `local-memory-fabric` is its repository and extension
+directory name, kept because renaming a path breaks every configured reference.
 
 [![CI](https://github.com/Ghost-9/local-memory-fabric/actions/workflows/gate.yml/badge.svg)](https://github.com/Ghost-9/local-memory-fabric/actions/workflows/gate.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
-[![Version: 1.3.0](https://img.shields.io/badge/version-1.9.0-success.svg)](CHANGELOG.md)
+[![Version: 1.9.0](https://img.shields.io/badge/version-1.9.0-success.svg)](CHANGELOG.md)
 [![Rust 2021](https://img.shields.io/badge/rust-2021-orange.svg)](rust/)
 [![Zero-Leak DLP](https://img.shields.io/badge/DLP-Fail--Closed-green.svg)](context_scrub.py)
 [![Recall@3: 93.4%](https://img.shields.io/badge/Recall@3-93.4%25-blueviolet.svg)](bench/fixture_score.py)

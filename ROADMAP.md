@@ -9,7 +9,7 @@ Every item below is grounded in a **measured gap** on this machine against the r
 The Agency extension achieved production velocity, sub-millisecond execution, and zero degradation through 5 architectural pillars. Local Memory Fabric is transitioning to this exact architecture:
 
 1. **Single High-Speed Native Core**:
-   Agency relies entirely on a compiled native Rust binary (`agency-dispatch-rs`), executing in < 1 ms. Memory Fabric previously carried a 1,179-line Python fallback and 32 parity tests. Version 1.3 unifies execution onto a native Rust daemon with distributed prebuilt binaries, UNIX domain socket, and stdio MCP server.
+   Agency relies entirely on a compiled native Rust binary (`agency-dispatch-rs`), executing in < 1 ms. **Correction 2026-10-15:** this line previously read *"Memory Fabric previously carried a 1,179-line Python fallback and 32 parity tests"* - past tense, describing a migration that has **not happened here**. `memory_fabric.py` is 1,775 lines and is still executed by `rust/tests/parity.py` on every gate run. The Agency extension did remove its Python path; this one has not, and the difference is not cosmetic: the comparison is the only independent check on the engine that ships. See `PORTING.md` for the actual state and the decision.
 2. **Strict KV-Cache / Prompt-Prefix Invariance**:
    Mutating system prompts or top-of-context tokens invalidates 100% of LLM KV prefix caches (measured: 100% cache miss on 18 turns where system prompt shifted). Memory context packets are injected as in-turn messages with `customType: "memory-context"` and `display: false` after the cached prompt prefix, achieving a verified **97.9% prefix hit rate**.
 3. **Compaction Re-Hydration Across Context Windows**:
