@@ -63,12 +63,45 @@ Remote write-back is on by default, so the extension counts canonical-memory wri
 and refuses past **50**, logging every write. The refusal message says plainly that it is a guard
 against a loop, not a policy, and that restarting the session clears it.
 
-## What is still missing — and the one that matters most
+## Off-machine backup (D2) and the first restore drill (D3)
+
+Destination, auto-selected by the operator's instruction and changeable with one variable:
+`~/Library/Mobile Documents/com~apple~CloudDocs/engram-vault-backup/` (iCloud Drive, 59 GB free).
+`ENGRAM_BACKUP_DIR` overrides it.
+
+**A git bundle, not a synced repository.** Putting a live `.git` directory inside a file-sync
+service invites corruption: git writes objects incrementally and a sync client can copy a
+half-written pack. A bundle is one immutable file — a sync client copies it whole or not at all.
+Measured: **8.3 MB** for the full history.
+
+**One-directional, and the vault stays un-synced.** No service is given live access to the
+canonical store and no client can write to it. Restoring is a deliberate act
+(`scripts/vault-backup.sh --verify` clones a bundle into a temp directory and compares tree
+hashes). The contract's *no sync, no publish* holds: what is backed up is an **artefact derived
+from** the vault, not the vault itself.
+
+**Rotation keeps it small, as asked:** 7 bundles by default, hard cap 500 MB, oldest evicted first
+by either rule.
+
+**First restore drill, measured:**
+
+```
+bundle      : vault-2026-10-15.bundle
+RTO         : 0s (a single-file clone)
+files       : 210 restored vs 210 live
+tree hash   : 55e068a5…   matches live: YES
+sample note : byte-identical
+```
+
+Before this, the honest description was *correct, fast, and one disk failure away from total
+loss*. That sentence no longer applies.
+
+## What is still missing
 
 | # | gap | status |
 |---|---|---|
-| **D2** | **No second copy of the vault.** Version history exists; there is one recovery site. Disk loss is total loss. | **needs an operator decision on where** |
-| D3 | No restore has ever been drilled. A backup never restored is a hope. | blocked on D2 |
+| ~~D2~~ | ~~No second copy of the vault.~~ | **DONE** — see below |
+| ~~D3~~ | ~~No restore has ever been drilled.~~ | **DONE** — first drill passed |
 | D4 | 9 files are uncommitted, so their current state has no revert point. | policy written, not automated |
 | D5 | We gate vault writes but do not perform them, so we cannot make a write atomic. | design only |
 | D6 | A crash mid-write could leave a truncated note that still indexes. | not implemented |
