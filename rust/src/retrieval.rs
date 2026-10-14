@@ -602,4 +602,76 @@ impl MemoryFabric {
             "sections": out_sections
         }))
     }
+
+    /// Milestone 27, 30, 33: Context generation with Domain Role Stacking, Subagent Sandboxing & Model Coercion.
+    pub(crate) fn context_extended(
+        &self,
+        project: Option<&str>,
+        query: &str,
+        provider: Option<&str>,
+        budget: usize,
+        as_of: Option<&str>,
+        loopback: Option<bool>,
+        role: Option<&str>,
+        sandbox: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<Value, String> {
+        let effective_budget = if let Some(m) = model {
+            let m_low = m.to_lowercase();
+            if m_low.contains("16k") || m_low.contains("lite") || m_low.contains("-mini") || m_low.contains("small") {
+                600
+            } else if m_low.contains("200k") || m_low.contains("1m") || m_low.contains("opus") || m_low.contains("gemini-1.5") || m_low.contains("gemini-2.5") {
+                4000
+            } else {
+                budget
+            }
+        } else {
+            budget
+        };
+
+        let effective_project = sandbox.or(project);
+        let effective_query = if let Some(r) = role {
+            format!("{} role:{}", query, r)
+        } else {
+            query.to_string()
+        };
+
+        let mut res = self.context(effective_project, &effective_query, provider, effective_budget, as_of, loopback)?;
+        if let Some(map) = res.as_object_mut() {
+            if let Some(r) = role {
+                map.insert("domain_role".to_string(), json!(r));
+            }
+            if let Some(sb) = sandbox {
+                map.insert("sandbox_scope".to_string(), json!(sb));
+                map.insert("sandboxed".to_string(), json!(true));
+            }
+            if let Some(m) = model {
+                map.insert("coerced_model".to_string(), json!(m));
+                map.insert("token_budget".to_string(), json!(effective_budget));
+            }
+        }
+        Ok(res)
+    }
+
+}
+
+/// Milestone 19: Ebbinghaus Temporal Half-Life Decay.
+/// Invariants and user notes have decay = 1.0 (eternal). Episodic/journal notes decay with half-life = 30 days.
+pub fn calculate_ebbinghaus_decay(scope: &str, relpath: &str, indexed_at: Option<&str>) -> f64 {
+    if scope == "invariants" || scope == "user" || relpath.starts_with("invariants/") || relpath.starts_with("user/") {
+        return 1.0;
+    }
+    if scope == "episodic" || scope == "daily" || relpath.starts_with("episodes/") || relpath.starts_with("journal/") {
+        if let Some(date_str) = indexed_at {
+            if let Ok(indexed_date) = chrono::DateTime::parse_from_rfc3339(date_str) {
+                let now = chrono::Utc::now();
+                let duration = now.signed_duration_since(indexed_date);
+                let days = duration.num_seconds() as f64 / 86400.0;
+                if days > 0.0 {
+                    return 2.0_f64.powf(-days / 30.0);
+                }
+            }
+        }
+    }
+    1.0
 }

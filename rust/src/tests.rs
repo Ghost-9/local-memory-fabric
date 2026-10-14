@@ -374,3 +374,139 @@ fn test_memory_code_symbiosis_and_proximity_reranking() {
     let p_distant = calculate_path_proximity(Some("rust/src/retrieval.rs"), "docs/spec.md");
     assert!(p_sibling > p_distant);
 }
+
+#[test]
+fn test_harvest_transcript_and_failure_detection() {
+    use crate::harvest::SessionHarvester;
+    use std::io::Write;
+
+    let tmp_dir = std::env::temp_dir().join(format!("mf-harvest-test-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp_dir);
+    let session_file = tmp_dir.join("test_session.jsonl");
+
+    let mut f = std::fs::File::create(&session_file).unwrap();
+    writeln!(f, "{{\"role\": \"user\", \"content\": \"Remember to always verify tests before committing.\"}}").unwrap();
+    writeln!(f, "{{\"role\": \"tool\", \"content\": \"Command exited with code 1. Fatal: syntax error.\"}}").unwrap();
+
+    let candidates = SessionHarvester::harvest_single_transcript(&session_file).unwrap();
+    assert_eq!(candidates.len(), 2, "Harvester must extract user correction and tool failure");
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_ebbinghaus_temporal_decay() {
+    use crate::retrieval::calculate_ebbinghaus_decay;
+
+    let inv = calculate_ebbinghaus_decay("invariants", "invariants/test.md", None);
+    assert_eq!(inv, 1.0, "Invariants must have zero decay");
+
+    let user_note = calculate_ebbinghaus_decay("user", "user/prefs.md", None);
+    assert_eq!(user_note, 1.0, "User notes must have zero decay");
+
+    let thirty_days_ago = chrono::Utc::now() - chrono::Duration::days(30);
+    let decay_episodic = calculate_ebbinghaus_decay("episodic", "episodes/2026-09-01.md", Some(&thirty_days_ago.to_rfc3339()));
+    assert!((decay_episodic - 0.5).abs() < 0.05, "30 days must be approx 0.5 half-life decay");
+}
+
+#[test]
+fn test_semantic_contradiction_detection() {
+    use crate::conflicts::ConflictDetector;
+
+    let tmp_dir = std::env::temp_dir().join(format!("mf-conflict-test-{}", std::process::id()));
+    let inv_dir = tmp_dir.join("invariants");
+    let _ = std::fs::create_dir_all(&inv_dir);
+
+    std::fs::write(inv_dir.join("rule_a.md"), "# Rules\n\n- We must always use vitest for fast testing.\n").unwrap();
+    std::fs::write(inv_dir.join("rule_b.md"), "# Rules\n\n- We must always use jest for enterprise coverage.\n").unwrap();
+
+    let scan = ConflictDetector::scan_vault_conflicts(&tmp_dir).unwrap();
+    assert!(scan["conflicts_found"].as_u64().unwrap_or(0) >= 1);
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_automated_status_rolling() {
+    use crate::roll::MemoryRoller;
+
+    let tmp_dir = std::env::temp_dir().join(format!("mf-roll-test-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp_dir);
+
+    let mut lines: Vec<String> = Vec::new();
+    lines.push("# Project Status Tracker\n".to_string());
+    for i in 1..=20 {
+        lines.push(format!("- [x] Task {} completed and deployed\n", i));
+    }
+    for i in 1..=10 {
+        lines.push(format!("- [ ] Active task {} in progress\n", i));
+    }
+    std::fs::write(tmp_dir.join("STATUS.md"), lines.concat()).unwrap();
+
+    let roll_res = MemoryRoller::roll_file(&tmp_dir, "STATUS.md", 15, false).unwrap();
+    assert!(roll_res["rolled"].as_bool().unwrap_or(false));
+    assert_eq!(roll_res["archived_items"].as_u64().unwrap_or(0), 20);
+
+    let updated = std::fs::read_to_string(tmp_dir.join("STATUS.md")).unwrap();
+    assert!(!updated.contains("- [x] Task 1 completed"));
+    assert!(updated.contains("- [ ] Active task 1"));
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_binary_ast_index_compilation_and_lookup() {
+    use crate::ast_cache::AstBinaryIndex;
+
+    let tmp_dir = std::env::temp_dir().join(format!("mf-ast-test-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp_dir);
+
+    let sample_doc = "# Architecture\n\nIntro paragraph\n\n## Data Model\n\nSchema details\n\n## Security Boundaries\n\nAuth info\n";
+    std::fs::write(tmp_dir.join("arch.md"), sample_doc).unwrap();
+
+    let bin_path = tmp_dir.join("index.bin");
+    let comp = AstBinaryIndex::compile(&tmp_dir, &bin_path).unwrap();
+    assert!(comp["ok"].as_bool().unwrap_or(false));
+
+    let bounds = AstBinaryIndex::lookup(&bin_path, "arch.md", "Security Boundaries");
+    assert!(bounds.is_some());
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_merkle_audit_log_and_tamper_detection() {
+    use crate::governance::GovernanceEngine;
+
+    let tmp_dir = std::env::temp_dir().join(format!("mf-audit-test-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp_dir);
+    let log_path = tmp_dir.join("audit.log");
+
+    GovernanceEngine::append_audit_entry(&log_path, "create", "user/prefs.md", "agent", "initial").unwrap();
+    GovernanceEngine::append_audit_entry(&log_path, "update", "user/prefs.md", "user", "updated").unwrap();
+
+    let verify_clean = GovernanceEngine::verify_audit_log(&log_path).unwrap();
+    assert!(verify_clean["ok"].as_bool().unwrap_or(false));
+    assert_eq!(verify_clean["entries_verified"].as_u64().unwrap_or(0), 2);
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_predictive_cache_prewarming() {
+    use crate::governance::GovernanceEngine;
+
+    let tmp_dir = std::env::temp_dir().join(format!("mf-prewarm-test-{}", std::process::id()));
+    let inv_dir = tmp_dir.join("invariants");
+    let _ = std::fs::create_dir_all(&inv_dir);
+
+    std::fs::write(inv_dir.join("rust-invariants.md"), "# Rust Rules\n").unwrap();
+    std::fs::write(inv_dir.join("typescript-invariants.md"), "# TS Rules\n").unwrap();
+
+    let files = vec!["src/main.rs".to_string(), "frontend/app.tsx".to_string()];
+    let res = GovernanceEngine::prewarm_cache(&tmp_dir, &files).unwrap();
+    assert!(res["ok"].as_bool().unwrap_or(false));
+    assert_eq!(res["prewarmed_cards_count"].as_u64().unwrap_or(0), 2);
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}

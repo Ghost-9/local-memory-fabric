@@ -303,4 +303,41 @@ impl MemoryFabric {
 
         Ok(prop)
     }
+
+    /// Milestone 16: Git Worktree Invariant Overlay.
+    /// Detects if CWD is a git worktree, parses .git pointer file, and locates worktree-scoped memory.
+    pub(crate) fn worktree_status(&self) -> Result<Value, String> {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let git_file = cwd.join(".git");
+        let mut is_worktree = false;
+        let mut main_git_dir = None;
+        let mut slug = cwd.file_name().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
+
+        if git_file.exists() && git_file.is_file() {
+            is_worktree = true;
+            if let Ok(content) = std::fs::read_to_string(&git_file) {
+                if let Some(gitdir) = content.strip_prefix("gitdir:") {
+                    let gd_trimmed = gitdir.trim();
+                    main_git_dir = Some(gd_trimmed.to_string());
+                    if let Some(pos) = gd_trimmed.rfind("/worktrees/") {
+                        slug = gd_trimmed[pos + "/worktrees/".len()..].to_string();
+                    }
+                }
+            }
+        }
+
+        let project_note = format!("projects/{}.md", slug);
+        let project_exists = self.vault.join(&project_note).exists();
+
+        Ok(json!({
+            "ok": true,
+            "is_worktree": is_worktree,
+            "worktree_slug": slug,
+            "gitdir": main_git_dir,
+            "project_note": project_note,
+            "project_note_exists": project_exists,
+            "worktree_overlay_active": is_worktree
+        }))
+    }
+
 }

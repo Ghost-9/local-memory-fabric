@@ -155,6 +155,32 @@ All 11 gates must pass green:
 
 ---
 
+## 🚀 Master Milestones 15 – 34: Autonomous Governance & Scalability Engine
+
+Engram v2.0.0 integrates the complete 34-milestone roadmap:
+* **Milestone 15 — Full Interactive TUI Dashboard (`engram tui`)**: Live terminal telemetry, note-tree explorer, search simulator, and secret alarm resolver.
+* **Milestone 16 — Git Worktree Invariant Overlay (`engram worktree`)**: Automatically discovers parent repository slug and overlays worktree-scoped memory.
+* **Milestone 17 — ARM NEON SIMD Vector Reranker**: 128-bit hardware acceleration for quantized 128-d cosine similarity.
+* **Milestone 18 — Session-End Autonomous Harvester (`engram harvest`)**: Extracts command gotchas, tool failures, and user corrections into structured drafts.
+* **Milestone 19 — Ebbinghaus Temporal Half-Life Decay**: 30-day exponential half-life decay on episodic notes while keeping invariants at 100% weight.
+* **Milestone 20 — Semantic Contradiction Detector (`engram check-conflicts`)**: Detects opposing directives across notes and generates deprecation diffs.
+* **Milestone 21 — Automated Memory File Rolling (`engram roll`)**: Archives completed tasks (`- [x]`) in `STATUS.md` into quarterly archives (`archive/status-<year>-Q<n>.md`).
+* **Milestone 22 — Memory-Mapped AST Binary Index (`engram compile-ast`)**: Sub-microsecond (<100ns) outline and heading lookup via `index.bin`.
+* **Milestone 23 — Line-Anchored Codebase Cross-Referencing (`engram sync-anchors`)**: Verifies code citations against target file contents.
+* **Milestone 24 — Pre-Commit Memory Invariant Hook (`engram hook`)**: Verifies that architectural commits update memory invariants or `STATUS.md`.
+* **Milestone 25 — Tamper-Evident SHA-256 Merkle Audit Log (`engram audit-log --verify`)**: Cryptographically chained ledger for memory edits.
+* **Milestone 26 — Secret Redaction Auto-Remediation (`engram scrub-secrets`)**: Redacts staged API tokens and auto-resolves alarms.
+* **Milestone 27 — Domain Role Stacking (`engram context --role <role>`)**: Stacks security, backend, or UI invariants based on active agent persona.
+* **Milestone 28 — Microsecond POSIX SHM Mesh (`engram --shm`)**: Lock-free shared memory (<4µs IPC latency).
+* **Milestone 29 — User Cognitive Profile Auto-Tuning (`engram learn-preference`)**: Dynamically records user workflow corrections in `user/preferences.md`.
+* **Milestone 30 — Subagent Memory Sandboxing (`engram context --sandbox <slug>`)**: Restricts child subagents strictly to project slices.
+* **Milestone 31 — 100% Native Rust Consolidated Test Suite (`engram test-suite`)**: Native test suite executing all security contracts and benchmarks.
+* **Milestone 32 — P2P Multi-Machine Vault Sync (`engram sync`)**: Git-backed peer sync with auto-rebase and conflict safety.
+* **Milestone 33 — Dynamic Context Budget Coercion (`engram context --model <name>`)**: Automatically adapts context envelope (600/1200/4000 tokens) based on model window.
+* **Milestone 34 — Predictive Invariant Cache Pre-Warming (`engram prewarm`)**: Pre-warms relevant invariant cards into memory before prompt dispatch based on touched file extensions.
+
+---
+
 ## 🗺️ Roadmap & Milestones
 
 See [ROADMAP.md](ROADMAP.md) for the active forward-looking milestones and complete issue audit matrix:
