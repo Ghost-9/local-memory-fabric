@@ -62,6 +62,32 @@ regression check against recorded expectations rather than a live comparison.
 | codebase | +1,775 lines | −1,775 lines | −1,775 lines |
 | risk | drift between two engines | silent divergence | expectations frozen at a point in time |
 
+**A cost I understated when first writing this file.** Deleting the oracle also deletes
+`test_memory_fabric.py` - and inspecting it properly shows those are not parity tests. They are
+the **security contract**: scope isolation, export-policy enforcement, credential alarms, sandbox
+secret refusal, traversal rejection, and the read staleness check. 28 tests.
+
+The Rust engine has **26 unit tests, most of them pure helpers** - paths, tokenize, exit codes,
+busy messages. It has **no behavioural suite of its own.** The Python suite is the closest thing,
+and it tests Python.
+
+So the loss from deleting the oracle is larger than "one cross-check": it removes the only
+behavioural coverage, and `rust/tests/parity.py` would have nothing to compare against. Measured:
+
+| after deleting Python | remaining coverage |
+|---|---|
+| lost | 28 behavioural tests, 33 live parity checks |
+| kept | 26 Rust unit tests, 136-case recall fixture, determinism check, adapters, and the recorded contract above |
+
+**The order therefore matters, and it is not "record then delete":**
+
+1. record the cross-engine contract as a fixture - **done** (`bench/golden/parity.json`, 544 cases,
+   captured only because both engines agreed on all of them);
+2. **port the 28 behavioural tests to Rust** - this is the real milestone, because the security
+   contract must outlive the engine that happens to test it;
+3. and only then delete the oracle, which by that point is genuinely just 1,775 lines of parity
+   reference with no unique coverage.
+
 **Why C over B:** deleting the oracle and the check together is how a codebase loses its ability to
 notice anything. C keeps the detection that matters most — *did this change break parity?* — at a
 fraction of the cost, and states its limit honestly: it cannot see a divergence that never existed

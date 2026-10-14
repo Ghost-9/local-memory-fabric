@@ -1,0 +1,5458 @@
+{
+ "captured_at": "2026-10-14T20:52:52Z",
+ "cases": [
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "CliffCompaction",
+   "refs": [
+    "projects/decoy-identifiers.md",
+    "projects/identifiers.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "CliffCompaction",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "CliffCompaction",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "CliffCompaction",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "parseNotes",
+   "refs": [
+    "projects/decoy-identifiers.md",
+    "projects/identifiers.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 97
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "parseNotes",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "parseNotes",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "parseNotes",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "KV cache",
+   "refs": [
+    "projects/decoy-kv-cache.md",
+    "projects/kv-cache.md",
+    "projects/acronyms.md"
+   ],
+   "scope": "all",
+   "shown": 3,
+   "total_matches": 9
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "KV cache",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "KV cache",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "KV cache",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "KV",
+   "refs": [
+    "projects/decoy-kv-cache.md",
+    "projects/kv-cache.md",
+    "projects/acronyms.md"
+   ],
+   "scope": "all",
+   "shown": 3,
+   "total_matches": 3
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "KV",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "KV",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "KV",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "BM25",
+   "refs": [
+    "projects/decoy-bm25-ranking.md",
+    "projects/bm25-ranking.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "BM25",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "BM25",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "BM25",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "bm25",
+   "refs": [
+    "projects/decoy-bm25-ranking.md",
+    "projects/bm25-ranking.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "bm25",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "bm25",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "bm25",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "FTS5",
+   "refs": [
+    "projects/decoy-fts5-tokenizer.md",
+    "projects/fts5-tokenizer.md",
+    "projects/decoy-bm25-ranking.md",
+    "projects/bm25-ranking.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 4
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "FTS5",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "FTS5",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "FTS5",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "fts5",
+   "refs": [
+    "projects/decoy-fts5-tokenizer.md",
+    "projects/fts5-tokenizer.md",
+    "projects/decoy-bm25-ranking.md",
+    "projects/bm25-ranking.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 4
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "fts5",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "fts5",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "fts5",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "porter",
+   "refs": [
+    "projects/fts5-tokenizer.md",
+    "projects/decoy-fts5-tokenizer.md",
+    "projects/decoy-bm25-ranking.md",
+    "projects/bm25-ranking.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 4
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "porter",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "porter",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "porter",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "supersession",
+   "refs": [
+    "projects/decoy-temporal-supersession.md",
+    "projects/temporal-supersession.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "supersession",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "supersession",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "supersession",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "symlink",
+   "refs": [
+    "projects/decoy-path-symlink.md",
+    "projects/path-symlink.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "symlink",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "symlink",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "symlink",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "allowlist",
+   "refs": [
+    "projects/decoy-provider-allowlist.md",
+    "projects/provider-allowlist.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "allowlist",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "allowlist",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "allowlist",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "loopback",
+   "refs": [
+    "projects/decoy-privacy-loopback.md",
+    "projects/privacy-loopback.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "loopback",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "loopback",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "loopback",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "provenance",
+   "refs": [
+    "projects/decoy-source-provenance.md",
+    "projects/source-provenance.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "provenance",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "provenance",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "provenance",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "lineage",
+   "refs": [
+    "projects/evidence-trail.md"
+   ],
+   "scope": "all",
+   "shown": 1,
+   "total_matches": 1
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "lineage",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "lineage",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "lineage",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "determinism",
+   "refs": [
+    "projects/decoy-determinism.md",
+    "projects/determinism.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "determinism",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "determinism",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "determinism",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "parity",
+   "refs": [
+    "projects/decoy-engine-parity.md",
+    "projects/engine-parity.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "parity",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "parity",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "parity",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "abstention",
+   "refs": [
+    "projects/decoy-retrieval-abstention.md",
+    "projects/retrieval-abstention.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "abstention",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "abstention",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "abstention",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "incremental",
+   "refs": [
+    "projects/decoy-incremental-index.md",
+    "projects/incremental-index.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "incremental",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "incremental",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "incremental",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "append-only",
+   "refs": [
+    "projects/decoy-append-only.md",
+    "projects/append-only.md",
+    "projects/prompt-cache.md",
+    "projects/credential-filter.md",
+    "projects/incremental-index.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 5
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "append-only",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "append-only",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "append-only",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "prompt cache prefix",
+   "refs": [
+    "projects/decoy-prefix-cache-stability.md",
+    "projects/prompt-cache.md",
+    "projects/prefix-cache-stability.md",
+    "projects/decoy-prompt-cache.md",
+    "projects/kv-cache.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 8
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "prompt cache prefix",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "prompt cache prefix",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "prompt cache prefix",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "cache break cost",
+   "refs": [
+    "projects/decoy-prompt-cache.md",
+    "projects/prompt-cache.md",
+    "projects/decoy-determinism.md",
+    "projects/resident-context.md",
+    "projects/determinism.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 10
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "cache break cost",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "cache break cost",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "cache break cost",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "prefix invalidation",
+   "refs": [
+    "projects/decoy-prefix-cache-stability.md",
+    "projects/prefix-cache-stability.md",
+    "projects/prompt-cache.md",
+    "projects/resident-context.md",
+    "projects/kv-cache.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 5
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "prefix invalidation",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "prefix invalidation",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "prefix invalidation",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "resident context size",
+   "refs": [
+    "projects/decoy-resident-context.md",
+    "projects/resident-context.md",
+    "projects/prompt-cache.md",
+    "projects/document-frequency.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 4
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "resident context size",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "resident context size",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "resident context size",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "document frequency cutoff",
+   "refs": [
+    "projects/document-frequency.md",
+    "projects/decoy-document-frequency.md",
+    "projects/bm25-ranking.md",
+    "projects/retrieval-abstention.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 4
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "document frequency cutoff",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "document frequency cutoff",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "document frequency cutoff",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "source provenance citation",
+   "refs": [
+    "projects/decoy-source-provenance.md",
+    "projects/source-provenance.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "source provenance citation",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "source provenance citation",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "source provenance citation",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "temporal supersession interval",
+   "refs": [
+    "projects/decoy-temporal-supersession.md",
+    "projects/temporal-supersession.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "temporal supersession interval",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "temporal supersession interval",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "temporal supersession interval",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "credential fingerprint alarm",
+   "refs": [
+    "projects/credential-filter.md",
+    "projects/decoy-credential-filter.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "credential fingerprint alarm",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "credential fingerprint alarm",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "credential fingerprint alarm",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "scope resolution working directory",
+   "refs": [
+    "projects/scope-separation.md",
+    "projects/decoy-scope-separation.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "scope resolution working directory",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "scope resolution working directory",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "scope resolution working directory",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "tie break ordering stable",
+   "refs": [
+    "projects/determinism.md",
+    "projects/decoy-determinism.md",
+    "projects/decoy-prompt-cache.md",
+    "projects/prompt-cache.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 95
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "tie break ordering stable",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "tie break ordering stable",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "tie break ordering stable",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "reindex unchanged files",
+   "refs": [
+    "projects/decoy-incremental-index.md",
+    "projects/incremental-index.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "reindex unchanged files",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "reindex unchanged files",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "reindex unchanged files",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "write-back proposal diff",
+   "refs": [
+    "projects/writeback-proposal.md",
+    "projects/decoy-writeback-proposal.md",
+    "projects/decoy-provider-allowlist.md",
+    "projects/provider-allowlist.md",
+    "projects/append-only.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 5
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "write-back proposal diff",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "write-back proposal diff",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "write-back proposal diff",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "symlink outside approved roots",
+   "refs": [
+    "projects/path-symlink.md",
+    "projects/decoy-path-symlink.md",
+    "projects/writeback-proposal.md",
+    "projects/decoy-writeback-proposal.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 4
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "symlink outside approved roots",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "symlink outside approved roots",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "symlink outside approved roots",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "emtpoy byte identical payloads",
+   "refs": [
+    "projects/decoy-engine-parity.md",
+    "projects/engine-parity.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "emtpoy byte identical payloads",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "emtpoy byte identical payloads",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "emtpoy byte identical payloads",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "ranked evidence as-of",
+   "refs": [
+    "projects/decoy-evidence-trail.md",
+    "projects/evidence-trail.md",
+    "projects/retrieval-abstention.md"
+   ],
+   "scope": "all",
+   "shown": 3,
+   "total_matches": 3
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "ranked evidence as-of",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "ranked evidence as-of",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "ranked evidence as-of",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "token length minimum acronym",
+   "refs": [
+    "projects/acronyms.md",
+    "projects/identifiers.md",
+    "projects/prompt-cache.md",
+    "projects/resident-context.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 8
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "token length minimum acronym",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "token length minimum acronym",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "token length minimum acronym",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "case boundary identifier",
+   "refs": [
+    "projects/identifiers.md",
+    "projects/decoy-identifiers.md",
+    "projects/fts5-tokenizer.md",
+    "projects/privacy-loopback.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 4
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "case boundary identifier",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "case boundary identifier",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "case boundary identifier",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "stemming inflected words",
+   "refs": [
+    "projects/fts5-tokenizer.md",
+    "projects/decoy-fts5-tokenizer.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 4
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "stemming inflected words",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "stemming inflected words",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "stemming inflected words",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "saturation normalisation rare",
+   "refs": [
+    "projects/bm25-ranking.md"
+   ],
+   "scope": "all",
+   "shown": 1,
+   "total_matches": 1
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "saturation normalisation rare",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "saturation normalisation rare",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "saturation normalisation rare",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "cold start cost event",
+   "refs": [
+    "projects/resident-context.md"
+   ],
+   "scope": "all",
+   "shown": 1,
+   "total_matches": 4
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "cold start cost event",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "cold start cost event",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "cold start cost event",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "why does changing the beginning cost so much",
+   "refs": [
+    "projects/decoy-prefix-cache-stability.md",
+    "projects/prefix-cache-stability.md",
+    "projects/provider-allowlist.md",
+    "projects/resident-context.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 9
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "why does changing the beginning cost so much",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "why does changing the beginning cost so much",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "why does changing the beginning cost so much",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "what happens when the model forgets earlier instructions",
+   "refs": [
+    "projects/decoy-prefix-cache-stability.md",
+    "projects/prefix-cache-stability.md",
+    "projects/prompt-cache.md",
+    "projects/decoy-prompt-cache.md",
+    "projects/resident-context.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 8
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what happens when the model forgets earlier instructions",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what happens when the model forgets earlier instructions",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what happens when the model forgets earlier instructions",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "how do I keep my prompts cheap",
+   "refs": [
+    "projects/decoy-prompt-cache.md",
+    "projects/prompt-cache.md",
+    "projects/decoy-prefix-cache-stability.md",
+    "projects/prefix-cache-stability.md",
+    "projects/decoy-resident-context.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 9
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I keep my prompts cheap",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I keep my prompts cheap",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I keep my prompts cheap",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "what makes a word too common to be useful",
+   "refs": [
+    "projects/document-frequency.md",
+    "projects/bm25-ranking.md",
+    "projects/decoy-document-frequency.md",
+    "projects/decoy-incremental-index.md",
+    "projects/decoy-acronyms.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 10
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what makes a word too common to be useful",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what makes a word too common to be useful",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what makes a word too common to be useful",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "where did this fact come from",
+   "refs": [
+    "projects/source-provenance.md",
+    "projects/decoy-source-provenance.md",
+    "projects/decoy-evidence-trail.md",
+    "projects/evidence-trail.md",
+    "projects/retrieval-abstention.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 5
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "where did this fact come from",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "where did this fact come from",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "where did this fact come from",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "how do I undo something already written",
+   "refs": [
+    "projects/append-only.md",
+    "projects/temporal-supersession.md",
+    "projects/decoy-append-only.md",
+    "projects/writeback-proposal.md",
+    "projects/decoy-provider-allowlist.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 7
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I undo something already written",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I undo something already written",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I undo something already written",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "can a program follow a shortcut outside its folder",
+   "refs": [
+    "projects/decoy-path-symlink.md",
+    "projects/path-symlink.md",
+    "projects/decoy-source-provenance.md",
+    "projects/decoy-writeback-proposal.md",
+    "projects/scope-separation.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 7
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "can a program follow a shortcut outside its folder",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "can a program follow a shortcut outside its folder",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "can a program follow a shortcut outside its folder",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "who is allowed to read the notes",
+   "refs": [
+    "projects/decoy-provider-allowlist.md",
+    "projects/provider-allowlist.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 102
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "who is allowed to read the notes",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "who is allowed to read the notes",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "who is allowed to read the notes",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "will this automatically change my files",
+   "refs": [
+    "projects/writeback-proposal.md",
+    "projects/decoy-writeback-proposal.md",
+    "projects/incremental-index.md",
+    "projects/decoy-incremental-index.md",
+    "projects/determinism.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 8
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "will this automatically change my files",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "will this automatically change my files",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "will this automatically change my files",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "what should I do when two answers disagree in time",
+   "refs": [
+    "projects/decoy-temporal-supersession.md",
+    "projects/temporal-supersession.md",
+    "projects/acronyms.md",
+    "projects/decoy-engine-parity.md",
+    "projects/prefix-cache-stability.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 8
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what should I do when two answers disagree in time",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what should I do when two answers disagree in time",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what should I do when two answers disagree in time",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "how do I know the engine agrees with itself",
+   "refs": [
+    "projects/decoy-engine-parity.md",
+    "projects/engine-parity.md",
+    "projects/credential-filter.md",
+    "projects/path-symlink.md",
+    "projects/resident-context.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 5
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I know the engine agrees with itself",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I know the engine agrees with itself",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I know the engine agrees with itself",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "why is the order of results not guaranteed",
+   "refs": [
+    "projects/decoy-no-hit.md",
+    "projects/provider-allowlist.md",
+    "projects/determinism.md",
+    "projects/document-frequency.md",
+    "projects/no-hit.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 8
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "why is the order of results not guaranteed",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "why is the order of results not guaranteed",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "why is the order of results not guaranteed",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "what is it called when a system has nothing to say",
+   "refs": [
+    "projects/retrieval-abstention.md",
+    "projects/decoy-retrieval-abstention.md",
+    "projects/privacy-loopback.md",
+    "projects/decoy-privacy-loopback.md",
+    "projects/decoy-scope-separation.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 9
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what is it called when a system has nothing to say",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what is it called when a system has nothing to say",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what is it called when a system has nothing to say",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "how do I stop re-reading every single file",
+   "refs": [
+    "projects/resident-context.md",
+    "projects/provider-allowlist.md",
+    "projects/prompt-cache.md",
+    "projects/acronyms.md",
+    "projects/prefix-cache-stability.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 8
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I stop re-reading every single file",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I stop re-reading every single file",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I stop re-reading every single file",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "short forms for technical terms",
+   "refs": [
+    "projects/decoy-acronyms.md",
+    "projects/acronyms.md",
+    "projects/decoy-no-hit.md",
+    "projects/decoy-retrieval-abstention.md",
+    "projects/no-hit.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 9
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "short forms for technical terms",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "short forms for technical terms",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "short forms for technical terms",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "splitting a name into pieces",
+   "refs": [
+    "projects/identifiers.md"
+   ],
+   "scope": "all",
+   "shown": 1,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "splitting a name into pieces",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "splitting a name into pieces",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "splitting a name into pieces",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "how is a word cut down to its base",
+   "refs": [
+    "projects/fts5-tokenizer.md",
+    "projects/writeback-proposal.md",
+    "projects/append-only.md",
+    "projects/bm25-ranking.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 5
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how is a word cut down to its base",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how is a word cut down to its base",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how is a word cut down to its base",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "is silence better than a wrong answer",
+   "refs": [
+    "projects/no-hit.md",
+    "projects/retrieval-abstention.md",
+    "projects/decoy-retrieval-abstention.md",
+    "projects/privacy-loopback.md",
+    "projects/evidence-trail.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 5
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "is silence better than a wrong answer",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "is silence better than a wrong answer",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "is silence better than a wrong answer",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "how do I keep old facts visible after replacing them",
+   "refs": [
+    "projects/temporal-supersession.md",
+    "projects/acronyms.md",
+    "projects/prompt-cache.md",
+    "projects/retrieval-abstention.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 4
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I keep old facts visible after replacing them",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I keep old facts visible after replacing them",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I keep old facts visible after replacing them",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "what does it mean for a secret to be excluded",
+   "refs": [
+    "projects/decoy-credential-filter.md",
+    "projects/credential-filter.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what does it mean for a secret to be excluded",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what does it mean for a secret to be excluded",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what does it mean for a secret to be excluded",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "routine",
+   "refs": [
+    "projects/filler/note-000.md",
+    "projects/filler/note-001.md",
+    "projects/filler/note-002.md",
+    "projects/filler/note-003.md",
+    "projects/filler/note-004.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 91
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "routine",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "routine",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "routine",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "catalog entries",
+   "refs": [
+    "projects/filler/note-000.md",
+    "projects/filler/note-001.md",
+    "projects/filler/note-002.md",
+    "projects/filler/note-003.md",
+    "projects/filler/note-004.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 91
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "catalog entries",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "catalog entries",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "catalog entries",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "stable metadata",
+   "refs": [
+    "projects/filler/note-000.md",
+    "projects/filler/note-001.md",
+    "projects/filler/note-002.md",
+    "projects/filler/note-003.md",
+    "projects/filler/note-004.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 93
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "stable metadata",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "stable metadata",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "stable metadata",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "local records",
+   "refs": [
+    "projects/filler/note-000.md",
+    "projects/filler/note-001.md",
+    "projects/filler/note-002.md",
+    "projects/filler/note-003.md",
+    "projects/filler/note-004.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 94
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "local records",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "local records",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "local records",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "shared archive",
+   "refs": [
+    "projects/filler/note-000.md",
+    "projects/filler/note-001.md",
+    "projects/filler/note-002.md",
+    "projects/filler/note-003.md",
+    "projects/filler/note-004.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 91
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "shared archive",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "shared archive",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "shared archive",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "notes",
+   "refs": [
+    "projects/filler/note-000.md",
+    "projects/filler/note-001.md",
+    "projects/filler/note-002.md",
+    "projects/filler/note-003.md",
+    "projects/filler/note-004.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 96
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "notes",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "notes",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "notes",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "memory",
+   "refs": [
+    "projects/decoy-provider-allowlist.md",
+    "projects/decoy-scope-separation.md",
+    "projects/provider-allowlist.md",
+    "projects/scope-separation.md",
+    "projects/no-hit.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 5
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "memory",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "memory",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "memory",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "context",
+   "refs": [
+    "projects/decoy-resident-context.md",
+    "projects/resident-context.md",
+    "projects/prompt-cache.md"
+   ],
+   "scope": "all",
+   "shown": 3,
+   "total_matches": 3
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "context",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "context",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "context",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "index",
+   "refs": [
+    "projects/decoy-incremental-index.md",
+    "projects/decoy-no-hit.md",
+    "projects/decoy-path-symlink.md",
+    "projects/decoy-credential-filter.md",
+    "projects/incremental-index.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 9
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "index",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "index",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "index",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "query",
+   "refs": [
+    "projects/decoy-retrieval-abstention.md",
+    "projects/temporal-supersession.md",
+    "projects/identifiers.md",
+    "projects/determinism.md",
+    "projects/scope-separation.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 8
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "query",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "query",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "query",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "kubernetes ingress controller helm",
+   "refs": [],
+   "scope": "all",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "kubernetes ingress controller helm",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "kubernetes ingress controller helm",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "kubernetes ingress controller helm",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "postgresql vacuum autovacuum tuning",
+   "refs": [],
+   "scope": "all",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "postgresql vacuum autovacuum tuning",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "postgresql vacuum autovacuum tuning",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "postgresql vacuum autovacuum tuning",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "zzzqqqxywv flibbertigibbet",
+   "refs": [],
+   "scope": "all",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "zzzqqqxywv flibbertigibbet",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "zzzqqqxywv flibbertigibbet",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "zzzqqqxywv flibbertigibbet",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "qwertyuiop asdfghjkl",
+   "refs": [],
+   "scope": "all",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "qwertyuiop asdfghjkl",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "qwertyuiop asdfghjkl",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "qwertyuiop asdfghjkl",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "nebula orrery permafrost stratosphere",
+   "refs": [],
+   "scope": "all",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "nebula orrery permafrost stratosphere",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "nebula orrery permafrost stratosphere",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "nebula orrery permafrost stratosphere",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "gastropod cephalopod nudibranch",
+   "refs": [],
+   "scope": "all",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "gastropod cephalopod nudibranch",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "gastropod cephalopod nudibranch",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "gastropod cephalopod nudibranch",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "xenolith archaeometry petrography",
+   "refs": [],
+   "scope": "all",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "xenolith archaeometry petrography",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "xenolith archaeometry petrography",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "xenolith archaeometry petrography",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "zzqq",
+   "refs": [],
+   "scope": "all",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "zzqq",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "zzqq",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "zzqq",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "rankings are not answers",
+   "refs": [
+    "projects/decoy-no-hit.md",
+    "projects/provider-allowlist.md",
+    "projects/determinism.md",
+    "projects/document-frequency.md",
+    "projects/no-hit.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 8
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "rankings are not answers",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "rankings are not answers",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "rankings are not answers",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "a tie needs a tiebreak",
+   "refs": [
+    "projects/determinism.md",
+    "projects/decoy-determinism.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 93
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "a tie needs a tiebreak",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "a tie needs a tiebreak",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "a tie needs a tiebreak",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "what changes when the plan changes",
+   "refs": [
+    "projects/determinism.md"
+   ],
+   "scope": "all",
+   "shown": 1,
+   "total_matches": 1
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what changes when the plan changes",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what changes when the plan changes",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "what changes when the plan changes",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "notes that replace older notes",
+   "refs": [
+    "projects/filler/note-000.md",
+    "projects/filler/note-001.md",
+    "projects/filler/note-002.md",
+    "projects/filler/note-003.md",
+    "projects/filler/note-004.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 96
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "notes that replace older notes",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "notes that replace older notes",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "notes that replace older notes",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "valid from and valid to",
+   "refs": [
+    "projects/decoy-retrieval-abstention.md",
+    "projects/decoy-temporal-supersession.md",
+    "projects/temporal-supersession.md",
+    "projects/retrieval-abstention.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 4
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "valid from and valid to",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "valid from and valid to",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "valid from and valid to",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "as-of query historical truth",
+   "refs": [
+    "projects/temporal-supersession.md",
+    "projects/decoy-temporal-supersession.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 9
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "as-of query historical truth",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "as-of query historical truth",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "as-of query historical truth",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "canonical markdown path citation",
+   "refs": [
+    "projects/decoy-source-provenance.md",
+    "projects/source-provenance.md",
+    "projects/decoy-path-symlink.md",
+    "projects/path-symlink.md",
+    "projects/decoy-provider-allowlist.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 6
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "canonical markdown path citation",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "canonical markdown path citation",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "canonical markdown path citation",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "verify the excerpt against the source",
+   "refs": [
+    "projects/source-provenance.md",
+    "projects/decoy-source-provenance.md",
+    "projects/prefix-cache-stability.md"
+   ],
+   "scope": "all",
+   "shown": 3,
+   "total_matches": 3
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "verify the excerpt against the source",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "verify the excerpt against the source",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "verify the excerpt against the source",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "effective date lineage",
+   "refs": [
+    "projects/evidence-trail.md"
+   ],
+   "scope": "all",
+   "shown": 1,
+   "total_matches": 1
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "effective date lineage",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "effective date lineage",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "effective date lineage",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "superseded claim visibility",
+   "refs": [
+    "projects/evidence-trail.md",
+    "projects/decoy-evidence-trail.md",
+    "projects/decoy-temporal-supersession.md",
+    "projects/temporal-supersession.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 4
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "superseded claim visibility",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "superseded claim visibility",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "superseded claim visibility",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "reading is not writing",
+   "refs": [
+    "projects/provider-allowlist.md"
+   ],
+   "scope": "all",
+   "shown": 1,
+   "total_matches": 10
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "reading is not writing",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "reading is not writing",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "reading is not writing",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "exempted provider read access",
+   "refs": [
+    "projects/provider-allowlist.md",
+    "projects/decoy-provider-allowlist.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 6
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "exempted provider read access",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "exempted provider read access",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "exempted provider read access",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "write switch off by default",
+   "refs": [
+    "projects/provider-allowlist.md",
+    "projects/writeback-proposal.md",
+    "projects/decoy-provider-allowlist.md",
+    "projects/append-only.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 4
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "write switch off by default",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "write switch off by default",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "write switch off by default",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "unknown hostname is not local",
+   "refs": [
+    "projects/privacy-loopback.md"
+   ],
+   "scope": "all",
+   "shown": 1,
+   "total_matches": 100
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "unknown hostname is not local",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "unknown hostname is not local",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "unknown hostname is not local",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "nothing leaves the machine",
+   "refs": [
+    "projects/decoy-privacy-loopback.md",
+    "projects/privacy-loopback.md",
+    "projects/retrieval-abstention.md",
+    "projects/decoy-retrieval-abstention.md",
+    "projects/acronyms.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 6
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "nothing leaves the machine",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "nothing leaves the machine",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "nothing leaves the machine",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "diff staged outside the base",
+   "refs": [
+    "projects/writeback-proposal.md",
+    "projects/decoy-writeback-proposal.md",
+    "projects/decoy-path-symlink.md",
+    "projects/append-only.md",
+    "projects/path-symlink.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 5
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "diff staged outside the base",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "diff staged outside the base",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "diff staged outside the base",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "human approves the change",
+   "refs": [
+    "projects/writeback-proposal.md",
+    "projects/determinism.md",
+    "projects/incremental-index.md"
+   ],
+   "scope": "all",
+   "shown": 3,
+   "total_matches": 7
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "human approves the change",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "human approves the change",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "human approves the change",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "revert the knowledge base",
+   "refs": [
+    "projects/writeback-proposal.md",
+    "projects/append-only.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "revert the knowledge base",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "revert the knowledge base",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "revert the knowledge base",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "cannot rewrite an existing line",
+   "refs": [
+    "projects/append-only.md"
+   ],
+   "scope": "all",
+   "shown": 1,
+   "total_matches": 8
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "cannot rewrite an existing line",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "cannot rewrite an existing line",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "cannot rewrite an existing line",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "applying twice is idempotent",
+   "refs": [
+    "projects/decoy-append-only.md",
+    "projects/append-only.md",
+    "projects/prompt-cache.md"
+   ],
+   "scope": "all",
+   "shown": 3,
+   "total_matches": 3
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "applying twice is idempotent",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "applying twice is idempotent",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "applying twice is idempotent",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "lstat rather than stat",
+   "refs": [
+    "projects/path-symlink.md"
+   ],
+   "scope": "all",
+   "shown": 1,
+   "total_matches": 8
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "lstat rather than stat",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "lstat rather than stat",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "lstat rather than stat",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "resolve outside approved roots",
+   "refs": [
+    "projects/path-symlink.md",
+    "projects/decoy-path-symlink.md",
+    "projects/writeback-proposal.md",
+    "projects/decoy-writeback-proposal.md",
+    "projects/scope-separation.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 5
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "resolve outside approved roots",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "resolve outside approved roots",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "resolve outside approved roots",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "fingerprint not the value",
+   "refs": [
+    "projects/credential-filter.md",
+    "projects/decoy-kv-cache.md",
+    "projects/decoy-credential-filter.md",
+    "projects/kv-cache.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 13
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "fingerprint not the value",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "fingerprint not the value",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "fingerprint not the value",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "excluded from the index",
+   "refs": [
+    "projects/decoy-credential-filter.md",
+    "projects/credential-filter.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 9
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "excluded from the index",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "excluded from the index",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "excluded from the index",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "when should the engine stay quiet",
+   "refs": [
+    "projects/retrieval-abstention.md",
+    "projects/decoy-retrieval-abstention.md",
+    "projects/decoy-engine-parity.md",
+    "projects/engine-parity.md",
+    "projects/decoy-evidence-trail.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 8
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "when should the engine stay quiet",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "when should the engine stay quiet",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "when should the engine stay quiet",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "weak evidence decline",
+   "refs": [
+    "projects/retrieval-abstention.md",
+    "projects/decoy-evidence-trail.md",
+    "projects/evidence-trail.md"
+   ],
+   "scope": "all",
+   "shown": 3,
+   "total_matches": 3
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "weak evidence decline",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "weak evidence decline",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "weak evidence decline",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "routine notes routine entries",
+   "refs": [
+    "projects/filler/note-000.md",
+    "projects/filler/note-001.md",
+    "projects/filler/note-002.md",
+    "projects/filler/note-003.md",
+    "projects/filler/note-004.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 96
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "routine notes routine entries",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "routine notes routine entries",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "routine notes routine entries",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "archive material",
+   "refs": [
+    "projects/filler/note-000.md",
+    "projects/filler/note-001.md",
+    "projects/filler/note-002.md",
+    "projects/filler/note-003.md",
+    "projects/filler/note-004.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 92
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "archive material",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "archive material",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "archive material",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "catalog",
+   "refs": [
+    "projects/filler/note-000.md",
+    "projects/filler/note-001.md",
+    "projects/filler/note-002.md",
+    "projects/filler/note-003.md",
+    "projects/filler/note-004.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 91
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "catalog",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "catalog",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "catalog",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "stable",
+   "refs": [
+    "projects/decoy-determinism.md",
+    "projects/filler/note-000.md",
+    "projects/filler/note-001.md",
+    "projects/filler/note-002.md",
+    "projects/filler/note-003.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 93
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "stable",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "stable",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "stable",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "how do I get it to say it has nothing",
+   "refs": [
+    "projects/retrieval-abstention.md",
+    "projects/decoy-retrieval-abstention.md",
+    "projects/privacy-loopback.md",
+    "projects/decoy-privacy-loopback.md",
+    "projects/acronyms.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 6
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I get it to say it has nothing",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I get it to say it has nothing",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "how do I get it to say it has nothing",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "confident answer from unrelated material",
+   "refs": [
+    "projects/no-hit.md",
+    "projects/decoy-retrieval-abstention.md",
+    "projects/retrieval-abstention.md",
+    "projects/evidence-trail.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 95
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "confident answer from unrelated material",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "confident answer from unrelated material",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "confident answer from unrelated material",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "skip files that did not change",
+   "refs": [
+    "projects/incremental-index.md",
+    "projects/decoy-incremental-index.md",
+    "projects/determinism.md"
+   ],
+   "scope": "all",
+   "shown": 3,
+   "total_matches": 11
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "skip files that did not change",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "skip files that did not change",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "skip files that did not change",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "tokenizer part of the skip key",
+   "refs": [
+    "projects/incremental-index.md",
+    "projects/identifiers.md",
+    "projects/fts5-tokenizer.md",
+    "projects/kv-cache.md",
+    "projects/decoy-fts5-tokenizer.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 11
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "tokenizer part of the skip key",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "tokenizer part of the skip key",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "tokenizer part of the skip key",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "two implementations byte identical",
+   "refs": [
+    "projects/decoy-engine-parity.md",
+    "projects/engine-parity.md",
+    "projects/acronyms.md"
+   ],
+   "scope": "all",
+   "shown": 3,
+   "total_matches": 3
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "two implementations byte identical",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "two implementations byte identical",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "two implementations byte identical",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "timestamp format agreement",
+   "refs": [
+    "projects/decoy-engine-parity.md",
+    "projects/engine-parity.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "timestamp format agreement",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "timestamp format agreement",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "timestamp format agreement",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "found by a user not a gate",
+   "refs": [
+    "projects/engine-parity.md"
+   ],
+   "scope": "all",
+   "shown": 1,
+   "total_matches": 9
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "found by a user not a gate",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "found by a user not a gate",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "found by a user not a gate",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "BM25 porter unicode61 tokenizer",
+   "refs": [
+    "projects/decoy-bm25-ranking.md",
+    "projects/bm25-ranking.md",
+    "projects/decoy-fts5-tokenizer.md",
+    "projects/fts5-tokenizer.md",
+    "projects/incremental-index.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 10
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "BM25 porter unicode61 tokenizer",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "BM25 porter unicode61 tokenizer",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "BM25 porter unicode61 tokenizer",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "inverted index stem",
+   "refs": [
+    "projects/bm25-ranking.md",
+    "projects/fts5-tokenizer.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 11
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "inverted index stem",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "inverted index stem",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "inverted index stem",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "case boundary mid-token",
+   "refs": [
+    "projects/identifiers.md",
+    "projects/fts5-tokenizer.md",
+    "projects/privacy-loopback.md",
+    "projects/decoy-identifiers.md",
+    "projects/acronyms.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 10
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "case boundary mid-token",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "case boundary mid-token",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "case boundary mid-token",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "LM IR QA short forms",
+   "refs": [
+    "projects/acronyms.md",
+    "projects/decoy-acronyms.md"
+   ],
+   "scope": "all",
+   "shown": 2,
+   "total_matches": 2
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "LM IR QA short forms",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "LM IR QA short forms",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "LM IR QA short forms",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "minimum token length two characters",
+   "refs": [
+    "projects/acronyms.md",
+    "projects/decoy-engine-parity.md",
+    "projects/identifiers.md",
+    "projects/engine-parity.md",
+    "projects/prompt-cache.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 10
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "minimum token length two characters",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "minimum token length two characters",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "minimum token length two characters",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "one letter fragments excluded",
+   "refs": [
+    "projects/acronyms.md",
+    "projects/decoy-credential-filter.md",
+    "projects/credential-filter.md",
+    "projects/resident-context.md",
+    "projects/bm25-ranking.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 12
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "one letter fragments excluded",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "one letter fragments excluded",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "one letter fragments excluded",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "prefix re-billed at full price",
+   "refs": [
+    "projects/prompt-cache.md",
+    "projects/kv-cache.md",
+    "projects/decoy-prefix-cache-stability.md",
+    "projects/prefix-cache-stability.md",
+    "projects/resident-context.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 5
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "prefix re-billed at full price",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "prefix re-billed at full price",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "prefix re-billed at full price",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "append only preserves reuse",
+   "refs": [
+    "projects/decoy-append-only.md",
+    "projects/append-only.md",
+    "projects/prompt-cache.md",
+    "projects/kv-cache.md",
+    "projects/credential-filter.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 8
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "append only preserves reuse",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "append only preserves reuse",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "append only preserves reuse",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "six percent miss rate",
+   "refs": [
+    "projects/prefix-cache-stability.md"
+   ],
+   "scope": "all",
+   "shown": 1,
+   "total_matches": 1
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "six percent miss rate",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "six percent miss rate",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "six percent miss rate",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "430-turn session measurement",
+   "refs": [
+    "projects/prefix-cache-stability.md",
+    "projects/decoy-scope-separation.md",
+    "projects/privacy-loopback.md",
+    "projects/scope-separation.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 5
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "430-turn session measurement",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "430-turn session measurement",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "430-turn session measurement",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "system prompt changed",
+   "refs": [
+    "projects/prefix-cache-stability.md",
+    "projects/decoy-prefix-cache-stability.md",
+    "projects/decoy-prompt-cache.md",
+    "projects/prompt-cache.md",
+    "projects/decoy-scope-separation.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 9
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "system prompt changed",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "system prompt changed",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "system prompt changed",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "multiplication on every invalidation",
+   "refs": [
+    "projects/prefix-cache-stability.md",
+    "projects/resident-context.md",
+    "projects/acronyms.md",
+    "projects/retrieval-abstention.md"
+   ],
+   "scope": "all",
+   "shown": 4,
+   "total_matches": 6
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "multiplication on every invalidation",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "multiplication on every invalidation",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "multiplication on every invalidation",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "400K prefix cold start",
+   "refs": [
+    "projects/resident-context.md",
+    "projects/decoy-prefix-cache-stability.md",
+    "projects/prefix-cache-stability.md",
+    "projects/kv-cache.md",
+    "projects/prompt-cache.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 5
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "400K prefix cold start",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "400K prefix cold start",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "400K prefix cold start",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "cutoff moves when notes added",
+   "refs": [
+    "projects/document-frequency.md"
+   ],
+   "scope": "all",
+   "shown": 1,
+   "total_matches": 96
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "cutoff moves when notes added",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "cutoff moves when notes added",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "cutoff moves when notes added",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "absolute floor generous ceiling",
+   "refs": [
+    "projects/document-frequency.md",
+    "projects/decoy-document-frequency.md",
+    "projects/decoy-incremental-index.md",
+    "projects/bm25-ranking.md",
+    "projects/acronyms.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 6
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "absolute floor generous ceiling",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "absolute floor generous ceiling",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "absolute floor generous ceiling",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": null,
+   "ok": true,
+   "query": "noise query alpha beta gamma",
+   "refs": [
+    "projects/decoy-retrieval-abstention.md",
+    "projects/temporal-supersession.md",
+    "projects/identifiers.md",
+    "projects/determinism.md",
+    "projects/scope-separation.md"
+   ],
+   "scope": "all",
+   "shown": 5,
+   "total_matches": 8
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "noise query alpha beta gamma",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "noise query alpha beta gamma",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source matches these terms",
+   "ok": true,
+   "query": "noise query alpha beta gamma",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "zeta eta theta iota kappa",
+   "refs": [],
+   "scope": "all",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "zeta eta theta iota kappa",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "zeta eta theta iota kappa",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "zeta eta theta iota kappa",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "orchard vineyard silo granary",
+   "refs": [],
+   "scope": "all",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "orchard vineyard silo granary",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "orchard vineyard silo granary",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "orchard vineyard silo granary",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "mongoose weasel badger otter",
+   "refs": [],
+   "scope": "all",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "mongoose weasel badger otter",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "mongoose weasel badger otter",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "mongoose weasel badger otter",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "html css javascript python rust",
+   "refs": [],
+   "scope": "all",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "html css javascript python rust",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "html css javascript python rust",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "html css javascript python rust",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "lorem ipsum dolor sit amet",
+   "refs": [],
+   "scope": "all",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "lorem ipsum dolor sit amet",
+   "refs": [],
+   "scope": "projects",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "lorem ipsum dolor sit amet",
+   "refs": [],
+   "scope": "company",
+   "shown": 0,
+   "total_matches": 0
+  },
+  {
+   "abstention": "no indexed source contains these terms",
+   "ok": true,
+   "query": "lorem ipsum dolor sit amet",
+   "refs": [],
+   "scope": "system:pi-harness",
+   "shown": 0,
+   "total_matches": 0
+  }
+ ]
+}
