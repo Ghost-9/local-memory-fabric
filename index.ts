@@ -229,7 +229,9 @@ const LOCAL_PROVIDERS = parseProviderList(process.env.PI_MEMORY_LOCAL_PROVIDERS,
  * to it and its context is not scrubbed, because an exemption that strips the answer is
  * not an exemption. Reads therefore do leave the machine for these providers.
  *
- * WRITE access is separate and off by default. Set PI_MEMORY_REMOTE_FULL_ACCESS=1 to let an
+ * WRITE access is separate and **on by default** (operator instruction, 2026-10-14): an
+ * allowlisted provider may write unless PI_MEMORY_REMOTE_FULL_ACCESS=0. An unlisted provider
+ * still may not. Set it to 0 to let an
  * exempted provider write; with it unset an exempted provider is read-only and only a
  * loopback provider may write. A provider that is not allowlisted at all may never write,
  * switch or no switch.
@@ -382,7 +384,7 @@ export default function (pi: ExtensionAPI) {
 				block: true,
 				reason: REMOTE_FULL_ACCESS
 					? "Canonical-memory writes are restricted to an allowlisted provider; see PI_MEMORY_REMOTE_ALLOWED_PROVIDERS."
-					: "Canonical-memory writes are loopback-only. A remote provider may write only when PI_MEMORY_REMOTE_FULL_ACCESS=1; until then use memory_fabric_propose and review the diff locally.",
+					: "Canonical-memory writes are restricted to an allowlisted provider; this provider is not on the list. See PI_MEMORY_REMOTE_ALLOWED_PROVIDERS, or use memory_fabric_propose.",
 			};
 		}
 		const shell = event.toolName === "bash" || event.toolName === "powershell";
@@ -392,7 +394,7 @@ export default function (pi: ExtensionAPI) {
 				block: true,
 				reason: REMOTE_FULL_ACCESS
 					? "Shell mutations to canonical memory are restricted to an allowlisted provider; see PI_MEMORY_REMOTE_ALLOWED_PROVIDERS."
-					: "Shell mutations to canonical memory are loopback-only. A remote provider may write only when PI_MEMORY_REMOTE_FULL_ACCESS=1; use a review-only proposal instead.",
+					: "Shell mutations to canonical memory are restricted to an allowlisted provider; this provider is not on the list. See PI_MEMORY_REMOTE_ALLOWED_PROVIDERS, or use a review-only proposal.",
 			};
 		}
 		if (!providerAllowed(ctx.model) && (explicitVaultPath || cwdIsVault)) {
@@ -534,7 +536,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool(defineTool({
 		name: "memory_fabric_propose",
 		label: "Propose Memory Update",
-		description: "Create a review-only candidate for an existing section of one project note. The proposal is stored with mode 0600 outside the vault and never applied. An allowlisted provider receives the response, loopback or operator-exempted. Writing vault content directly is separate and still needs a loopback provider, or PI_MEMORY_REMOTE_FULL_ACCESS=1.",
+		description: "Create a review-only candidate for an existing section of one project note. The proposal is stored with mode 0600 outside the vault and never applied. An allowlisted provider receives the response, loopback or operator-exempted. Writing vault content directly is separate and allowed for an allowlisted provider unless PI_MEMORY_REMOTE_FULL_ACCESS=0.",
 		exposure: "deferred",
 		namespace,
 		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

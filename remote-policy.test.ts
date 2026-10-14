@@ -79,13 +79,25 @@ test("gate 3: remote write access requires the switch; loopback never needs it",
 	assert.equal(mayWriteToMemory(noUrl, LOCAL, EXEMPT, true), false);
 });
 
-test("the switch parses only explicit affirmatives", () => {
-	for (const on of ["1", "true", "TRUE", "yes", "on", " on "]) {
-		assert.equal(remoteFullAccessEnabled(on), true, `${on} should enable`);
+test("the switch is on by default and only an explicit negative disables it", () => {
+	// Flipped from opt-in to opt-out on the operator's instruction (2026-10-14).
+	for (const on of [undefined, "", "1", "true", "TRUE", "yes", "on", " on "]) {
+		assert.equal(remoteFullAccessEnabled(on), true, `${on} should be enabled`);
 	}
-	for (const off of [undefined, "", "0", "false", "no", "off", "maybe", "2"]) {
-		assert.equal(remoteFullAccessEnabled(off), false, `${off} should not enable`);
+	for (const off of ["0", "false", "FALSE", "no", "off", " off "]) {
+		assert.equal(remoteFullAccessEnabled(off), false, `${off} should disable`);
 	}
+});
+
+test("the switch cannot grant write access past the allowlist", () => {
+	// The default-on change must not widen who is reachable. An unlisted provider stays refused
+	// even with the switch on, which is the property the flip must not have broken.
+	assert.equal(mayWriteToMemory(loopback, LOCAL, EXEMPT, true), true);
+	assert.equal(mayWriteToMemory(exempted, LOCAL, EXEMPT, true), true);
+	assert.equal(mayWriteToMemory(unlisted, LOCAL, EXEMPT, true), false);
+	assert.equal(mayWriteToMemory(undefined, LOCAL, EXEMPT, true), false);
+	assert.equal(mayWriteToMemory(noUrl, LOCAL, EXEMPT, true), false);
+	assert.equal(mayWriteToMemory(exempted, LOCAL, NONE, true), false, "empty allowlist stays closed");
 });
 
 test("an endpoint that is local-but-unrecognised is scrubbed, not mis-trusted", () => {

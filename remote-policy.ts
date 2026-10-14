@@ -31,9 +31,25 @@ export function parseProviderList(value: string | undefined, fallback: string): 
 	);
 }
 
-/** The remote-write switch. Accepts 1/true/yes/on; anything else, including unset, is off. */
+/**
+ * Remote write-back switch. **Default: enabled.**
+ *
+ * Changed from opt-in to opt-out on the operator's explicit instruction (2026-10-14), so that a
+ * repository can save and update memory without first having to discover this variable. Only an
+ * explicit negative disables it; unset or empty means enabled.
+ *
+ * What this grants: a provider that is loopback **or** listed in PI_MEMORY_REMOTE_ALLOWED_PROVIDERS
+ * may write to canonical memory. A provider that is not allowlisted still may not - the switch
+ * cannot reach past the allowlist, and that is asserted by test.
+ *
+ * Recorded risk, because it is not obvious from the call site: the knowledge base is not under
+ * version control, so a wrong write is not revertable. That is roadmap item P0, and the reason to
+ * run `git init` there before relying on this. Set PI_MEMORY_REMOTE_FULL_ACCESS=0 to restore
+ * loopback-only writes at any time.
+ */
 export function remoteFullAccessEnabled(value: string | undefined): boolean {
-	return /^(1|true|yes|on)$/i.test((value ?? "").trim());
+	// Only an explicit negative disables it.
+	return !/^(0|false|no|off)$/i.test((value ?? "").trim());
 }
 
 function httpUrl(model: Model | undefined): URL | undefined {

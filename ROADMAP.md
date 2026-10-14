@@ -72,60 +72,60 @@ flowchart TD
 
 | Issue | Title | Milestone | Labels | Status | Commit / Notes |
 |---|---|---|---|---|---|
-| **#3** | Recall@3 is 0.30 / MRR@3 0.20 — ranked retrieval is weak | 0.4.0 | retrieval | Closed | `04459cc` |
-| **#4** | The recall harness fixture is too small (12 cases) | 0.4.0 | gate | Closed | `04459cc` |
-| **#5** | Gate depends on a file in /tmp | 0.3.5 | gate | Closed | `04459cc` |
+| **#3** | Recall@3 is 0.30 / MRR@3 0.20 — ranked retrieval is weak | 0.4.0 | retrieval | Closed | `cc59bce` |
+| **#4** | The recall harness fixture is too small (12 cases) | 0.4.0 | gate | Closed | `cc59bce` |
+| **#5** | Gate depends on a file in /tmp | 0.3.5 | gate | Closed | `a9cac11` |
 | **#6** | Give the A/B harness statistical confidence bounds | 0.4.0 | performance | Closed | `04459cc` |
 | **#7** | Sandboxed payloads are deny_remote | 0.3.5 | security | Closed | `04459cc` |
-| **#8** | enforce_export_policy is off by default for 1.0 | 0.3.5 | decision | Closed | `04459cc` |
-| **#9** | Beta readiness: install/update path with rollback | 0.3.5 | beta | Closed | `04459cc` |
-| **#10** | Beta readiness: persisted per-session scrub reminder | 0.3.5 | security | Closed | `04459cc` |
-| **#11** | Reviewed write-back: an append-only apply operation | 0.7.0 | decision | Closed | `04459cc` |
+| **#8** | enforce_export_policy is off by default for 1.0 | 0.3.5 | decision | Closed | `d2fccda` |
+| **#9** | Beta readiness: install/update path with rollback | 0.3.5 | beta | Closed | `d2fccda` |
+| **#10** | Beta readiness: persisted per-session scrub reminder | 0.3.5 | security | Closed | `d2fccda` |
+| **#11** | Reviewed write-back: an append-only apply operation | 0.7.0 | decision | Closed | `0990e5a` |
 | **#12** | Staleness and graph audit of the indexed corpus | 0.8.0 | retrieval | Closed | `04459cc` |
 | **#13** | Document the two-gate access model in operator docs | 0.3.5 | docs | Closed | `04459cc` |
 | **#15** | Roadmap | 0.4.0 | docs | Closed | `04459cc` |
-| **#16** | Wiki pages are written but unpublished | 0.3.5 | docs, beta | Closed | `04459cc` |
+| **#16** | Wiki pages are written but unpublished | 0.3.5 | docs, beta | Closed | `5cac1d7` |
 | **#17** | Context-scrub notice was dead code | 0.3.4 | security | Closed | `04459cc` |
 | **#18** | Tracking-set overflow failed OPEN | 0.3.4 | security | Closed | `04459cc` |
-| **#19** | Ranking: Recall@3 is 0.30 / MRR@3 0.20 (Phase 1) | 0.4.0 | retrieval | Closed | `04459cc` |
-| **#20** | Retrieval fixture is 12 cases — expanded to 136-query gold fixture | 0.4.0 | retrieval, gate | Closed | `04459cc` |
-| **#21** | True incremental reindex: corpus walk dominates | 0.4.2 | performance | Closed | `04459cc` |
-| **#22** | Local hybrid retrieval: BM25 + embeddings | 0.5.0 | retrieval | Closed | `04459cc` |
-| **#23** | Abstention over-fires on common-term queries | 0.4.0 | retrieval | Closed | `04459cc` |
+| **#19** | Ranking: Recall@3 is 0.30 / MRR@3 0.20 (Phase 1) | 0.4.0 | retrieval | Closed | `cec084d` |
+| **#20** | Retrieval fixture is 12 cases — expanded to 136-query gold fixture | 0.4.0 | retrieval, gate | Closed | `f659c20` |
+| **#21** | True incremental reindex: corpus walk dominates | 0.4.2 | performance | Closed | `0990e5a` |
+| **#22** | Local hybrid retrieval: BM25 + embeddings | 0.5.0 | retrieval | Closed | `cec084d` |
+| **#23** | Abstention over-fires on common-term queries | 0.4.0 | retrieval | Closed | `cec084d` |
 | **#24** | Scope resolution: restrict query to repo or cwd | 0.6.0 | retrieval | Closed | `04459cc` |
 | **#25** | No gate catches a ranking regression | 0.4.0 | gate | Closed | `04459cc` |
-| **#26** | Reviewed write-back: append-only apply | 0.7.0 | decision | Closed | `04459cc` |
+| **#26** | Reviewed write-back: append-only apply | 0.7.0 | decision | Closed | `0990e5a` |
 | **#27** | Staleness audit: surface contradictions before retrieval | 0.8.0 | retrieval | Closed | `04459cc` |
 | **#28** | Contradiction detection between notes | 0.8.0 | retrieval | Closed | `04459cc` |
 | **#29** | Provenance links are invisible to retrieval | 0.5.1 | retrieval | Closed | `04459cc` |
 | **#30** | Deduplicate near-identical notes | 0.5.1 | retrieval | Closed | `04459cc` |
-| **#31** | `proposal-show` and `proposal-list` test coverage | 0.7.0 | gate | Closed | `04459cc` |
+| **#31** | `proposal-show` and `proposal-list` test coverage | 0.7.0 | gate | Closed | `0990e5a` |
 | **#32** | Zero observability: no latency, counters, or metrics in status | 1.0.0 | performance | Closed | `04459cc` |
-| **#33** | CI runs on macOS only; lacks Linux/Windows | 0.4.1 | gate | Closed | `04459cc` |
-| **#34** | Corrupt index misclassified as busy | 0.4.1 | gate | Closed | `04459cc` |
+| **#33** | CI runs on macOS only; lacks Linux/Windows | 0.4.1 | gate | Closed | `0990e5a` |
+| **#34** | Corrupt index misclassified as busy | 0.4.1 | gate | Closed | `0990e5a` |
 | **#35** | Symlink handling: verify Rust matches Python | 0.4.1 | security | Closed | `04459cc` |
 | **#36** | Measure real prefix-cache hit rate | 0.6.0 | performance | Closed | `788031d` |
 | **#37** | Context budget for search, not just context | 0.6.0 | performance | Closed | `04459cc` |
-| **#38** | Benchmark against the real vault | 0.4.0 | gate | Closed | `04459cc` |
+| **#38** | Benchmark against the real vault | 0.4.0 | gate | Closed | `cec084d` |
 | **#39** | 0.3.6 broke every read op on pre-existing index | 0.3.6 | bug | Closed | `04459cc` |
 | **#40** | Retrieval: fix the gate before adding a model | 0.4.0 | retrieval | Closed | `04459cc` |
-| **#41** | Distribution: download prebuilt GitHub release binary in install.sh | 0.4.1 | beta, enhancement | Closed | `04459cc` |
+| **#41** | Distribution: download prebuilt GitHub release binary in install.sh | 0.4.1 | beta, enhancement | Closed | `0990e5a` |
 | **#42** | Architecture: Unify on native Rust binary and deprecate Python | 0.9.0 | performance, beta | Closed | `04459cc` |
-| **#43** | Performance: True O(changed) incremental indexing via mtime/size skipping | 0.4.2 | performance | Closed | `04459cc` |
-| **#44** | Performance: Incremental delta updates for term_df table | 0.4.2 | performance | Closed | `04459cc` |
+| **#43** | Performance: True O(changed) incremental indexing via mtime/size skipping | 0.4.2 | performance | Closed | `0990e5a` |
+| **#44** | Performance: Incremental delta updates for term_df table | 0.4.2 | performance | Closed | `0990e5a` |
 | **#45** | Retrieval: Phase 2 hybrid semantic retrieval with sub-100MB embeddings + RRF | 0.5.0 | retrieval, enhancement | Closed | `04459cc` |
 | **#46** | Retrieval: Section and heading-level chunking | 0.5.0 | retrieval, enhancement | Closed | `04459cc` |
-| **#47** | Retrieval: Obsidian [[wikilink]] graph parsing and backlink traversal | 0.5.1 | retrieval, enhancement | Closed | `04459cc` |
+| **#47** | Retrieval: Obsidian [[wikilink]] graph parsing and backlink traversal | 0.5.1 | retrieval, enhancement | Closed | `0990e5a` |
 | **#48** | Architecture: Consolidate vault-context.ts into local-memory-fabric | 0.6.0 | performance, enhancement | Closed | `04459cc` |
-| **#49** | Context Economics: In-turn message injection preserving KV-cache | 0.6.0 | performance | Closed | `04459cc` |
-| **#50** | Context Economics: Compaction Re-Hydration hook | 0.6.0 | enhancement | Closed | `04459cc` |
+| **#49** | Context Economics: In-turn message injection preserving KV-cache | 0.6.0 | performance | Closed | `0990e5a` |
+| **#50** | Context Economics: Compaction Re-Hydration hook | 0.6.0 | enhancement | Closed | `0990e5a` |
 | **#51** | IPC: Multi-request non-blocking concurrency in index.ts | 0.4.3 | performance, bug | Closed | `04459cc` |
-| **#52** | Robustness: Worker crash resilience and streaming stdout | 0.4.3 | bug | Closed | `04459cc` |
-| **#53** | Storage: Enable SQLite WAL mode and remove schema DDL from read paths | 0.4.2 | performance, security | Closed | `04459cc` |
-| **#54** | Write-Back: Implement reviewed apply primitive with atomic git commits | 0.7.0 | decision, enhancement | Closed | `04459cc` |
+| **#52** | Robustness: Worker crash resilience and streaming stdout | 0.4.3 | bug | Closed | `0990e5a` |
+| **#53** | Storage: Enable SQLite WAL mode and remove schema DDL from read paths | 0.4.2 | performance, security | Closed | `0990e5a` |
+| **#54** | Write-Back: Implement reviewed apply primitive with atomic git commits | 0.7.0 | decision, enhancement | Closed | `0990e5a` |
 | **#55** | Retrieval: Automated contradiction and staleness detection | 0.8.0 | retrieval, enhancement | Closed | `04459cc` |
 | **#56** | Observability: Live telemetry, latency histograms, and query counters | 1.0.0 | performance, enhancement | Closed | `04459cc` |
-| **#57** | CI: Expand test matrix to Linux and Windows runner environments | 0.4.1 | gate | Closed | `04459cc` |
+| **#57** | CI: Expand test matrix to Linux and Windows runner environments | 0.4.1 | gate | Closed | `0990e5a` |
 | **#58** | Synchronization: Background filesystem watcher (fsevents/inotify) | 0.4.3 | enhancement, performance | Closed | `788031d` |
 | **#59** | Integration: Multi-IDE Adapter for Antigravity, OpenCode, and Codex via MCP | 0.6.0 | integration, enhancement | Closed | `04459cc` |
 | **#60** | Architecture: Shared UNIX domain socket daemon (~/.cache/memory-fabric.sock) | 0.6.0 | architecture, performance | Closed | `788031d` |
@@ -140,14 +140,14 @@ flowchart TD
 | **#69** | Section and Heading-Level Markdown AST Chunking with Hierarchical Breadcrumbs | 1.3.0 | enhancement, retrieval | Closed | `31a4b29` |
 | **#70** | Sub-Microsecond In-Memory Query Cache with Generation Invalidation | 1.3.0 | performance, retrieval | Closed | `31a4b29` |
 | **#71** | Multi-IDE Tool Surface Expansion (`memory_fabric_sections` in MCP and Extension) | 1.3.0 | enhancement | Closed | `31a4b29` |
-| **#72** | POSIX Shared Memory (SHM) Ring Buffer Mesh (< 5 µs Zero-Copy IPC) | 1.4.0 | performance | Closed | `ac33e19` |
-| **#73** | Phase 2 Local Quantized Hybrid Retrieval (BM25 + all-MiniLM-L6-v2 + RRF-60) | 1.5.0 | enhancement, retrieval | Closed | `711f46c` |
-| **#74** | Federated Cross-Worktree Multi-Vault Synchronization | 1.6.0 | enhancement | Closed | `821ff91` |
-| **#75** | Autonomous Background Knowledge Distillation & Invariant Compactor | 1.7.0 | enhancement | Closed | `7497a55` |
+| **#72** | POSIX Shared Memory (SHM) Ring Buffer Mesh (< 5 µs Zero-Copy IPC) | 1.4.0 | performance | Closed | `7a9e482` |
+| **#73** | Phase 2 Local Quantized Hybrid Retrieval (BM25 + all-MiniLM-L6-v2 + RRF-60) | 1.5.0 | enhancement, retrieval | Closed | `7a9e482` |
+| **#74** | Federated Cross-Worktree Multi-Vault Synchronization | 1.6.0 | enhancement | Closed | `7a9e482` |
+| **#75** | Autonomous Background Knowledge Distillation & Invariant Compactor | 1.7.0 | enhancement | Closed | `7a9e482` |
 | **#76** | Native Agent Adapter Matrix: T3 Code, Pi Agent, Antigravity, OpenCode & Codex | 1.8.0 | enhancement, integration | Closed | `17bf926` |
 | **#77** | Agent Model-Context Protocol (MCP) Streamable Tool Surface with Zero-Bust KV Prefixes | 1.8.0 | enhancement, performance | Closed | `17bf926` |
-| **#78** | Dual-Engine Memory-to-Code Symbiosis: fsearch Lexical Indexer + AST Memory Fabric | 1.9.0 | enhancement, retrieval | Closed | `a3f2c56` |
-| **#79** | Masked Fuzzy Scoring & SIMD Bitset Intersection Engine for Instant AST Filter | 1.9.0 | performance, retrieval | Closed | `a3f2c56` |
+| **#78** | Dual-Engine Memory-to-Code Symbiosis: fsearch Lexical Indexer + AST Memory Fabric | 1.9.0 | enhancement, retrieval | Closed | `7a9e482` |
+| **#79** | Masked Fuzzy Scoring & SIMD Bitset Intersection Engine for Instant AST Filter | 1.9.0 | performance, retrieval | Closed | `7a9e482` |
 
 ---
 
@@ -218,3 +218,17 @@ merely reported:
 Still true and not fixed by these edits: ~60 rows cite the same commit `04459cc`, which changed 7
 files and 518 lines. One commit cannot implement 60 features, so those citations remain
 under-documented. Treat the commit column as a pointer, not proof.
+
+### Decided 2026-10-14: remote write-back is on by default (operator instruction)
+
+`PI_MEMORY_REMOTE_FULL_ACCESS` flipped from opt-in to opt-out so a repository can persist memory
+without first discovering the variable. Reason given: other repositories need to save and update
+data for this to be useful.
+
+- **Grants:** an allowlisted provider may write to canonical memory.
+- **Does not grant:** a provider absent from `PI_MEMORY_REMOTE_ALLOWED_PROVIDERS` still cannot
+  write. Pinned by test, since that is what the flip could plausibly have broken.
+- **Reversible:** `PI_MEMORY_REMOTE_FULL_ACCESS=0` restores loopback-only writes.
+- **Outstanding risk, unchanged by this decision:** the knowledge base has no version control, so a
+  wrong write is not revertable. That is P0 below, and it is now more urgent, not less.
+

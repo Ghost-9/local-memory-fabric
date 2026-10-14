@@ -129,7 +129,7 @@ Add `memory-fabric` to your agent's MCP configuration (`~/.t3/` or `claude_deskt
 
 1. **Gate 1 — Provider Authorization**: Only loopback providers (`127.0.0.1`, `localhost`, `::1`) or explicitly allowlisted providers (`PI_MEMORY_REMOTE_ALLOWED_PROVIDERS`) may query memory.
 2. **Gate 2 — In-Flight DLP Scrubbing**: All memory excerpts dispatched to non-loopback models are scrubbed by `context_scrub.py`. High-entropy API keys, OAuth tokens, and private keys are redacted to `[REDACTED_*]` tokens before leaving the process.
-3. **Gate 3 — Write Governance**: Durable memory edits require reviewed proposals (`memory_fabric_propose`). Remote providers cannot write to canonical memory unless `PI_MEMORY_REMOTE_FULL_ACCESS=1` is explicitly set by the operator.
+3. **Gate 3 — Write Governance**: Durable memory edits require reviewed proposals (`memory_fabric_propose`). Allowlisted providers **may write by default**; set `PI_MEMORY_REMOTE_FULL_ACCESS=0` to restrict writes to loopback only. A provider that is not allowlisted may never write, whatever the switch says.
 
 ---
 

@@ -1,3 +1,25 @@
+## [Unreleased]
+
+### Changed — breaking, security-relevant
+- **Remote write-back is now enabled by default.** `PI_MEMORY_REMOTE_FULL_ACCESS` changed from
+  opt-in to opt-out on the operator's explicit instruction (2026-10-14), so a repository can save
+  and update memory without first discovering the variable. Only an explicit `0`/`false`/`no`/`off`
+  disables it.
+  - **Grants:** an allowlisted provider (loopback, or listed in `PI_MEMORY_REMOTE_ALLOWED_PROVIDERS`)
+    may write to canonical memory.
+  - **Does not grant:** a provider absent from the allowlist still cannot write, whatever the switch
+    says. Asserted by test, because that is the property the flip must not have broken.
+  - **Recorded risk:** the knowledge base is **not under version control**, so a wrong write is not
+    revertable. Roadmap item P0. Run `git init` there before relying on this. `=0` restores
+    loopback-only writes immediately.
+
+### Added
+- 20 tracked issues covering robustness, observability, retrieval and token economics.
+
+### Fixed
+- 34 milestone commit citations in `ROADMAP.md` now name the commit that actually mentions the
+  issue, instead of all pointing at one commit that named 17.
+
 # Changelog
 
 All notable changes to `local-memory-fabric`. The project is pre-1.0; anything may change, but the
