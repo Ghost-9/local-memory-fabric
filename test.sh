@@ -6,18 +6,18 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-echo "== 1/12 python policy suite (security contract) =="
+echo "== 1/13 python policy suite (security contract) =="
 python3 test_memory_fabric.py
 
-echo "== 2/12 extension policy suite (read, scrub and write gates) =="
+echo "== 2/13 extension policy suite (read, scrub and write gates) =="
 node --experimental-strip-types --test remote-policy.test.ts
 
-echo "== 3/12 context scrub suite (what may leave the machine) =="
+echo "== 3/13 context scrub suite (what may leave the machine) =="
 # index.ts itself cannot be imported without the Pi runtime, which is why the scrub predicate
 # was extracted to scrub.ts: this suite is the first coverage that file ever had.
 node --experimental-strip-types --test scrub.test.ts
 
-echo "== 4/12 typescript parses (syntax; no type checker assumed present) =="
+echo "== 4/13 typescript parses (syntax; no type checker assumed present) =="
 node --input-type=module -e '
 import { stripTypeScriptTypes } from "node:module";
 import { readFileSync } from "node:fs";
@@ -29,18 +29,18 @@ for (const f of ["index.ts", "remote-policy.ts", "scrub.ts", "remote-policy.test
 process.exit(bad ? 1 : 0);
 '
 
-echo "== 5/12 rust unit tests =="
+echo "== 5/13 rust unit tests =="
 ( cd rust && cargo test --release --locked --quiet )
 
-echo "== 6/12 python/rust parity =="
+echo "== 6/13 python/rust parity =="
 python3 rust/tests/parity.py
 
-echo "== 7/12 retrieval determinism: identical request, identical bytes =="
+echo "== 7/13 retrieval determinism: identical request, identical bytes =="
 # A regression guard for the prefix cache, not a proof of tie ordering -- see the docstring in
 # bench/determinism.py for exactly what it can and cannot show.
 python3 bench/determinism.py
 
-echo "== 8/12 real-vault probe: the failure modes the synthetic corpus cannot see =="
+echo "== 8/13 real-vault probe: the failure modes the synthetic corpus cannot see =="
 # bench/recall.py scores 1.0 on a corpus generated from the terms it queries, so it cannot
 # detect the failures this vault actually had (over-abstention, camelCase, acronyms). This runs
 # the live vault read-only and fails if parity breaks. It reports, it does not assert a score -
@@ -57,7 +57,7 @@ else
   exit 1
 fi
 
-echo "== 9/12 gold fixture: >=100 queries, recall/MRR + no-hit precision =="
+echo "== 9/13 gold fixture: >=100 queries, recall/MRR + no-hit precision =="
 # bench/recall.py scores 1.0 on a corpus built from the terms it queries, so it cannot detect a
 # ranking regression. bench/fixture_score.py runs 136 hand-written cases over a corpus built to
 # BREAK retrieval: camelCase, two-letter acronyms, near-universal terms, paraphrase, and decoys
@@ -73,7 +73,7 @@ if ! python3 bench/fixture_score.py --json > /tmp/mf-fixture.json 2>/dev/null; t
 fi
 python3 bench/fixture_gate.py /tmp/mf-fixture.json
 
-echo "== 10/12 benchmark harness: recall/MRR + exit-code taxonomy =="
+echo "== 10/13 benchmark harness: recall/MRR + exit-code taxonomy =="
 # Fastest signal that retrieval quality or the exit-code contract regressed. Fails on
 # recall@5 drift, any non-ok response, or an exit code the taxonomy does not promise.
 python3 bench/recall.py | python3 -c 'import json,sys; r=json.load(sys.stdin); bad=[]; \
@@ -87,13 +87,20 @@ print("  recall@5", r.get("python_recall_at_5"), "/", r.get("rust_recall_at_5"),
       "| exit mismatches", r.get("python_spawn_exit_mismatches")); \
 sys.exit("GATE: benchmark harness regression: " + ",".join(bad) if bad else 0)'
 
-echo "== 11/12 agent adapters (the first-class agent surface) =="
+echo "== 11/13 agent adapters (the first-class agent surface) =="
 # adapters/ is the whole supported-agent surface - mcp.py, t3_code.py and the IDE JSON
 # configs - and it had six passing tests that this gate never ran. Breaking every adapter
 # left all steps green.
 python3 test_adapters.py || { echo "  GATE FAILURE: an adapter is broken" >&2; exit 1; }
 
-echo "== 12/12 typescript type check (types, not just syntax) =="
+echo "== 12/13 cold-path A/B smoke (does the harness run and do both arms answer?) =="
+# No latency threshold on purpose: wall-clock assertions flake in CI and would be turned off
+# within a week. This proves the cold harness executes and both arms respond, which is the
+# part that can silently rot. Compare numbers by hand with: python3 bench/ab_cold.py A B
+B="$(ls -d rust/target/release/memory-fabric)"
+python3 bench/ab_cold.py "$B" "$B" 2>&1 | tail -3 || { echo "  GATE FAILURE: cold A/B harness did not run" >&2; exit 1; }
+
+echo "== 13/13 typescript type check (types, not just syntax) =="
 # index.ts, remote-policy.ts and scrub.ts are security predicate files. A type error in one
 # ships silently, so this step is not optional.
 #

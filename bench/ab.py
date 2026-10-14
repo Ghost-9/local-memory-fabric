@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """Alternating A/B p50 for two memory-fabric engine binaries over ONE index.
 
+**WARNING: this harness measures a WARM path and understates real latency.**
+It replays the same fixed probe terms, so after the first round every query is served from
+the repeat-query cache: measured warm p50 is ~0.07 ms against ~5.7 ms for unique queries, an
+83x gap. A 1.22 ms figure from this harness corresponds to 3.7-16 ms cold.
+
+For latency work use `bench/ab_cold.py`, which appends a unique suffix per call so every
+query is a genuine miss. Use this file only when you specifically want the cached path.
+
 Why alternating: machine drift (thermal, background load) must not be able to
 favour one arm. Why medians: the latency distribution is skewed and the mean
 reports the tail. Why the ok-assertion: a fast *error* response is not a fast

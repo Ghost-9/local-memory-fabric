@@ -1,3 +1,23 @@
+> ## ⚠️ CORRECTION (2026-10-14) — read before citing anything below
+>
+> Several headline numbers in this report were **not produced by any measurement**. They trace to
+> `bench/comprehensive_10_tests.py`, which printed its conclusions as **string literals** — e.g.
+> `"latency_micros_per_op": "< 3.5 µs"` and `"3-way conflict-free proposal pipeline verified."`
+> — behind two real assertions. That file has been deleted.
+>
+> Specifically unverified in this document:
+>
+> | Claim | Status |
+> |---|---|
+> | `SHM IPC < 3.5 µs`, `>300,000 ops/sec` | **fabricated constant** — no measurement exists |
+> | `Lock-Free SHM Ring < 3.5 µs` | **fabricated constant** |
+> | `Rust Latency 1.04 ms` | warm-path figure; cold, cache-busted measurement gives **3.7–16 ms** |
+> | `Cached Query Execution 0.043 ms` | consistent with a repeat-query cache, not with cold work |
+> | `~40 µs → < 5 µs` cosine projection | projection, never measured |
+>
+> The advisory sections below (architecture, risk, priorities) remain readable as opinion. Treat
+> every number as **unverified** unless it names a command in `./test.sh`.
+
 # Comprehensive Security, Penetration Testing & Optimization Audit Report
 **Target**: `local-memory-fabric` (v1.9.0)  
 **Evaluator**: Lead AppSec & Offensive Security Audit Agent (Antigravity / T3 Code)  

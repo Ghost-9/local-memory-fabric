@@ -163,10 +163,25 @@ impl MemoryFabric {
                 .map(|i| format!("?{i}"))
                 .collect::<Vec<_>>()
                 .join(",");
-            let sql = format!("SELECT relpath,term FROM doc_terms WHERE relpath IN ({placeholders})");
+            // Only the query's own terms can ever be matched, so restrict the scan to them.
+            // Fetching every term for every candidate read ~615 rows per document and threw
+            // ~97% away, because `matched` only ever intersects `useful`.
+            let term_ph = (1..=useful.len())
+                .map(|i| format!("?{i}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let rel_ph = (1..=relpaths.len())
+                .map(|i| format!("?{}", useful.len() + i))
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT relpath,term FROM doc_terms WHERE term IN ({term_ph}) AND relpath IN ({rel_ph})"
+            );
             let mut q = con.prepare(&sql).map_err(|e| e.to_string())?;
-            let params: Vec<&dyn rusqlite::ToSql> =
-                relpaths.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
+            let mut params: Vec<&dyn rusqlite::ToSql> =
+                useful.iter().map(|t| t as &dyn rusqlite::ToSql).collect();
+            params.extend(relpaths.iter().map(|p| p as &dyn rusqlite::ToSql));
+            let params = params;
             let iter = q
                 .query_map(params.as_slice(), |r| {
                     Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))

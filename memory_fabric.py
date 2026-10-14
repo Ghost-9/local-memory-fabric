@@ -756,8 +756,13 @@ class MemoryFabric:
             terms_by_relpath: dict[str, set[str]] = {}
             if rows:
                 rps = [r["relpath"] for r in rows]
-                marks = ",".join("?" * len(rps))
-                for rel, term in con.execute(f"SELECT relpath,term FROM doc_terms WHERE relpath IN ({marks})", rps):
+                # Only the query's own terms can ever match, so restrict the scan to them:
+                # fetching every term per candidate read ~615 rows/document and discarded ~97%.
+                tmarks = ",".join("?" * len(useful))
+                rmarks = ",".join("?" * len(rps))
+                for rel, term in con.execute(
+                        f"SELECT relpath,term FROM doc_terms WHERE term IN ({tmarks}) AND relpath IN ({rmarks})",
+                        list(useful) + rps):
                     terms_by_relpath.setdefault(rel, set()).add(term)
             results = []
             excluded_temporal = 0
