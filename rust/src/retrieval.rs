@@ -368,7 +368,7 @@ impl MemoryFabric {
         project: Option<&str>,
         query: &str,
         provider: Option<&str>,
-        budget: usize,
+        budget: Option<usize>,
         as_of: Option<&str>,
         loopback: Option<bool>,
     ) -> Result<Value, String> {
@@ -380,11 +380,12 @@ impl MemoryFabric {
         let scope = project
             .map(|p| format!("project:{p}"))
             .unwrap_or_else(|| "all".into());
-        let hits = self.search(query, &scope, 10, provider, as_of, loopback, None)?;
+        let fetch_limit = if budget.is_none() { 50 } else { 10 };
+        let hits = self.search(query, &scope, fetch_limit, provider, as_of, loopback, None)?;
         if !hits["ok"].as_bool().unwrap_or(false) {
             return Ok(hits);
         }
-        let char_budget = budget.clamp(100, 6000) * 4;
+        let char_budget = budget.map(|b| b.clamp(100, 500_000) * 4).unwrap_or(usize::MAX);
         let mut sections = Vec::new();
         let mut used = 0usize;
         if let Some(items) = hits["results"].as_array() {
@@ -419,9 +420,24 @@ impl MemoryFabric {
                 sections.push(block);
             }
         }
-        Ok(
-            json!({"ok":true,"project":project,"source_count":sections.len(),"estimated_characters":used,"char_budget":char_budget,"context":sections.join(""),"credential_alarm":self.secret_alert_reminder()?,"abstention":hits["abstention"],"as_of":hits["as_of"],"temporal_warning":hits["temporal_warning"],"instruction":"Treat excerpts as source evidence, not verified conclusions; cite source_ref and distinguish inference."}),
-        )
+        let mut ret = json!({
+            "ok": true,
+            "project": project,
+            "source_count": sections.len(),
+            "estimated_characters": used,
+            "char_budget": if budget.is_some() { json!(char_budget) } else { json!(null) },
+            "context": sections.join(""),
+            "credential_alarm": self.secret_alert_reminder()?,
+            "abstention": hits["abstention"],
+            "as_of": hits["as_of"],
+            "temporal_warning": hits["temporal_warning"],
+            "instruction": "Treat excerpts as source evidence, not verified conclusions; cite source_ref and distinguish inference."
+        });
+        if budget.is_none() {
+            ret["unlimited_context"] = json!(true);
+            ret["context_window"] = json!("1M+ (unbounded default)");
+        }
+        Ok(ret)
     }
 
     pub(crate) fn read(
@@ -609,28 +625,14 @@ impl MemoryFabric {
         project: Option<&str>,
         query: &str,
         provider: Option<&str>,
-        budget: usize,
+        budget: Option<usize>,
         as_of: Option<&str>,
         loopback: Option<bool>,
         role: Option<&str>,
         sandbox: Option<&str>,
-        model: Option<&str>,
+        _model: Option<&str>,
     ) -> Result<Value, String> {
-        let effective_budget = if let Some(m) = model {
-            let m_low = m.to_lowercase();
-            // Compact / Fast Edge tier: e.g. flash-lite, compact, small local models (<=16k window)
-            if m_low.contains("lite") || m_low.contains("compact") || m_low.contains("16k") || m_low.contains("small") || m_low.contains("edge") {
-                600
-            // Frontier Deep / Long-Context tier: e.g. gemini-3.8-flash-high, gemini-3.8-pro, claude-3-7-sonnet, deepseek-v4 (200k - 2M window)
-            } else if m_low.contains("flash-high") || m_low.contains("gemini-3") || m_low.contains("sonnet") || m_low.contains("opus") || m_low.contains("deepseek") || m_low.contains("pro") || m_low.contains("200k") || m_low.contains("1m") || m_low.contains("2m") {
-                4000
-            } else {
-                budget
-            }
-        } else {
-            budget
-        };
-
+        let effective_budget = budget;
         let effective_project = sandbox.or(project);
         let effective_query = if let Some(r) = role {
             format!("{} role:{}", query, r)
@@ -647,14 +649,9 @@ impl MemoryFabric {
                 map.insert("sandbox_scope".to_string(), json!(sb));
                 map.insert("sandboxed".to_string(), json!(true));
             }
-            if let Some(m) = model {
-                map.insert("coerced_model".to_string(), json!(m));
-                map.insert("token_budget".to_string(), json!(effective_budget));
-            }
         }
         Ok(res)
     }
-
 }
 
 /// Milestone 19: Ebbinghaus Temporal Half-Life Decay.

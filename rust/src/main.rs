@@ -109,7 +109,7 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
             req["project"].as_str(),
             req["query"].as_str().unwrap_or(""),
             req["provider"].as_str(),
-            req["token_budget"].as_u64().unwrap_or(1200) as usize,
+            req["token_budget"].as_u64().map(|b| b as usize),
             req["as_of"].as_str(),
             req["loopback"].as_bool(),
             req["role"].as_str(),
@@ -652,7 +652,7 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
         "context" => {
             let query = args.get(1)?.clone();
             let mut project: Option<String> = None;
-            let mut token_budget = 1200u64;
+            let mut token_budget: Option<u64> = None;
             let mut as_of: Option<String> = None;
             let mut role: Option<String> = None;
             let mut sandbox: Option<String> = None;
@@ -663,7 +663,7 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
                     project = Some(args[i + 1].clone());
                     i += 2;
                 } else if args[i] == "--token-budget" && i + 1 < args.len() {
-                    token_budget = args[i + 1].parse().unwrap_or(1200);
+                    token_budget = Some(args[i + 1].parse().unwrap_or(1200));
                     i += 2;
                 } else if args[i] == "--as-of" && i + 1 < args.len() {
                     as_of = Some(args[i + 1].clone());
@@ -684,11 +684,11 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
             let mut obj = json!({
                 "op": "context",
                 "query": query,
-                "token_budget": token_budget,
                 "provider": "lmstudio",
                 "loopback": true
             });
             if let Some(p) = project { obj["project"] = json!(p); }
+            if let Some(tb) = token_budget { obj["token_budget"] = json!(tb); }
             if let Some(a) = as_of { obj["as_of"] = json!(a); }
             if let Some(r) = role { obj["role"] = json!(r); }
             if let Some(s) = sandbox { obj["sandbox"] = json!(s); }
@@ -1117,9 +1117,9 @@ fn run_native_test_suite(fabric: &MemoryFabric) -> Result<Value, String> {
     checks.push("Predictive invariant cache prewarming verified".to_string());
     passed += 1;
 
-    let ctx = fabric.context_extended(None, "retrieval", Some("lmstudio"), 1200, None, Some(true), None, None, Some("gemini-3.8-flash-high"))?;
-    if ctx["token_budget"].as_u64() != Some(4000) { return Err("Budget coercion failed".into()); }
-    checks.push("Dynamic context budget coercion (600/1200/4000 tokens) verified".to_string());
+    let ctx = fabric.context_extended(None, "retrieval", Some("lmstudio"), None, None, Some(true), None, None, None)?;
+    if ctx["unlimited_context"].as_bool() != Some(true) { return Err("Default unlimited context failed".into()); }
+    checks.push("Default unbounded context for 1M+ model window verified".to_string());
     passed += 1;
 
     Ok(json!({

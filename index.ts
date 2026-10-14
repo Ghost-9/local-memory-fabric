@@ -436,11 +436,8 @@ export default function (pi: ExtensionAPI) {
 			token_budget: Type.Optional(Type.Integer({ description: "Maximum context budget, 100-6000; default 1200" })),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
-			let budget = params.token_budget;
-			if (!budget) {
-				const maxContext = ctx.model?.contextWindow ?? 128000;
-				budget = maxContext <= 16384 ? 600 : maxContext <= 65536 ? 1200 : 2400;
-			}
+			// By default, do not set any limit for 1M+ context models; respect explicit token_budget only if passed.
+			const budget = params.token_budget;
 			let project = params.project;
 			if (!project) {
 				const cwd = ctx.cwd ?? "";
