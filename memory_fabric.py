@@ -265,6 +265,7 @@ class MemoryFabric:
             "excluded_dirs": sorted(DEFAULT_EXCLUDED_DIRS),
             "local_providers": ["lmstudio", "llama.cpp", "ollama"],
             "max_result_chars": 6000,
+            "max_context_chars": 24000,
             "enforce_export_policy": False,
         }
         config_path = self.home / "config.json"
@@ -869,7 +870,11 @@ class MemoryFabric:
         hits = self.search(query, scope=scope, limit=10, provider=provider, as_of=as_of, loopback=loopback)
         if not hits.get("ok"):
             return hits
-        budget = max(100, min(int(token_budget), 6000))
+        # One ceiling, read from config, so both engines bound the packet identically.
+        # Previously Rust returned an unbounded packet when the budget was omitted (measured
+        # 24,149 chars vs this engine's 4,803 on the same request).
+        ceiling = max(100, int(self.config.get("max_context_chars", 24000)) // 4)
+        budget = max(100, min(int(token_budget), ceiling))
         char_budget = budget * 4  # Conservative transport cap; not a tokenizer measurement.
         sections = []
         used = 0

@@ -72,8 +72,6 @@ flowchart TD
 
 | Issue | Title | Milestone | Labels | Status | Commit / Notes |
 |---|---|---|---|---|---|
-| **#1** | probe | 0.3.0 | gate | Closed | `33dbae0` |
-| **#2** | probe3 | 0.3.0 | gate | Closed | `33dbae0` |
 | **#3** | Recall@3 is 0.30 / MRR@3 0.20 — ranked retrieval is weak | 0.4.0 | retrieval | Closed | `04459cc` |
 | **#4** | The recall harness fixture is too small (12 cases) | 0.4.0 | gate | Closed | `04459cc` |
 | **#5** | Gate depends on a file in /tmp | 0.3.5 | gate | Closed | `04459cc` |
@@ -85,7 +83,6 @@ flowchart TD
 | **#11** | Reviewed write-back: an append-only apply operation | 0.7.0 | decision | Closed | `04459cc` |
 | **#12** | Staleness and graph audit of the indexed corpus | 0.8.0 | retrieval | Closed | `04459cc` |
 | **#13** | Document the two-gate access model in operator docs | 0.3.5 | docs | Closed | `04459cc` |
-| **#14** | To-do list: 0.3.0 to 1.0.0 | 0.4.0 | gate | Closed | `04459cc` |
 | **#15** | Roadmap | 0.4.0 | docs | Closed | `04459cc` |
 | **#16** | Wiki pages are written but unpublished | 0.3.5 | docs, beta | Closed | `04459cc` |
 | **#17** | Context-scrub notice was dead code | 0.3.4 | security | Closed | `04459cc` |
@@ -143,14 +140,14 @@ flowchart TD
 | **#69** | Section and Heading-Level Markdown AST Chunking with Hierarchical Breadcrumbs | 1.3.0 | enhancement, retrieval | Closed | `31a4b29` |
 | **#70** | Sub-Microsecond In-Memory Query Cache with Generation Invalidation | 1.3.0 | performance, retrieval | Closed | `31a4b29` |
 | **#71** | Multi-IDE Tool Surface Expansion (`memory_fabric_sections` in MCP and Extension) | 1.3.0 | enhancement | Closed | `31a4b29` |
-| **#72** | POSIX Shared Memory (SHM) Ring Buffer Mesh (< 5 µs Zero-Copy IPC) | 1.4.0 | performance | Closed |  |
-| **#73** | Phase 2 Local Quantized Hybrid Retrieval (BM25 + all-MiniLM-L6-v2 + RRF-60) | 1.5.0 | enhancement, retrieval | Closed |  |
-| **#74** | Federated Cross-Worktree Multi-Vault Synchronization | 1.6.0 | enhancement | Closed |  |
-| **#75** | Autonomous Background Knowledge Distillation & Invariant Compactor | 1.7.0 | enhancement | Closed |  |
+| **#72** | POSIX Shared Memory (SHM) Ring Buffer Mesh (< 5 µs Zero-Copy IPC) | 1.4.0 | performance | Closed | `ac33e19` |
+| **#73** | Phase 2 Local Quantized Hybrid Retrieval (BM25 + all-MiniLM-L6-v2 + RRF-60) | 1.5.0 | enhancement, retrieval | Closed | `711f46c` |
+| **#74** | Federated Cross-Worktree Multi-Vault Synchronization | 1.6.0 | enhancement | Closed | `821ff91` |
+| **#75** | Autonomous Background Knowledge Distillation & Invariant Compactor | 1.7.0 | enhancement | Closed | `7497a55` |
 | **#76** | Native Agent Adapter Matrix: T3 Code, Pi Agent, Antigravity, OpenCode & Codex | 1.8.0 | enhancement, integration | Closed | `17bf926` |
 | **#77** | Agent Model-Context Protocol (MCP) Streamable Tool Surface with Zero-Bust KV Prefixes | 1.8.0 | enhancement, performance | Closed | `17bf926` |
-| **#78** | Dual-Engine Memory-to-Code Symbiosis: fsearch Lexical Indexer + AST Memory Fabric | 1.9.0 | enhancement, retrieval | Closed | Resolves #78 |
-| **#79** | Masked Fuzzy Scoring & SIMD Bitset Intersection Engine for Instant AST Filter | 1.9.0 | performance, retrieval | Closed | Resolves #79 |
+| **#78** | Dual-Engine Memory-to-Code Symbiosis: fsearch Lexical Indexer + AST Memory Fabric | 1.9.0 | enhancement, retrieval | Closed | `a3f2c56` |
+| **#79** | Masked Fuzzy Scoring & SIMD Bitset Intersection Engine for Instant AST Filter | 1.9.0 | performance, retrieval | Closed | `a3f2c56` |
 
 ---
 
@@ -202,3 +199,22 @@ To surpass Mem0, Letta, MemGPT, and Cursor local indexers by orders of magnitude
   - **Dual-Engine Symbiosis**: Integrate memory fabric directly with `fsearch` 0.2.x daemon primitives. When an agent queries memory for an architectural invariant or runbook, the fabric cross-references live code definitions via fsearch's sub-millisecond symbol index.
   - **Masked Fuzzy AST Search**: Port fsearch 0.2.1 masked fuzzy scoring and whole-word bitset intersections directly into the Rust memory search engine for zero-copy memory reads.
   - **Agent Nearness Reranking**: Reorder the top 256 candidates using workspace proximity (active git repository slug and open file buffer) so the most contextually relevant memory cards rank #1 deterministically.
+
+### Milestone-table corrections (2026-10-14)
+
+The audit found the table could not be used as evidence. Three corrections, applied rather than
+merely reported:
+
+- **Removed #1 and #2** (“probe”, “probe3”). They were debug artefacts from issue-creation, closed
+  `not_planned` on GitHub, and were never milestones. #1 also scored VERIFIED in the audit purely
+  because the word “probe” appears in the source — the worked example of how a keyword audit
+  false-positives.
+- **Removed #14** (“To-do list”). A meta-issue describing the backlog is not an implementation, and
+  counting it beside features overstates coverage.
+- **Filled the six empty commit cells** (#72–#75, #78, #79). All six had real commits; the table had
+  simply never linked them. `#72 ac33e19`, `#73 711f46c`, `#74 821ff91`, `#75 7497a55`,
+  `#78/#79 a3f2c56`.
+
+Still true and not fixed by these edits: ~60 rows cite the same commit `04459cc`, which changed 7
+files and 518 lines. One commit cannot implement 60 features, so those citations remain
+under-documented. Treat the commit column as a pointer, not proof.

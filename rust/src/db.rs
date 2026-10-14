@@ -1,5 +1,5 @@
 use crate::MemoryFabric;
-use crate::paths::{MAX_RESULT_CHARS_DEFAULT, home_dir, safe_relpath, set_mode, set_open_mode};
+use crate::paths::{MAX_CONTEXT_CHARS_DEFAULT, MAX_RESULT_CHARS_DEFAULT, home_dir, safe_relpath, set_mode, set_open_mode};
 use crate::policy::{
     DEFAULT_EXCLUDED_DIRS, DEFAULT_INCLUDE_DIRS, DEFAULT_INCLUDE_FILES, apple_path_re,
 };
@@ -78,6 +78,10 @@ impl MemoryFabric {
                 json!(["lmstudio", "llama.cpp", "ollama"]),
             );
             m.insert("max_result_chars".into(), json!(MAX_RESULT_CHARS_DEFAULT));
+            // Ceiling for a context packet, in characters. The budget argument is in tokens
+            // (x4 to characters); this caps it regardless of what a caller asks for, so an
+            // omitted budget can never mean "unbounded".
+            m.insert("max_context_chars".into(), json!(MAX_CONTEXT_CHARS_DEFAULT));
             m.insert("enforce_export_policy".into(), json!(false));
             Value::Object(m)
         };
@@ -138,6 +142,11 @@ impl MemoryFabric {
                     .map(|s| s.to_ascii_lowercase())
                     .collect(),
                 max_result_chars,
+                max_context_chars: config_value
+                    .get("max_context_chars")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(MAX_CONTEXT_CHARS_DEFAULT as u64)
+                    .clamp(2_000, 4_000_000) as usize,
                 enforce_export_policy: config_value
                     .get("enforce_export_policy")
                     .and_then(Value::as_bool)
@@ -297,6 +306,7 @@ pub(crate) struct Config {
     pub(crate) excluded_dirs: HashSet<String>,
     pub(crate) local_providers: HashSet<String>,
     pub(crate) max_result_chars: usize,
+    pub(crate) max_context_chars: usize,
     pub(crate) enforce_export_policy: bool,
 }
 

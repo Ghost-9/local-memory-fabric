@@ -380,12 +380,18 @@ impl MemoryFabric {
         let scope = project
             .map(|p| format!("project:{p}"))
             .unwrap_or_else(|| "all".into());
-        let fetch_limit = if budget.is_none() { 50 } else { 10 };
+        // A context packet must always be bounded. This used to be `if budget.is_none() { 50 }
+        // else { 10 }` with a `usize::MAX` char budget - so an omitted token_budget silently
+        // returned an unbounded packet (measured 24,149 chars vs Python's 4,803 on the same
+        // request). One ceiling, read from config, respected by both engines.
+        let ceiling_tokens = (self.config.max_context_chars / 4).max(100);
+        let effective_budget = budget.unwrap_or(1200).clamp(100, ceiling_tokens);
+        let fetch_limit = 10;
         let hits = self.search(query, &scope, fetch_limit, provider, as_of, loopback, None)?;
         if !hits["ok"].as_bool().unwrap_or(false) {
             return Ok(hits);
         }
-        let char_budget = budget.map(|b| b.clamp(100, 500_000) * 4).unwrap_or(usize::MAX);
+        let char_budget = effective_budget * 4;
         let mut sections = Vec::new();
         let mut used = 0usize;
         if let Some(items) = hits["results"].as_array() {
@@ -425,7 +431,7 @@ impl MemoryFabric {
             "project": project,
             "source_count": sections.len(),
             "estimated_characters": used,
-            "char_budget": if budget.is_some() { json!(char_budget) } else { json!(null) },
+            "char_budget": json!(char_budget),
             "context": sections.join(""),
             "credential_alarm": self.secret_alert_reminder()?,
             "abstention": hits["abstention"],

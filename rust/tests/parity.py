@@ -208,6 +208,18 @@ def main() -> int:
                 py_sb.get("handle") not in [r["source_ref"] for r in after_py.get("results", [])] or
                 rust_sb.get("handle") not in [r["source_ref"] for r in after_rust.get("results", [])]
             )
+            # A context packet must be bounded identically in both engines, including when
+            # the caller omits the budget. Rust previously returned an unbounded packet in
+            # that case (24,149 chars vs Python's 4,803) and nothing caught it.
+            # loopback asserted on both sides: this check is about the budget contract, not
+            # about export policy, and by this point in the run enforcement is switched on.
+            py_ctx = py.context(None, "retention", "ollama", 1200, None, True)
+            rust_ctx = rust({"op": "context", "query": "retention", "provider": "ollama",
+                             "loopback": True})
+            checks += 1
+            mismatches += int(py_ctx.get("char_budget") != rust_ctx.get("char_budget") or
+                              (rust_ctx.get("char_budget") is None) or
+                              abs(len(py_ctx.get("context", "")) - len(rust_ctx.get("context", ""))) > 40)
             checks += 1
             # Both engines must leave a config file the other can parse. The Rust writer once
             # emitted a literal backslash-n, so a fresh state initialized once and then failed

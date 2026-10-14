@@ -6,6 +6,9 @@ use std::path::{Component, Path, PathBuf};
 pub(crate) const VERSION: &str = "2.0.0";
 pub(crate) const MAX_REQUEST_BYTES: usize = 131_072;
 pub(crate) const MAX_RESULT_CHARS_DEFAULT: usize = 6_000;
+/// Ceiling for one context packet. 6_000 tokens x 4 chars - the previous Python clamp, now
+/// applied to both engines so an omitted budget cannot mean unbounded.
+pub(crate) const MAX_CONTEXT_CHARS_DEFAULT: usize = 24_000;
 
 /// UTC timestamp, byte-identical to the Python engine's `utc_now()`.
 ///
