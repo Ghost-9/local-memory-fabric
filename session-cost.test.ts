@@ -83,3 +83,14 @@ test("a stale handoff is not offered as a resume pointer", () => {
 	assert.equal(isResumable({ at: "not a date" }, now), false);
 	assert.equal(isResumable({}, now), false);
 });
+
+test("the pointer names the transcript when one was recorded, and stays quiet when not", () => {
+	const now = Date.now();
+	const withT = resumePointer({ at: new Date(now).toISOString(), next: "run the gate",
+		transcript: "/Users/x/.pi/agent/sessions/--a--/t_s.jsonl" }, now);
+	assert.match(withT!, /transcript: \/Users\/x/);
+	const without = resumePointer({ at: new Date(now).toISOString(), next: "run the gate" }, now);
+	assert.doesNotMatch(without!, /transcript:/);
+	// A pointer to a file that is not there wastes a turn discovering that.
+	assert.ok(withT!.length < 400, `pointer grew to ${withT!.length} chars`);
+});

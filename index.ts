@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, appendFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, appendFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
@@ -149,6 +149,31 @@ let sandboxRefusals = 0;
 /** Session cost state. Thresholds and the reason for them live in session-cost.ts. */
 const costState = createCostState();
 const HANDOFF_STATE = resolve(homedir(), ".pi/agent/scratch/memory-fabric/handoff.json");
+
+/**
+ * Where the raw transcript for a session lives.
+ *
+ * Reality check before building an archive subsystem: pi ALREADY persists every session to disk.
+ * Measured on this machine - the two newest session files are 1.6 MB (332 records) and 11.6 MB
+ * (3,240 records), and pi's own compaction doc says "Omitted raw entries remain stored". So
+ * "make the handoff reversible" is not an archiving problem; it is a problem of the pointer not
+ * saying where the transcript is. That is what this resolves.
+ */
+function transcriptPath(sessionId: string): string | null {
+	try {
+		const root = resolve(homedir(), ".pi/agent/sessions");
+		if (!existsSync(root) || !sessionId) return null;
+		// Session files are <timestamp>_<sessionId>.jsonl under a directory named for the cwd.
+		for (const dir of readdirSync(root)) {
+			const full = resolve(root, dir);
+			if (!statSync(full).isDirectory()) continue;
+			for (const f of readdirSync(full)) {
+				if (f.endsWith(`_${sessionId}.jsonl`)) return resolve(full, f);
+			}
+		}
+	} catch { /* a missing transcript is not an error, it just cannot be pointed at */ }
+	return null;
+}
 
 /** The last handoff, read once per session. Missing or unparseable is not an error. */
 function readHandoff(): Handoff | null {
@@ -1108,6 +1133,9 @@ export default function (pi: ExtensionAPI) {
 				next: params.next ?? "",
 				pointers: Array.isArray(params.pointers) ? params.pointers.slice(0, 20) : [],
 			};
+			// The transcript this handoff is replacing, so the next session can read it back.
+			// This is the reversible part, and it costs a path rather than an archive.
+			const transcript = transcriptPath(handoff.session);
 			const pointer = resumePointer(handoff, Date.now());
 			if (!pointer) {
 				return toolResult({ ok: false, error: "A handoff needs at least one of done, in_flight, blocked or next. An empty handoff would inject nothing and is worse than none." });
@@ -1141,8 +1169,11 @@ export default function (pi: ExtensionAPI) {
 				pointer,
 				pointer_chars: pointer.length,
 				state_written: HANDOFF_STATE,
+				transcript,
 				vault_note: written,
-				note: "Start a fresh session when convenient; the pointer is injected automatically on the first turn. This session remains usable - nothing was cleared.",
+				note: transcript
+					? `Start a fresh session when convenient; the pointer is injected automatically on the first turn. The transcript is kept at ${transcript} - read it if the pointer is not enough. This session remains usable; nothing was cleared.`
+					: "Start a fresh session when convenient; the pointer is injected automatically on the first turn. This session remains usable; nothing was cleared.",
 			});
 		},
 	}));

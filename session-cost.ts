@@ -129,6 +129,14 @@ export type Handoff = {
 	/** ISO timestamp. */
 	at?: string;
 	session?: string;
+	/**
+	 * Where the raw transcript lives, so the pointer is reversible.
+	 *
+	 * Not an archive: pi already persists every session to disk and its compaction keeps omitted
+	 * raw entries stored. The lossiness was never missing data, it was the pointer not saying
+	 * where the data is.
+	 */
+	transcript?: string;
 	done?: string;
 	in_flight?: string;
 	blocked?: string;
@@ -159,8 +167,12 @@ export function resumePointer(handoff: Handoff, nowMs: number): string | null {
 			age = mins < 60 ? `${mins}m ago` : mins < 2880 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`;
 		}
 	}
-	const where = handoff.session && handoff.session !== "" ? "inbox/RESUME.md" : "inbox/RESUME.md";
-	return `[RESUME] A previous session handed off${age ? ` ${age}` : ""}. ${parts.join(" | ")}. Full handoff: ${where}`;
+	// The transcript path is included only when it exists. A pointer to a file that is not there
+	// is worse than no pointer, because the next session would spend a turn finding that out.
+	const tail = handoff.transcript
+		? `Full handoff: inbox/RESUME.md | transcript: ${handoff.transcript}`
+		: "Full handoff: inbox/RESUME.md";
+	return `[RESUME] A previous session handed off${age ? ` ${age}` : ""}. ${parts.join(" | ")}. ${tail}`;
 }
 
 /** Whether a handoff is recent enough to be a resume pointer rather than history. */

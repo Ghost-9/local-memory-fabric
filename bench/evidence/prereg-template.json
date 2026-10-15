@@ -1,0 +1,18 @@
+{
+  "_note": "Commit this file BEFORE the first pair of a run. A run whose analysis was chosen after seeing the data is a story, not a measurement.",
+  "id": "YYYY-MM-DD-short-name",
+  "question": "One sentence. The claim under test, stated so it could fail.",
+  "arms": {
+    "control": "what the baseline does",
+    "treatment": "the single change under test - one variable, not three"
+  },
+  "tasks": [
+    {"id": "t1", "prompt": "...", "success_check": "an automated pass/fail, not a judgement call"}
+  ],
+  "pairs": 0,
+  "order": "alternating; the treatment runs first on odd pairs",
+  "primary_metric": "cost, at list price, from the provider's own usage fields",
+  "guard_metric": "task success - a cost win with a success loss is a regression",
+  "stop_condition": "the declared pair count, not 'when it looks convincing'",
+  "known_limits": ["what this run cannot show, decided in advance"]
+}
