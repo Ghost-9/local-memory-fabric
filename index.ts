@@ -827,7 +827,7 @@ export default function (pi: ExtensionAPI) {
 		name: "memory_fabric_context",
 		label: "Local Memory Context",
 		description: "Retrieve a bounded, cited context packet from the local memory index. Only an allowlisted provider receives it: a loopback provider, or one the operator exempted; an unlisted provider's call is refused. Use the source_ref citations and treat excerpts as evidence, not verified conclusions.",
-		exposure: "deferred",
+		exposure: "direct",
 		namespace,
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 		parameters: Type.Object({
@@ -854,7 +854,7 @@ export default function (pi: ExtensionAPI) {
 		name: "memory_fabric_search",
 		label: "Search Local Memory",
 		description: "Search the local lexical index with an explicit scope and abstain when rare-term evidence is weak. Only an allowlisted provider receives paths and excerpts: a loopback provider, or one the operator exempted in PI_MEMORY_REMOTE_ALLOWED_PROVIDERS. An unlisted provider's call is refused.",
-		exposure: "deferred",
+		exposure: "direct",
 		namespace,
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 		parameters: Type.Object({
@@ -880,7 +880,7 @@ export default function (pi: ExtensionAPI) {
 		name: "memory_fabric_read",
 		label: "Read Local Memory Source",
 		description: "Read an indexed Markdown source or heading after search. Source text is returned only to an allowlisted provider: a loopback provider, or one the operator exempted. An unlisted provider's call is refused.",
-		exposure: "deferred",
+		exposure: "direct",
 		namespace,
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 		parameters: Type.Object({
@@ -1176,7 +1176,7 @@ export default function (pi: ExtensionAPI) {
 		name: "memory_fabric_handoff",
 		label: "Hand Off This Session",
 		description: "Record a bounded handoff so the next session can resume without re-sending this one's transcript. Use at a task boundary, or when told the session prompt has grown expensive. Writes ~250 characters of resume pointer plus a full note in the vault. Fields: done, in_flight, blocked, next, pointers.",
-		exposure: "deferred",
+		exposure: "direct",
 		namespace,
 		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 		parameters: Type.Object({
@@ -1255,11 +1255,31 @@ export default function (pi: ExtensionAPI) {
 		},
 	}));
 
+	// Consolidation. Deliberately visible rather than deferred: a capability the model never sees is
+	// a capability the product does not have, which is exactly what the 0-calls measurement showed.
+	pi.registerTool(defineTool({
+		name: "memory_fabric_consolidate",
+		label: "Consolidate a Long Note",
+		description: "Digest a long note without rewriting it: selects the newest entry under each heading, extractively, and writes it beside the source. Use when a note has grown too long to read cheaply, or with no argument to see which notes have grown too long. The source is never modified.",
+		exposure: "direct",
+		namespace,
+		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+		parameters: Type.Object({
+			ref: Type.Optional(Type.String({ description: "Note to digest. Omit to get a report of which notes have grown expensive to read." })),
+			write: Type.Optional(Type.Boolean({ description: "Write the digest to _digests/. Default false returns a preview." })),
+		}),
+		async execute(_id, params) {
+			return toolResult(await callFabric({
+				op: "consolidate", ref: params.ref, write: params.write ?? false,
+			}));
+		},
+	}));
+
 	pi.registerTool(defineTool({
 		name: "memory_fabric_health",
 		label: "Memory Fabric Health",
 		description: "Report whether the local memory engine is actually working: circuit breaker state, respawn refusals, rejected requests, refused payloads, and what this session injected. Use when memory appears to be doing nothing.",
-		exposure: "deferred",
+		exposure: "direct",
 		namespace,
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 		parameters: Type.Object({}),

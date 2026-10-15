@@ -48,9 +48,23 @@ export function projectKey(cwd: string | undefined | null): string | null {
  */
 export function tierOf(relpath: string): Tier {
 	const p = relpath.replace(/^\/+/, "");
-	if (p.startsWith("user/") || p.startsWith("invariants/")) return "global";
-	if (p.startsWith("projects/") || p.startsWith("pi-harness/") || p.startsWith("company/")) {
-		return "project";
+	// `projects/` is the ONLY genuinely project-scoped directory. Everything else in the vault is
+	// cross-cutting, and classifying it as project tier was a defect I introduced: it blocked
+	// `pi-harness/` from every session whose cwd did not look like a project, which by the session
+	// census is most of them (811 sessions in Samarohh, 664 in avartanalabs, 166 in fikr).
+	//
+	// The data contradicted the classification immediately. The injections the agent actually READ
+	// included `pi-harness/46-pi-tern-tsp-plugin.md` and `pi-harness/47-pi-tern-extension-mvp.md` -
+	// read during pi-ultrasearch work, a different project entirely. Harness knowledge is about the
+	// harness, so it is useful wherever the harness is used.
+	//
+	// The rule that survives: a note is project-scoped when it is ABOUT one codebase. `projects/` is
+	// that by definition. Nothing else here is.
+	if (p.startsWith("projects/")) return "project";
+	if (p.startsWith("user/") || p.startsWith("invariants/") ||
+		p.startsWith("pi-harness/") || p.startsWith("company/") ||
+		p.startsWith("agents/") || p.startsWith("evidence/")) {
+		return "global";
 	}
 	return "episodic";
 }
