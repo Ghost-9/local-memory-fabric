@@ -531,6 +531,10 @@ export default function (pi: ExtensionAPI) {
 	const localMessageHashes = new Set<string>();
 	const scrubState = createScrubState();
 	pi.on("before_agent_start", async (event: any, ctx: any) => {
+		// pi 1.2.0+ union: also fires for pi.sendMessage({triggerTurn:true}) runs carrying
+		// messageType:"custom" and no `prompt`. Compaction re-hydration is keyed on the
+		// prompt text, so a custom run has nothing to match and must not pay for the lookup.
+		if (event?.messageType !== undefined && event.messageType !== "user") return;
 		const prompt = String(event?.prompt ?? "").trim();
 		const isCompactedTurn = prompt.includes("# Resuming from a compaction") || prompt.includes("Compaction Resume Step");
 		if (!isCompactedTurn) return;
@@ -744,6 +748,12 @@ export default function (pi: ExtensionAPI) {
 
 	let statusInjected = false;
 	pi.on("before_agent_start", async (event, ctx) => {
+		// pi 1.2.0+ union: also fires for pi.sendMessage({triggerTurn:true}) runs carrying
+		// messageType:"custom" and no `prompt`. STATUS injection, the resume pointer and ref
+		// resolution are all session-start concerns keyed on a real user prompt; without the
+		// discriminant they would re-fire (and post empty prompts) on every extension-triggered
+		// run. Narrowing also makes `event.prompt` type-correct below.
+		if (event.messageType !== "user") return;
 		if (!providerAllowed(ctx.model)) return;
 		const additions: string[] = [];
 
