@@ -28,6 +28,10 @@ node --experimental-strip-types --test session-cost.test.ts
 # session for an unrelated one. A wrong note is worse than no note, because the receiving session
 # cannot tell it is stale.
 node --experimental-strip-types --test memory-scope.test.ts
+# The injection precision gate. It is NOT enforced - calibration showed matched-term strength does
+# not separate a good injection from a bad one, it inverts. The tests pin the logic and the two
+# observed failures; shadow mode is the shipped behaviour.
+node --experimental-strip-types --test injection-precision.test.ts
 
 echo "== 3/20 context scrub suite (what may leave the machine) =="
 # index.ts itself cannot be imported without the Pi runtime, which is why the scrub predicate

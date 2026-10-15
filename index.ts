@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { defineTool, type AgentToolResult, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createInjectionAccount } from "./injection.ts";
 import { projectKey, mayInjectHandoff, handoffForProject, tierOf, projectNoteMatches } from "./memory-scope.ts";
+import { decideInjection, ENFORCE } from "./injection-precision.ts";
 import {
 	createCostState, recordTurn, costNotice, resumePointer, isResumable, type Handoff,
 } from "./session-cost.ts";
@@ -718,6 +719,24 @@ export default function (pi: ExtensionAPI) {
 				// `overview` means the engine could not localise the match, so it is omitted rather
 				// than emitted as a pointer to nowhere in particular.
 				const project = projectKey(ctx?.cwd);
+				// Shadow-mode precision gate. It reports the decision it WOULD make; it does not
+				// make it. The calibration found the gate is not yet calibratable - see
+				// injection-precision.ts. Logging costs nothing and builds the missing dataset.
+				try {
+					const decision = decideInjection(prompt, searchRes as never);
+					logUsage({
+						kind: "inject_decision",
+						would_inject: decision.inject,
+						enforced: ENFORCE,
+						reason: decision.reason,
+						matched: decision.matched,
+						content_words: decision.content,
+						coverage: Math.round(decision.coverage * 100) / 100,
+					});
+					if (ENFORCE && !decision.inject) {
+						sessionRefs = [];
+					}
+				} catch { /* an observation must never break the turn */ }
 				sessionRefs = hits
 					.map((h) => {
 						const ref = String(h.source_ref ?? "");
