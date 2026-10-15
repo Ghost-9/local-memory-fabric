@@ -7,6 +7,7 @@ import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineTool, type AgentToolResult, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createInjectionAccount } from "./injection.ts";
+import { projectKey, mayInjectHandoff, handoffForProject, tierOf, projectNoteMatches } from "./memory-scope.ts";
 import {
 	createCostState, recordTurn, costNotice, resumePointer, isResumable, type Handoff,
 } from "./session-cost.ts";
@@ -151,6 +152,36 @@ const costState = createCostState();
 const HANDOFF_STATE = resolve(homedir(), ".pi/agent/scratch/memory-fabric/handoff.json");
 
 /**
+ * Handoffs are keyed by project, not global.
+ *
+ * This file used to hold ONE handoff for the whole machine, and the injection checked only time.
+ * A session on an unrelated project therefore received this project's `[RESUME]` block - reported
+ * from a Fikr session. Two separate faults: one shared slot, and no place check. Both are fixed
+ * here; `memory-scope.ts` owns the rules and `memory-scope.test.ts` reproduces the leak.
+ */
+function readHandoffStore(): Record<string, unknown> | null {
+	try {
+		if (!existsSync(HANDOFF_STATE)) return null;
+		const parsed = JSON.parse(readFileSync(HANDOFF_STATE, "utf8"));
+		if (!parsed || typeof parsed !== "object") return null;
+		// Migrate as we read, rather than rejecting the file. The store may still carry the old
+		// single-handoff shape's top-level keys (`at`, `next`, ...) alongside real project entries,
+		// and an earlier version of this function rejected the whole file when it saw them - which
+		// would have blocked every handoff, a worse failure than the leak it was fixing.
+		// A project entry is an object keyed by an absolute path; anything else is legacy and is
+		// dropped, with the drop recorded so a stale scalar cannot masquerade as a project.
+		const store: Record<string, unknown> = {};
+		let dropped = 0;
+		for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+			if (k.startsWith("/") && v && typeof v === "object") store[k] = v;
+			else dropped += 1;
+		}
+		if (dropped > 0) logUsage({ kind: "handoff_legacy_dropped", keys: dropped });
+		return store;
+	} catch { return null; }
+}
+
+/**
  * Where the raw transcript for a session lives.
  *
  * Reality check before building an archive subsystem: pi ALREADY persists every session to disk.
@@ -173,15 +204,6 @@ function transcriptPath(sessionId: string): string | null {
 		}
 	} catch { /* a missing transcript is not an error, it just cannot be pointed at */ }
 	return null;
-}
-
-/** The last handoff, read once per session. Missing or unparseable is not an error. */
-function readHandoff(): Handoff | null {
-	try {
-		if (!existsSync(HANDOFF_STATE)) return null;
-		const parsed = JSON.parse(readFileSync(HANDOFF_STATE, "utf8")) as Handoff;
-		return parsed && typeof parsed === "object" ? parsed : null;
-	} catch { return null; }
 }
 
 /** Session-scoped: the pointer is injected once, not on every turn. */
@@ -695,13 +717,27 @@ export default function (pi: ExtensionAPI) {
 				// characters and tells the reader where to look instead of making them scan.
 				// `overview` means the engine could not localise the match, so it is omitted rather
 				// than emitted as a pointer to nowhere in particular.
+				const project = projectKey(ctx?.cwd);
 				sessionRefs = hits
 					.map((h) => {
 						const ref = String(h.source_ref ?? "");
 						const anchor = String(h.section_anchor ?? "");
 						return ref && anchor && anchor !== "overview" ? `${ref}#${anchor}` : ref;
 					})
-					.filter(Boolean);
+					.filter(Boolean)
+					// Tier filter, and it is the same fix as the handoff leak. A `projects/` note is
+					// about ONE codebase; injected into a session working on another it reads as
+					// authoritative and is simply wrong. The verifier's evidence showed exactly this:
+					// a security review received OSS-target and preferences notes, read them, judged
+					// them irrelevant and wasted the turns. Global notes are always eligible because
+					// they are true everywhere; project notes only in their own project; episodic
+					// notes are never auto-injected.
+					.filter((ref) => {
+						const tier = tierOf(ref);
+						if (tier === "global") return true;
+						if (tier === "project") return projectNoteMatches(ref.split("#")[0], project);
+						return false;
+					});
 				logUsage({
 					kind: "session_refs", refs: sessionRefs.length, chars: sessionRefs.join(" ").length,
 					// The ref list itself, so the record can answer "which notes does this actually
@@ -733,13 +769,21 @@ export default function (pi: ExtensionAPI) {
 		// not enough.
 		if (!resumeChecked) {
 			resumeChecked = true;
-			const handoff = readHandoff();
-			if (handoff && isResumable(handoff, Date.now())) {
-				const pointer = resumePointer(handoff, Date.now());
-				if (pointer) {
-					additions.push(`\n${pointer}`);
-					logUsage({ kind: "resume_pointer", chars: pointer.length, at: handoff.at });
+			const project = projectKey(ctx?.cwd);
+			const handoff = handoffForProject(readHandoffStore(), project) as Handoff | null;
+			// Two gates, deliberately: the store lookup is by project key, and the final check
+			// re-verifies ownership at the point of injection. A handoff that cannot name its
+			// project is never injected - unknown provenance is not a licence.
+			if (handoff && mayInjectHandoff(handoff as unknown as Record<string, unknown>, project)) {
+				if (isResumable(handoff, Date.now())) {
+					const pointer = resumePointer(handoff, Date.now());
+					if (pointer) {
+						additions.push(`\n${pointer}`);
+						logUsage({ kind: "resume_pointer", chars: pointer.length, at: handoff.at, project });
+					}
 				}
+			} else if (handoff) {
+				logUsage({ kind: "resume_pointer_refused", project, reason: "project mismatch" });
 			}
 		}
 		if (sessionRefs && sessionRefs.length > 0) {
@@ -1124,8 +1168,18 @@ export default function (pi: ExtensionAPI) {
 			pointers: Type.Optional(Type.Array(Type.String(), { description: "Files, commits or issue numbers worth reading" })),
 		}),
 		async execute(_id, params, _signal, ctx) {
+			const cwd = projectKey(ctx?.cwd);
+			if (!cwd) {
+				return toolResult({
+					ok: false,
+					error: "This session has no project directory, so a handoff could not be scoped to one. " +
+						"An unscoped handoff is the bug that leaked this project's notes into an unrelated " +
+						"session; refusing rather than repeating it.",
+				});
+			}
 			const handoff = {
 				at: new Date().toISOString(),
+				cwd,
 				session: String(ctx?.sessionId ?? ctx?.session?.id ?? ""),
 				done: params.done ?? "",
 				in_flight: params.in_flight ?? "",
@@ -1143,7 +1197,11 @@ export default function (pi: ExtensionAPI) {
 			try {
 				const dir = HANDOFF_STATE.slice(0, HANDOFF_STATE.lastIndexOf(sep));
 				if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-				writeFileSync(HANDOFF_STATE, JSON.stringify(handoff, null, 2), { mode: 0o600 });
+				// Read-modify-write the per-project store. One project's handoff can no longer
+				// overwrite another's, which the shared slot allowed.
+				const store = readHandoffStore() ?? {};
+				store[cwd] = handoff;
+				writeFileSync(HANDOFF_STATE, JSON.stringify(store, null, 2), { mode: 0o600 });
 			} catch (error) {
 				return toolResult({ ok: false, error: `Handoff could not be written: ${String(error)}` });
 			}

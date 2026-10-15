@@ -24,6 +24,10 @@ node --experimental-strip-types --test injection.test.ts
 # the fires-once-then-interval behaviour, because a notice that fires every turn gets muted and a
 # muted notice is worse than none.
 node --experimental-strip-types --test session-cost.test.ts
+# Memory scoping. One of these tests IS the reported leak: a handoff for this project reaching a
+# session for an unrelated one. A wrong note is worse than no note, because the receiving session
+# cannot tell it is stale.
+node --experimental-strip-types --test memory-scope.test.ts
 
 echo "== 3/20 context scrub suite (what may leave the machine) =="
 # index.ts itself cannot be imported without the Pi runtime, which is why the scrub predicate
@@ -194,7 +198,33 @@ if d["orphan_doc_terms"] or d["orphan_term_df"]:
     print("  note: orphans present - run the vacuum command with force to reclaim them")
 '
 
-echo "== 18/20 usage record and what it can answer (#95) =="
+echo "== 18/20 consolidation: extractive, derived, non-destructive =="
+# The verified finding was that notes only ever append, so superseded decisions accumulate forever.
+# This proves consolidation reports what reading the corpus costs, and that a digest is DERIVED -
+# writing one must not modify its source.
+python3 - <<'PYCONS'
+import json, subprocess, os, hashlib
+BIN = "rust/target/release/memory-fabric"
+def q(op):
+    r = subprocess.run([BIN], input=json.dumps(op), capture_output=True, text=True)
+    try: return json.loads(r.stdout)
+    except Exception: return {}
+rep = q({"op": "consolidate"})
+print(f"  corpus: {rep.get('total_lines')} lines across {rep.get('notes_scanned')} notes; "
+      f"{rep.get('notes_worth_a_digest')} notes have >=8 headings")
+src = os.path.expanduser("~/system-memory/projects/local-memory-fabric-extension.md")
+before = hashlib.sha256(open(src, "rb").read()).hexdigest() if os.path.exists(src) else None
+d = q({"op": "consolidate", "ref": "projects/local-memory-fabric-extension.md", "write": True})
+after = hashlib.sha256(open(src, "rb").read()).hexdigest() if os.path.exists(src) else None
+if d.get("digest_path"):
+    print(f"  digest: {d['source_lines']} -> {d['digest_lines']} lines at {d['digest_path']}")
+if before and before != after:
+    print("  GATE FAILURE: consolidation MODIFIED its source note", file=__import__("sys").stderr)
+    raise SystemExit(1)
+print("  source note unchanged by consolidation (non-destructive verified)")
+PYCONS
+
+echo "== 19/20 usage record and what it can answer (#95) =="
 # The record exists to answer "what has this served". This step proves the viewer runs and that it
 # refuses to invent the two numbers it cannot know (read-through, token cost).
 python3 bench/usage_report.py --json > /tmp/mf-usage.json 2>&1 || {

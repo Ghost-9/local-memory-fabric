@@ -731,6 +731,143 @@ impl MemoryFabric {
         }))
     }
 
+    /// Consolidation: a current-state digest of a note, derived and non-destructive.
+    ///
+    /// The verified finding was that notes only ever append - superseded decisions, dead milestones
+    /// and reverted measurements accumulate forever, and an agent reading a 291-line note to find
+    /// the current answer pays for all of it. Measured: 32-33 headings per project note here.
+    ///
+    /// What this deliberately is NOT: a summariser that rewrites the note. The vault's own contract
+    /// says append, do not rewrite, and "the reasoning trail is usually the valuable part". A
+    /// model-written summary replacing a decision log would destroy the evidence that a decision
+    /// was ever doubted. So consolidation here is:
+    ///
+    ///   - EXTRACTIVE, not generative: it selects existing lines, it does not write new ones.
+    ///     Nothing is invented, so a digest cannot contain a claim the note does not.
+    ///   - DERIVED: output goes to a separate path and is regenerable, never overwriting the source.
+    ///   - REPORTING: it says what a note costs to read and what it could give up, and changes
+    ///     nothing unless asked.
+    ///
+    /// The selection rule is "the most recent entry under each heading", which is exactly what an
+    /// agent wants and exactly what is cheapest to compute correctly. Chronological appending means
+    /// later entries supersede earlier ones, so the newest line per heading IS the current state.
+    pub(crate) fn consolidate(&self, target: Option<&str>, write: bool) -> Result<Value, String> {
+        let notes: Vec<PathBuf> = match target {
+            Some(_) => vec![],
+            None => self.sources()?,
+        };
+
+        // Report mode: what does reading this corpus actually cost?
+        if target.is_none() {
+            let mut rows: Vec<Value> = Vec::new();
+            let mut total_lines = 0usize;
+            let mut total_headings = 0usize;
+            for path in &notes {
+                let Ok(rel) = path.strip_prefix(&self.vault) else { continue };
+                let rel = rel.to_string_lossy().replace('\\', "/");
+                if !rel.starts_with("projects/") && !rel.starts_with("pi-harness/") {
+                    continue;
+                }
+                let Ok(text) = fs::read_to_string(path) else { continue };
+                let lines = text.lines().count();
+                let headings = text.lines().filter(|l| l.starts_with('#')).count();
+                total_lines += lines;
+                total_headings += headings;
+                // A rough read cost: a digest keeps one line per heading plus the title.
+                if headings >= 8 {
+                    rows.push(json!({
+                        "ref": rel,
+                        "lines": lines,
+                        "headings": headings,
+                        "digest_lines_est": headings + 4,
+                        "reduction_est": format!("{:.0}%", 100.0 * (1.0 - (headings + 4) as f64 / lines.max(1) as f64)),
+                    }));
+                }
+            }
+            rows.sort_by(|a, b| b["lines"].as_u64().cmp(&a["lines"].as_u64()));
+            return Ok(json!({
+                "ok": true,
+                "mode": "report",
+                "notes_scanned": notes.len(),
+                "notes_worth_a_digest": rows.len(),
+                "total_lines": total_lines,
+                "total_headings": total_headings,
+                "policy": "extractive and derived: a digest selects existing lines and is written beside the note, never over it. The vault contract is append-not-rewrite, and a model-written summary replacing a decision log would destroy the evidence that a decision was ever doubted.",
+                "candidates": rows.into_iter().take(20).collect::<Vec<_>>(),
+            }));
+        }
+
+        // Digest mode: one note, newest entry per heading.
+        let rel = safe_relpath(target.unwrap())?;
+        let path = self.vault.join(&rel);
+        if !path.starts_with(&self.vault) {
+            return Err("consolidate target escapes the vault".into());
+        }
+        let text = fs::read_to_string(&path).map_err(|e| format!("read {rel}: {e}"))?;
+        let mut out: Vec<String> = Vec::new();
+        let mut current: Option<String> = None;
+        let mut newest: Vec<(String, String)> = Vec::new();
+        let mut seen_order: Vec<String> = Vec::new();
+        for line in text.lines() {
+            if line.starts_with('#') {
+                let h = line.trim().to_string();
+                if !seen_order.contains(&h) {
+                    seen_order.push(h.clone());
+                }
+                current = Some(h);
+            } else if let Some(h) = &current {
+                let t = line.trim();
+                // First non-empty line under a heading is that heading's opening statement.
+                if t.is_empty() {
+                    continue;
+                }
+                match newest.iter_mut().find(|(k, _)| k == h) {
+                    // Later entries supersede earlier ones, so overwrite - that IS the consolidation.
+                    Some((_, v)) => *v = t.to_string(),
+                    None => newest.push((h.clone(), t.to_string())),
+                }
+            }
+        }
+        out.push(format!("# Digest: {rel}"));
+        out.push(String::new());
+        out.push(format!(
+            "Derived, extractive and regenerable. Source: `{rel}` ({} lines). \
+             Newest entry per heading; nothing here is written by a model and nothing is removed from the source.",
+            text.lines().count()
+        ));
+        out.push(String::new());
+        for h in &seen_order {
+            if let Some((_, v)) = newest.iter().find(|(k, _)| k == h) {
+                out.push(h.clone());
+                out.push(String::new());
+                out.push(v.clone());
+                out.push(String::new());
+            }
+        }
+        let digest = out.join("\n");
+        let digest_rel = format!("_digests/{}", rel.replace('/', "__"));
+        if write {
+            let dest = self.vault.join("_digests");
+            fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+            let dp = self.vault.join(&digest_rel);
+            if dp.is_symlink() {
+                return Err("refusing to write a digest through a symlink".into());
+            }
+            fs::write(&dp, &digest).map_err(|e| e.to_string())?;
+            set_mode(&dp, 0o600);
+        }
+        Ok(json!({
+            "ok": true,
+            "mode": if write { "written" } else { "preview" },
+            "source": rel,
+            "source_lines": text.lines().count(),
+            "headings": seen_order.len(),
+            "digest_lines": digest.lines().count(),
+            "digest_path": if write { json!(digest_rel) } else { Value::Null },
+            "digest": if write { Value::Null } else { json!(digest) },
+        }))
+    }
+
     pub(crate) fn status(&self) -> Result<Value, String> {
         if !self.db_path.exists() {
             return Ok(

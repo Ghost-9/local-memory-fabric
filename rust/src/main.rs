@@ -63,6 +63,8 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
         "handoff" => fabric.handoff(req["text"].as_str().unwrap_or("")),
         // P2 - reclaim what the index no longer needs. Reports unless forced.
         "vacuum" => fabric.vacuum(req["force"].as_bool().unwrap_or(false)),
+        // Consolidation: extractive, derived, non-destructive. See index.rs for why not generative.
+        "consolidate" => fabric.consolidate(req["ref"].as_str(), req["write"].as_bool().unwrap_or(false)),
         "index" => fabric.index(req["force"].as_bool().unwrap_or(false)),
         "search" => {
             let key = format!(
