@@ -113,7 +113,12 @@ def main():
     ap.add_argument("--smoke", action="store_true", help="2 tasks, 1 pair, to prove the harness runs")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--timeout", type=int, default=300)
-    ap.add_argument("--cwd", default=REPO)
+    # The cwd is an EMPTY directory, not the repo. An independent verifier found that with cwd=REPO
+    # the control arm simply read the source and answered, so the vault tasks were not isolating
+    # injection from ordinary repo search at all - the "memory" question was answerable without
+    # memory. An isolated directory removes that path; both arms still have the agent's own tools,
+    # including its own vault search, which is the honest comparison being tested.
+    ap.add_argument("--cwd", default=None, help="defaults to a fresh empty directory")
     ap.add_argument("--out", default=os.path.expanduser("~/.pi/agent/scratch/memory-fabric/tasksuite.json"))
     args = ap.parse_args()
 
@@ -123,6 +128,8 @@ def main():
         tasks = [t for t in tasks if t["id"] in ("v1", "c1")]
         args.pairs = 1
 
+    if args.cwd is None:
+        args.cwd = tempfile.mkdtemp(prefix="tasksuite-cwd-")
     if not os.path.isdir(args.cwd):
         sys.exit(f"cwd does not exist: {args.cwd}")
     if subprocess.run(["bash", "-lc", f"command -v {PI}"], capture_output=True).returncode != 0:

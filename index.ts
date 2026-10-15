@@ -220,6 +220,9 @@ let resumeChecked = false;
  */
 const injectionDisabled = process.env.MEMORY_FABRIC_DISABLE_INJECTION === "1";
 
+/** The most recent shadow-gate decision, so it can be enforced after the refs are built. */
+let lastDecision: { inject: boolean } | null = null;
+
 /**
  * Whether the refs block has already been injected into this session.
  *
@@ -744,6 +747,7 @@ export default function (pi: ExtensionAPI) {
 				// injection-precision.ts. Logging costs nothing and builds the missing dataset.
 				try {
 					const decision = decideInjection(prompt, searchRes as never);
+					lastDecision = decision;
 					logUsage({
 						kind: "inject_decision",
 						would_inject: decision.inject,
@@ -753,9 +757,6 @@ export default function (pi: ExtensionAPI) {
 						content_words: decision.content,
 						coverage: Math.round(decision.coverage * 100) / 100,
 					});
-					if (ENFORCE && !decision.inject) {
-						sessionRefs = [];
-					}
 				} catch { /* an observation must never break the turn */ }
 				sessionRefs = hits
 					.map((h) => {
@@ -777,6 +778,10 @@ export default function (pi: ExtensionAPI) {
 						if (tier === "project") return projectNoteMatches(ref.split("#")[0], project);
 						return false;
 					});
+				// Enforce AFTER the refs are built. This used to run inside the try block above and
+				// was then unconditionally overwritten on the next line, so the gate never had any
+				// effect - dead code that read as a working control.
+				if (ENFORCE && !lastDecision?.inject) sessionRefs = [];
 				logUsage({
 					kind: "session_refs", refs: sessionRefs.length, chars: sessionRefs.join(" ").length,
 					// The ref list itself, so the record can answer "which notes does this actually

@@ -3,6 +3,15 @@ use crate::paths::{MAX_CONTEXT_CHARS_DEFAULT, MAX_RESULT_CHARS_DEFAULT, SCHEMA_V
 use crate::policy::{
     DEFAULT_EXCLUDED_DIRS, DEFAULT_INCLUDE_DIRS, DEFAULT_INCLUDE_FILES, apple_path_re,
 };
+
+/// The FTS tokenizer the code expects, and the single source of truth for it.
+///
+/// A named constant because a mismatch between this and what the database actually contains is
+/// invisible: retrieval quality changes and nothing reports it. That happened once already - an
+/// experiment changed the tokenizer, the experiment was reverted in the code, and the database kept
+/// the old one because its migration went away with the revert. `init_db` now reconciles in both
+/// directions, against this constant.
+pub(crate) const EXPECTED_FTS_TOKENIZER: &str = "porter unicode61";
 use rusqlite::{Connection, OptionalExtension, Row};
 
 /// Distinguish "another writer holds the index" from "the index is broken". Retrying is
@@ -350,6 +359,41 @@ impl MemoryFabric {
         // exposes exactly that, so `term_df` becomes derivable and `doc_terms` (53% of the index)
         // can go. Raised as issue #131 with the measurements.
 
+        // DERIVED-OBJECT MIGRATION, and it reconciles in BOTH directions.
+        //
+        // A virtual table's tokenizer cannot be ALTERed, so a mismatch is fixed by dropping and
+        // refilling. That is safe for exactly one reason: this table is DERIVED. It holds nothing
+        // that is not in the vault.
+        //
+        // Both directions matter, and I learned that the hard way. An experiment changed this
+        // tokenizer to unicode61, the experiment was reverted in the CODE, and the DATABASE kept
+        // unicode61 - because the migration went away with the revert. The live index then ran a
+        // different tokenizer than the source said it did, silently, with retrieval quality changed
+        // and nothing reporting it. A migration that only fires on mismatch-detected-in-one-
+        // direction cannot heal that.
+        let actual_sql: Option<String> = con
+            .query_row("SELECT sql FROM sqlite_master WHERE name='documents_fts'", [], |r| r.get(0))
+            .optional()
+            .unwrap_or(None);
+        let mismatched = match &actual_sql {
+            Some(sql) => {
+                let has_porter = sql.contains("porter");
+                let want_porter = EXPECTED_FTS_TOKENIZER.contains("porter");
+                has_porter != want_porter
+            }
+            None => true,
+        };
+        if mismatched {
+            con.execute_batch("DROP TABLE IF EXISTS documents_fts")
+                .map_err(|e| e.to_string())?;
+            con.execute_batch(&format!(
+                "CREATE VIRTUAL TABLE documents_fts USING fts5(relpath UNINDEXED,title,headings,body,tokenize='{EXPECTED_FTS_TOKENIZER}')"
+            ))
+            .map_err(|e| e.to_string())?;
+            migrated = true;   // forces a full re-read so the table is refilled
+            steps.push(format!("rebuild documents_fts to tokenize='{EXPECTED_FTS_TOKENIZER}'"));
+        }
+
         let after = counts(con).map_err(|e| e.to_string())?;
         if before != after {
             return Err(format!(
@@ -442,7 +486,7 @@ impl MemoryFabric {
             "last_migration": last_migration,
             "tables": tables,
             "documents_columns": doc_columns,
-            "fts_tokenizer": "porter unicode61",
+            "fts_tokenizer": EXPECTED_FTS_TOKENIZER,
             "migration_policy": "expand-only: steps add columns with defaults and never rewrite, rename or drop, so a failure leaves the previous rung valid",
             "rollback": "none needed by construction; an older engine reads the table and ignores unknown columns",
         }))

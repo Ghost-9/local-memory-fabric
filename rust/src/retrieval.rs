@@ -358,7 +358,17 @@ impl MemoryFabric {
         // Fetch document frequencies for this query's own tokens only. Reading the whole term_df
         // table was the only super-linear step in the hot path. A token with no row keeps df 0 and
         // is dropped by the gate below, exactly as before.
-        let probe: Vec<&str> = terms.iter().take(64).map(|t| t.as_str()).collect();
+        // Longest first, not `take(64)` on a BTreeSet.
+        //
+        // `terms` is a BTreeSet, which is LEXICOGRAPHIC. The old `take(64)` therefore kept the
+        // alphabet head and silently discarded every token from roughly 'n' onward - a query
+        // containing a long 'z' term lost it from df lookup and it was dropped by the gate below.
+        // Sorting by length means the cap discards the LEAST specific terms rather than the
+        // alphabetically last ones. The cap itself is a guard against pathological input, not a
+        // ranking decision, so it should not encode one.
+        let mut ordered: Vec<&String> = terms.iter().collect();
+        ordered.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+        let probe: Vec<&str> = ordered.into_iter().take(64).map(|t| t.as_str()).collect();
         let mut df: HashMap<String, i64> = HashMap::new();
         if !probe.is_empty() {
             let placeholders = (1..=probe.len())
