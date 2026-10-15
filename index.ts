@@ -564,6 +564,18 @@ export default function (pi: ExtensionAPI) {
 		// and a muted notice is worse than none.
 		try {
 			const advice = recordTurn(costState, message.usage);
+			// AUTO-HANDOFF. This is the measured token lever, so it should not depend on someone
+			// remembering to call a tool.
+			//
+			// The evidence: 9 handoffs avoided 1,790,337 tokens of re-sent transcript, at ~307
+			// tokens each. The same telemetry shows only 6 of 72 injections ever led to a read, and
+			// the task suite puts injection at 36-46% HIGHER cost with no success gain. So the
+			// pointer is where the saving is, and a pointer that only exists when someone remembers
+			// to ask for it is a saving that mostly does not happen.
+			//
+			// When the session crosses the threshold, the pointer is written automatically. It
+			// carries the transcript path, which is the part that makes resuming cheap and is
+			// exactly the part a person cannot reconstruct from memory.
 			if (advice.advise) {
 				logUsage({
 					kind: "session_cost",
@@ -573,6 +585,38 @@ export default function (pi: ExtensionAPI) {
 					reminders: costState.reminders,
 				});
 				ctx.ui?.notify?.(costNotice(advice.peakTokens), "info");
+				try {
+					const cwd = projectKey(ctx?.cwd);
+					if (cwd) {
+						const sid = String(ctx?.sessionId ?? ctx?.session?.id ?? "");
+						const store = readHandoffStore() ?? {};
+						// Never overwrite a handoff a person or agent wrote deliberately. The
+						// automatic one is a floor on the saving, not a replacement for a good
+						// pointer - an auto-pointer that overwrote a considered one would make the
+						// product worse the more it ran.
+						const existing = store[cwd] as Record<string, unknown> | undefined;
+						if (!existing || existing.auto === true) {
+							store[cwd] = {
+								at: new Date().toISOString(),
+								cwd,
+								session: sid,
+								transcript: transcriptPath(sid) ?? undefined,
+								auto: true,
+								next: "Read the transcript below, then continue. This pointer was written automatically because the session crossed the cost threshold; no hand-written summary exists.",
+								done: `session reached ~${Math.round(advice.peakTokens / 1000)}K tokens over ${costState.turns} turns`,
+								in_flight: "",
+								blocked: "",
+								pointers: [],
+							};
+							const dir = HANDOFF_STATE.slice(0, HANDOFF_STATE.lastIndexOf(sep));
+							if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+							writeFileSync(HANDOFF_STATE, JSON.stringify(store, null, 2), { mode: 0o600 });
+							logUsage({ kind: "auto_handoff", cwd, tokens: advice.peakTokens, turn: costState.turns });
+						} else {
+							logUsage({ kind: "auto_handoff_skipped", cwd, reason: "a deliberate handoff already exists" });
+						}
+					}
+				} catch { /* the pointer must never cost a turn */ }
 			}
 		} catch { /* Cost advice must never cost a turn. */ }
 		try {
