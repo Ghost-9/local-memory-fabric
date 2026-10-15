@@ -1,5 +1,5 @@
 {
- "captured_at": "2026-10-14T22:28:41Z",
+ "captured_at": "2026-10-15T20:23:32Z",
  "cases": [
   {
    "abstention": null,
@@ -1368,7 +1368,7 @@
    ],
    "scope": "all",
    "shown": 3,
-   "total_matches": 3
+   "total_matches": 7
   },
   {
    "abstention": "no indexed source matches these terms",
@@ -1402,14 +1402,11 @@
    "ok": true,
    "query": "token length minimum acronym",
    "refs": [
-    "projects/acronyms.md",
-    "projects/identifiers.md",
-    "projects/prompt-cache.md",
-    "projects/resident-context.md"
+    "projects/acronyms.md"
    ],
    "scope": "all",
-   "shown": 4,
-   "total_matches": 8
+   "shown": 1,
+   "total_matches": 9
   },
   {
    "abstention": "no indexed source matches these terms",
@@ -1648,7 +1645,7 @@
    ],
    "scope": "all",
    "shown": 5,
-   "total_matches": 8
+   "total_matches": 9
   },
   {
    "abstention": "no indexed source matches these terms",
@@ -1684,9 +1681,9 @@
    "refs": [
     "projects/decoy-prompt-cache.md",
     "projects/prompt-cache.md",
-    "projects/decoy-resident-context.md",
     "projects/decoy-prefix-cache-stability.md",
-    "projects/prefix-cache-stability.md"
+    "projects/prefix-cache-stability.md",
+    "projects/decoy-resident-context.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -1732,7 +1729,7 @@
    ],
    "scope": "all",
    "shown": 5,
-   "total_matches": 10
+   "total_matches": 11
   },
   {
    "abstention": "no indexed source matches these terms",
@@ -1809,8 +1806,8 @@
    "query": "how do I undo something already written",
    "refs": [
     "projects/append-only.md",
-    "projects/temporal-supersession.md",
     "projects/decoy-append-only.md",
+    "projects/temporal-supersession.md",
     "projects/decoy-provider-allowlist.md",
     "projects/writeback-proposal.md"
    ],
@@ -1850,8 +1847,8 @@
    "ok": true,
    "query": "can a program follow a shortcut outside its folder",
    "refs": [
-    "projects/decoy-path-symlink.md",
     "projects/path-symlink.md",
+    "projects/decoy-path-symlink.md",
     "projects/decoy-writeback-proposal.md",
     "projects/decoy-source-provenance.md",
     "projects/scope-separation.md"
@@ -1981,7 +1978,7 @@
    ],
    "scope": "all",
    "shown": 5,
-   "total_matches": 8
+   "total_matches": 10
   },
   {
    "abstention": "no indexed source matches these terms",
@@ -2053,19 +2050,13 @@
    "total_matches": 0
   },
   {
-   "abstention": null,
+   "abstention": "matches exist but none passed the overlap or temporal gate; inspect total_matches and the date",
    "ok": true,
    "query": "why is the order of results not guaranteed",
-   "refs": [
-    "projects/decoy-no-hit.md",
-    "projects/fts5-tokenizer.md",
-    "projects/document-frequency.md",
-    "projects/no-hit.md",
-    "projects/determinism.md"
-   ],
+   "refs": [],
    "scope": "all",
-   "shown": 5,
-   "total_matches": 8
+   "shown": 0,
+   "total_matches": 9
   },
   {
    "abstention": "no indexed source matches these terms",
@@ -2101,9 +2092,9 @@
    "refs": [
     "projects/retrieval-abstention.md",
     "projects/decoy-retrieval-abstention.md",
+    "projects/scope-separation.md",
     "projects/decoy-privacy-loopback.md",
-    "projects/decoy-scope-separation.md",
-    "projects/privacy-loopback.md"
+    "projects/decoy-scope-separation.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -2145,11 +2136,11 @@
     "projects/provider-allowlist.md",
     "projects/prompt-cache.md",
     "projects/acronyms.md",
-    "projects/prefix-cache-stability.md"
+    "projects/retrieval-abstention.md"
    ],
    "scope": "all",
    "shown": 5,
-   "total_matches": 8
+   "total_matches": 10
   },
   {
    "abstention": "no indexed source matches these terms",
@@ -2184,13 +2175,10 @@
    "query": "short forms for technical terms",
    "refs": [
     "projects/decoy-acronyms.md",
-    "projects/acronyms.md",
-    "projects/decoy-no-hit.md",
-    "projects/decoy-retrieval-abstention.md",
-    "projects/no-hit.md"
+    "projects/acronyms.md"
    ],
    "scope": "all",
-   "shown": 5,
+   "shown": 2,
    "total_matches": 9
   },
   {
@@ -2392,7 +2380,7 @@
    ],
    "scope": "all",
    "shown": 2,
-   "total_matches": 2
+   "total_matches": 5
   },
   {
    "abstention": "no indexed source matches these terms",
@@ -3128,19 +3116,13 @@
    "total_matches": 0
   },
   {
-   "abstention": null,
+   "abstention": "matches exist but none passed the overlap or temporal gate; inspect total_matches and the date",
    "ok": true,
    "query": "rankings are not answers",
-   "refs": [
-    "projects/decoy-no-hit.md",
-    "projects/fts5-tokenizer.md",
-    "projects/document-frequency.md",
-    "projects/no-hit.md",
-    "projects/determinism.md"
-   ],
+   "refs": [],
    "scope": "all",
-   "shown": 5,
-   "total_matches": 8
+   "shown": 0,
+   "total_matches": 14
   },
   {
    "abstention": "no indexed source matches these terms",
@@ -3217,7 +3199,7 @@
    ],
    "scope": "all",
    "shown": 1,
-   "total_matches": 1
+   "total_matches": 5
   },
   {
    "abstention": "no indexed source matches these terms",
@@ -3247,18 +3229,12 @@
    "total_matches": 0
   },
   {
-   "abstention": null,
+   "abstention": "matches exist but none passed the overlap or temporal gate; inspect total_matches and the date",
    "ok": true,
    "query": "notes that replace older notes",
-   "refs": [
-    "projects/filler/note-000.md",
-    "projects/filler/note-001.md",
-    "projects/filler/note-002.md",
-    "projects/filler/note-003.md",
-    "projects/filler/note-004.md"
-   ],
+   "refs": [],
    "scope": "all",
-   "shown": 5,
+   "shown": 0,
    "total_matches": 96
   },
   {
@@ -3494,9 +3470,9 @@
    "query": "superseded claim visibility",
    "refs": [
     "projects/decoy-evidence-trail.md",
+    "projects/temporal-supersession.md",
     "projects/evidence-trail.md",
-    "projects/decoy-temporal-supersession.md",
-    "projects/temporal-supersession.md"
+    "projects/decoy-temporal-supersession.md"
    ],
    "scope": "all",
    "shown": 4,
@@ -3538,7 +3514,7 @@
    ],
    "scope": "all",
    "shown": 1,
-   "total_matches": 10
+   "total_matches": 12
   },
   {
    "abstention": "no indexed source matches these terms",
@@ -3814,8 +3790,8 @@
    "ok": true,
    "query": "revert the knowledge base",
    "refs": [
-    "projects/writeback-proposal.md",
-    "projects/append-only.md"
+    "projects/append-only.md",
+    "projects/writeback-proposal.md"
    ],
    "scope": "all",
    "shown": 2,
@@ -3897,7 +3873,7 @@
    ],
    "scope": "all",
    "shown": 3,
-   "total_matches": 3
+   "total_matches": 4
   },
   {
    "abstention": "no indexed source matches these terms",
@@ -4099,7 +4075,7 @@
    ],
    "scope": "all",
    "shown": 5,
-   "total_matches": 8
+   "total_matches": 9
   },
   {
    "abstention": "no indexed source matches these terms",
@@ -4349,7 +4325,7 @@
    ],
    "scope": "all",
    "shown": 5,
-   "total_matches": 6
+   "total_matches": 7
   },
   {
    "abstention": "no indexed source matches these terms",
@@ -4467,8 +4443,8 @@
     "projects/incremental-index.md",
     "projects/identifiers.md",
     "projects/decoy-kv-cache.md",
-    "projects/decoy-fts5-tokenizer.md",
-    "projects/fts5-tokenizer.md"
+    "projects/kv-cache.md",
+    "projects/determinism.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -4546,8 +4522,8 @@
    "ok": true,
    "query": "timestamp format agreement",
    "refs": [
-    "projects/decoy-engine-parity.md",
-    "projects/engine-parity.md"
+    "projects/engine-parity.md",
+    "projects/decoy-engine-parity.md"
    ],
    "scope": "all",
    "shown": 2,
@@ -4626,11 +4602,10 @@
     "projects/decoy-bm25-ranking.md",
     "projects/decoy-fts5-tokenizer.md",
     "projects/bm25-ranking.md",
-    "projects/fts5-tokenizer.md",
-    "projects/incremental-index.md"
+    "projects/fts5-tokenizer.md"
    ],
    "scope": "all",
-   "shown": 5,
+   "shown": 4,
    "total_matches": 10
   },
   {
@@ -4707,11 +4682,10 @@
     "projects/identifiers.md",
     "projects/fts5-tokenizer.md",
     "projects/decoy-identifiers.md",
-    "projects/privacy-loopback.md",
-    "projects/acronyms.md"
+    "projects/privacy-loopback.md"
    ],
    "scope": "all",
-   "shown": 5,
+   "shown": 4,
    "total_matches": 10
   },
   {
@@ -4787,12 +4761,10 @@
    "refs": [
     "projects/acronyms.md",
     "projects/decoy-engine-parity.md",
-    "projects/identifiers.md",
-    "projects/engine-parity.md",
-    "projects/prompt-cache.md"
+    "projects/engine-parity.md"
    ],
    "scope": "all",
-   "shown": 5,
+   "shown": 3,
    "total_matches": 10
   },
   {
@@ -4829,12 +4801,10 @@
    "refs": [
     "projects/acronyms.md",
     "projects/decoy-credential-filter.md",
-    "projects/credential-filter.md",
-    "projects/resident-context.md",
-    "projects/bm25-ranking.md"
+    "projects/credential-filter.md"
    ],
    "scope": "all",
-   "shown": 5,
+   "shown": 3,
    "total_matches": 12
   },
   {
@@ -5203,7 +5173,7 @@
    ],
    "scope": "all",
    "shown": 5,
-   "total_matches": 6
+   "total_matches": 7
   },
   {
    "abstention": "no indexed source matches these terms",

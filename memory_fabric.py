@@ -686,8 +686,11 @@ class MemoryFabric:
                 con.execute("DELETE FROM note_links WHERE source_relpath=?", (rel,))
                 removed += 1
             if added > 0 or updated > 0 or removed > 0 or force:
+                con.execute("DROP TABLE IF EXISTS temp._df_vocab")
+                con.execute("CREATE VIRTUAL TABLE temp._df_vocab USING fts5vocab(main, documents_fts, 'row')")
                 con.execute("DELETE FROM term_df")
-                con.execute("INSERT INTO term_df(term,df) SELECT term,COUNT(*) FROM doc_terms GROUP BY term")
+                con.execute("INSERT INTO term_df(term,df) SELECT term, doc FROM temp._df_vocab")
+                con.execute("DROP TABLE IF EXISTS temp._df_vocab")
             con.execute("INSERT INTO metadata(key,value) VALUES('last_indexed_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (utc_now(),))
             con.execute("INSERT INTO metadata(key,value) VALUES('vault_path',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(self.vault.resolve()),))
             con.commit()
@@ -802,12 +805,19 @@ class MemoryFabric:
             return {"ok": True, "results": [], "abstention": "no searchable terms"}
         with closing(self._connect()) as con:
             n_docs = int(con.execute("SELECT COUNT(*) FROM documents").fetchone()[0])
-            # Document frequencies for this query's own tokens only. Reading the whole term_df
-            # table was the only super-linear step in the hot path.
-            probe = list(terms)[:64]
+            # Document frequencies for this query's own tokens only. Looked up via exact stem
+            # resolved through SQLite's Porter stemmer.
+            ordered = sorted(terms, key=lambda t: (-len(t), t))
+            probe = ordered[:64]
             if probe:
-                marks = ",".join("?" * len(probe))
-                df_rows = con.execute(f"SELECT term,df FROM term_df WHERE term IN ({marks})", probe).fetchall()
+                con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp._s USING fts5(t, tokenize='porter unicode61')")
+                con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp._sv USING fts5vocab(temp, _s, 'instance')")
+                con.execute("DELETE FROM temp._s")
+                con.executemany("INSERT INTO temp._s(rowid, t) VALUES (?, ?)", list(enumerate(probe, 1)))
+                sql = ("SELECT s.t, d.df FROM temp._sv v "
+                       "JOIN temp._s s ON s.rowid = v.doc "
+                       "JOIN term_df d ON d.term = v.term")
+                df_rows = con.execute(sql).fetchall()
             else:
                 df_rows = []
             df = {r[0]: int(r[1]) for r in df_rows}
@@ -1224,8 +1234,11 @@ class MemoryFabric:
                 # surfaces on search.
                 for term in tokens(text):
                     con.execute("INSERT OR IGNORE INTO doc_terms(relpath,term) VALUES(?1,?2)", (rel, term))
-                con.execute("INSERT INTO term_df(term,df) SELECT term,COUNT(*) FROM doc_terms GROUP BY term "
-                            "ON CONFLICT(term) DO UPDATE SET df=excluded.df")
+                con.execute("DROP TABLE IF EXISTS temp._df_vocab")
+                con.execute("CREATE VIRTUAL TABLE temp._df_vocab USING fts5vocab(main, documents_fts, 'row')")
+                con.execute("DELETE FROM term_df")
+                con.execute("INSERT INTO term_df(term,df) SELECT term, doc FROM temp._df_vocab")
+                con.execute("DROP TABLE IF EXISTS temp._df_vocab")
                 con.execute("COMMIT")
             except Exception:
                 con.execute("ROLLBACK")

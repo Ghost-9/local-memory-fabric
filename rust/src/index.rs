@@ -284,13 +284,20 @@ impl MemoryFabric {
         }
         // Incremental delta skip: only rebuild term_df if terms actually changed
         if added > 0 || updated > 0 || !stale.is_empty() || force || migrated {
-            tx.execute("DELETE FROM term_df", [])
-                .map_err(|e| e.to_string())?;
+            tx.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
             tx.execute(
-                "INSERT INTO term_df(term,df) SELECT term,COUNT(*) FROM doc_terms GROUP BY term",
+                "CREATE VIRTUAL TABLE temp._df_vocab USING fts5vocab(main, documents_fts, 'row')",
                 [],
             )
             .map_err(|e| e.to_string())?;
+            tx.execute("DELETE FROM term_df", [])
+                .map_err(|e| e.to_string())?;
+            tx.execute(
+                "INSERT INTO term_df(term,df) SELECT term, doc FROM temp._df_vocab",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+            tx.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
         }
         tx.execute("INSERT INTO metadata(key,value) VALUES('last_indexed_at',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [now_utc()]).map_err(|e| e.to_string())?;
         let canonical = canonical_vault.to_string_lossy().to_string();
@@ -644,8 +651,13 @@ impl MemoryFabric {
         let orphan_terms = count(
             "SELECT COUNT(*) FROM doc_terms WHERE relpath NOT IN (SELECT relpath FROM documents)",
         );
+        con.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
+        con.execute(
+            "CREATE VIRTUAL TABLE temp._df_vocab USING fts5vocab(main, documents_fts, 'row')",
+            [],
+        ).ok();
         let orphan_df = count(
-            "SELECT COUNT(*) FROM term_df WHERE term NOT IN (SELECT DISTINCT term FROM doc_terms)",
+            "SELECT COUNT(*) FROM term_df WHERE term NOT IN (SELECT term FROM temp._df_vocab)",
         );
         let dead_df = count(
             "SELECT COUNT(*) FROM term_df WHERE df > (SELECT COUNT(*) FROM documents)",
@@ -656,10 +668,11 @@ impl MemoryFabric {
         let reclaimable = freelist * page_size;
 
         let mut removed = json!(null);
+        con.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
         if force {
             con.execute("DELETE FROM doc_terms WHERE relpath NOT IN (SELECT relpath FROM documents)", [])
                 .map_err(|e| e.to_string())?;
-            con.execute("DELETE FROM term_df WHERE term NOT IN (SELECT DISTINCT term FROM doc_terms)", [])
+            con.execute("DELETE FROM term_df WHERE term NOT IN (SELECT term FROM temp._df_vocab)", [])
                 .map_err(|e| e.to_string())?;
             con.execute("DELETE FROM note_links WHERE source NOT IN (SELECT relpath FROM documents)", [])
                 .map_err(|e| e.to_string())?;

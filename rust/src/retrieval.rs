@@ -371,18 +371,29 @@ impl MemoryFabric {
         let probe: Vec<&str> = ordered.into_iter().take(64).map(|t| t.as_str()).collect();
         let mut df: HashMap<String, i64> = HashMap::new();
         if !probe.is_empty() {
-            let placeholders = (1..=probe.len())
-                .map(|i| format!("?{i}"))
-                .collect::<Vec<_>>()
-                .join(",");
-            let sql = format!("SELECT term,df FROM term_df WHERE term IN ({placeholders})");
-            let mut stmt = con.prepare(&sql).map_err(|e| e.to_string())?;
+            con.execute_batch(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS temp._s USING fts5(t, tokenize='porter unicode61');                 CREATE VIRTUAL TABLE IF NOT EXISTS temp._sv USING fts5vocab(temp, _s, 'instance');                 DELETE FROM temp._s;",
+            )
+            .map_err(|e| e.to_string())?;
+
+            let mut insert_sql = String::from("INSERT INTO temp._s(rowid, t) VALUES ");
+            for i in 0..probe.len() {
+                if i > 0 {
+                    insert_sql.push_str(", ");
+                }
+                insert_sql.push_str(&format!("({}, ?)", i + 1));
+            }
+            let mut ins_stmt = con.prepare(&insert_sql).map_err(|e| e.to_string())?;
             let params: Vec<&dyn rusqlite::ToSql> =
                 probe.iter().map(|t| t as &dyn rusqlite::ToSql).collect();
+            ins_stmt
+                .execute(params.as_slice())
+                .map_err(|e| e.to_string())?;
+
+            let sql = "SELECT s.t, d.df FROM temp._sv v JOIN temp._s s ON s.rowid = v.doc JOIN term_df d ON d.term = v.term";
+            let mut stmt = con.prepare(sql).map_err(|e| e.to_string())?;
             let rows = stmt
-                .query_map(params.as_slice(), |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
-                })
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
                 .map_err(|e| e.to_string())?;
             for row in rows {
                 let (t, n) = row.map_err(|e| e.to_string())?;

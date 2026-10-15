@@ -219,8 +219,14 @@ pub(crate) fn sandbox(
         con.execute("INSERT OR IGNORE INTO doc_terms(relpath,term) VALUES(?1,?2)", params![rel, term])
             .map_err(|e| e.to_string())?;
     }
-    con.execute("INSERT INTO term_df(term,df) SELECT term,COUNT(*) FROM doc_terms GROUP BY term ON CONFLICT(term) DO UPDATE SET df=excluded.df", [])
+    con.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
+    con.execute("CREATE VIRTUAL TABLE temp._df_vocab USING fts5vocab(main, documents_fts, 'row')", [])
         .map_err(|e| e.to_string())?;
+    con.execute("DELETE FROM term_df", [])
+        .map_err(|e| e.to_string())?;
+    con.execute("INSERT INTO term_df(term,df) SELECT term, doc FROM temp._df_vocab", [])
+        .map_err(|e| e.to_string())?;
+    con.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
     Ok(
         json!({"ok":true,"handle":rel,"title":if title.trim().is_empty() {"sandbox"} else {title},
                "scope":if scope.trim().is_empty() {"episodic"} else {scope.trim()},
