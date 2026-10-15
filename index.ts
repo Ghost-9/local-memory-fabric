@@ -211,6 +211,18 @@ function transcriptPath(sessionId: string): string | null {
 let resumeChecked = false;
 
 /**
+ * The control arm of the task suite.
+ *
+ * Without a way to run the same prompt with injection off, there is no experiment - only an
+ * assertion that memory helps. Set MEMORY_FABRIC_DISABLE_INJECTION=1 and every injection site
+ * stands down: the ref search is not issued, the resume pointer is not read, and the block is not
+ * added. The arm then differs from the treatment in exactly one variable.
+ */
+const injectionDisabled = process.env.MEMORY_FABRIC_DISABLE_INJECTION === "1";
+if (injectionDisabled) logUsage({ kind: "injection_disabled" });
+
+
+/**
  * #97 / #105 - injected characters, per turn and per session.
  *
  * The accounting lives in injection.ts, unit-tested, for the same reason the scrub predicate does:
@@ -698,7 +710,7 @@ export default function (pi: ExtensionAPI) {
 		const prompt = event.prompt ?? "";
 		// Resolve refs once per session; every later turn reuses them, so the injected block is
 		// byte-stable and no further search is issued.
-		if (prompt.length >= 24 && sessionRefs === null) {
+		if (!injectionDisabled && prompt.length >= 24 && sessionRefs === null) {
 			try {
 				const searchRes = await callFabric({
 					op: "search",
@@ -786,7 +798,7 @@ export default function (pi: ExtensionAPI) {
 		// stale context at smaller scale, whereas what the next session needs is the diff. The full
 		// handoff stays in the vault, versioned and searchable, and is read only if the pointer is
 		// not enough.
-		if (!resumeChecked) {
+		if (!injectionDisabled && !resumeChecked) {
 			resumeChecked = true;
 			const project = projectKey(ctx?.cwd);
 			const handoff = handoffForProject(readHandoffStore(), project) as Handoff | null;
@@ -805,7 +817,7 @@ export default function (pi: ExtensionAPI) {
 				logUsage({ kind: "resume_pointer_refused", project, reason: "project mismatch" });
 			}
 		}
-		if (sessionRefs && sessionRefs.length > 0) {
+		if (!injectionDisabled && sessionRefs && sessionRefs.length > 0) {
 			const block = `\n## Memory has relevant notes\n${sessionRefs.map((r) => `[[${r}]]`).join(" ")}\nRead these first via engram or view_file before re-deriving.`;
 			additions.push(block);
 			const rec = injections.record(block.length, sessionRefs.length);

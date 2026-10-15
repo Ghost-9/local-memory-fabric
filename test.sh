@@ -228,7 +228,50 @@ if before and before != after:
 print("  source note unchanged by consolidation (non-destructive verified)")
 PYCONS
 
-echo "== 19/20 usage record and what it can answer (#95) =="
+echo "== 19/20 task suite: the harness runs and its control arm really is a control =="
+# This does NOT assert a quality result - there is none yet, and asserting one without data is the
+# thing this repo keeps getting wrong. It asserts the two properties a valid experiment needs:
+# the harness completes, and MEMORY_FABRIC_DISABLE_INJECTION actually disables it. Without the
+# second, both arms are the treatment and the suite would silently measure nothing.
+python3 - <<'PYSUITE'
+import json, os, subprocess, sys, datetime as dt
+LOG = os.path.expanduser("~/.pi/agent/scratch/memory-fabric/usage.jsonl")
+def tail(seconds=1800):
+    now = dt.datetime.now(dt.timezone.utc); out = []
+    if not os.path.exists(LOG): return out
+    for line in open(LOG):
+        line = line.strip()
+        if not line: continue
+        try:
+            r = json.loads(line)
+            if (now - dt.datetime.fromisoformat(r["t"].replace("Z","+00:00"))).total_seconds() < seconds:
+                out.append(r)
+        except Exception: pass
+    return out
+TASKS = "bench/tasksuite/tasks.json"
+t = json.load(open(TASKS))["tasks"]
+cats = {}
+for x in t: cats[x["category"]] = cats.get(x["category"], 0) + 1
+print(f"  {len(t)} tasks: " + ", ".join(f"{k}={v}" for k, v in sorted(cats.items())))
+for x in t:
+    if not x.get("check"):
+        print(f"  GATE FAILURE: task {x['id']} has no success check - cost alone cannot show whether answers got worse", file=sys.stderr)
+        sys.exit(1)
+r = subprocess.run([sys.executable, "bench/tasksuite/run.py", "--smoke"], capture_output=True, text=True, timeout=900)
+if "task suite" not in r.stdout:
+    print("  GATE FAILURE: the task suite harness did not run", file=sys.stderr)
+    print((r.stdout or r.stderr)[-400:], file=sys.stderr)
+    sys.exit(1)
+for line in r.stdout.splitlines():
+    if line.strip().startswith("pair "): print("  " + line.strip())
+recent = tail()
+if not any(x.get("kind") == "injection_disabled" for x in recent):
+    print("  GATE FAILURE: MEMORY_FABRIC_DISABLE_INJECTION did not take effect - both arms would be the treatment", file=sys.stderr)
+    sys.exit(1)
+print("  control arm verified: injection was actually disabled, so the arms differ in one variable")
+PYSUITE
+
+echo "== 20/20 usage record and what it can answer (#95) =="
 # The record exists to answer "what has this served". This step proves the viewer runs and that it
 # refuses to invent the two numbers it cannot know (read-through, token cost).
 python3 bench/usage_report.py --json > /tmp/mf-usage.json 2>&1 || {

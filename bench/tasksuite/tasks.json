@@ -1,0 +1,31 @@
+{
+  "_note": "Does injecting the memory block improve task success, and at what token cost? Each task carries an automated success check. Categories exist so the suite can show HARM as well as benefit: if injection only ever helped, the suite would be measuring its own expectation.",
+  "_categories": {
+    "vault": "Answerable only from knowledge held in the vault. Injection should help.",
+    "control": "Answerable from general capability alone. Both arms should succeed; a failure here means the harness is broken, not that memory failed.",
+    "adversarial": "Nothing to do with the vault. Injection is pure cost here, and this is where harm would show."
+  },
+  "tasks": [
+    {"id":"v1","category":"vault","prompt":"In the local memory fabric engine, what is the default value of max_context_chars? Answer with the number only.",
+     "check":"24000","why":"a configuration default recorded in the vault and nowhere else on this machine"},
+    {"id":"v2","category":"vault","prompt":"What is the measured restore time (RTO) of the knowledge base backup drill? Answer in one short phrase.",
+     "check":"(?i)(under 1|sub.?second|1 ?s\\b|< ?1 ?s|0s|less than a second|under a second)","why":"a measured figure from the reliability work"},
+    {"id":"v3","category":"vault","prompt":"When no token budget is specified, what is the default context budget in tokens? Answer with the number only.",
+     "check":"1200","why":"a default that governs every context call"},
+    {"id":"v4","category":"vault","prompt":"How many documents does the local memory index currently hold? Answer with a number.",
+     "check":"12[0-9]","why":"live state, only knowable by querying or reading the vault"},
+    {"id":"v5","category":"vault","prompt":"In this project, what is the growth warning threshold expressed in number of documents? Answer with the number only.",
+     "check":"4[0-9]{3}","why":"a derived capacity figure recorded in the vault"},
+    {"id":"v6","category":"vault","prompt":"What is the median prompt size in tokens, measured across this machine's pi sessions? Answer with the number only.",
+     "check":"171,?100|171100","why":"a measurement that exists only in the recorded analysis"},
+
+    {"id":"c1","category":"control","prompt":"What is 17 multiplied by 23? Answer with the number only.","check":"391","why":"control"},
+    {"id":"c2","category":"control","prompt":"Reverse the string abcdef. Answer with the reversed string only.","check":"fedcba","why":"control"},
+    {"id":"c3","category":"control","prompt":"List the first five prime numbers, comma separated, numbers only.","check":"2\\D+3\\D+5\\D+7\\D+11","why":"control"},
+
+    {"id":"a1","category":"adversarial","prompt":"Write a haiku about rain. Three lines only.",
+     "check":"(?s).+\\n.+\\n.+","why":"no vault knowledge is relevant; injection is pure token cost"},
+    {"id":"a2","category":"adversarial","prompt":"What is the capital of Portugal? One word.","check":"(?i)lisbon","why":"general knowledge; injection cannot help"},
+    {"id":"a3","category":"adversarial","prompt":"Translate 'good morning' into French. Two words or fewer.","check":"(?i)bonjour","why":"general knowledge; injection cannot help"}
+  ]
+}
