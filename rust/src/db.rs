@@ -326,6 +326,30 @@ impl MemoryFabric {
                 migrated = true;
             }
         }
+        // MEASURED AND REVERTED: aligning the FTS vocabulary DOWN to ours.
+        //
+        // The real defect is that `term_df` is built from our tokenizer (12,960 terms, camelCase
+        // splitting) while matching happens through `tokenize='porter unicode61'` (9,182 terms).
+        // Document frequency disagreed for 19% of the terms they share - median error 40%, worst
+        // case 105x. The engine picks query terms by rarity in one vocabulary and matches them in
+        // another, which is the mechanism behind off-topic results.
+        //
+        // I tried the cheap fix: drop Porter so the matching vocabulary IS ours. Vocabulary overlap
+        // went to 97.7% and df disagreement to 4.7% - the diagnosis was right - but on the retrieval
+        // fixture:
+        //
+        //     recall@3  0.9180 -> 0.8852   (WORSE)
+        //     MRR@3     0.7366 -> 0.7500   (better)
+        //
+        // Recall is the metric that decides whether the right note is returned at all, and Porter
+        // stemming is what lets "ranking" find "rank". Trading 3.3 points of recall for sharper df
+        // is the wrong trade, so it is reverted.
+        //
+        // The fix that keeps both is the OTHER direction: leave the matching vocabulary alone and
+        // compute df from the vocabulary that actually matches. `fts5vocab(documents_fts,'row')`
+        // exposes exactly that, so `term_df` becomes derivable and `doc_terms` (53% of the index)
+        // can go. Raised as issue #131 with the measurements.
+
         let after = counts(con).map_err(|e| e.to_string())?;
         if before != after {
             return Err(format!(
