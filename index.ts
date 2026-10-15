@@ -219,6 +219,14 @@ let resumeChecked = false;
  * added. The arm then differs from the treatment in exactly one variable.
  */
 const injectionDisabled = process.env.MEMORY_FABRIC_DISABLE_INJECTION === "1";
+
+/**
+ * Whether the refs block has already been injected into this session.
+ *
+ * A session-scoped latch. The block is byte-stable and the first copy remains in the history, so
+ * one injection is enough; repeating it every turn duplicated the same text for no benefit.
+ */
+let injectedThisSession = false;
 if (injectionDisabled) logUsage({ kind: "injection_disabled" });
 
 
@@ -817,7 +825,19 @@ export default function (pi: ExtensionAPI) {
 				logUsage({ kind: "resume_pointer_refused", project, reason: "project mismatch" });
 			}
 		}
-		if (!injectionDisabled && sessionRefs && sessionRefs.length > 0) {
+		// Inject ONCE per session, not once per turn.
+		//
+		// The design always said once: resolve the refs once, inject them once, keep the block
+		// byte-stable so the prefix cache holds. What shipped resolved once but injected on every
+		// turn, so a session accumulated one copy of the same block per turn. Measured in this
+		// session's own transcript: the block appears 36 times as a custom_message.
+		//
+		// It was not harmful in the way it looks - the bytes are identical, so `prefixBreak` stayed
+		// 0 and the cache kept matching - but it grew context by ~82 tokens per turn of pure
+		// duplication, and it is the opposite of the documented behaviour. The first copy stays in
+		// the history, so injecting once loses nothing.
+		if (!injectionDisabled && !injectedThisSession && sessionRefs && sessionRefs.length > 0) {
+			injectedThisSession = true;
 			const block = `\n## Memory has relevant notes\n${sessionRefs.map((r) => `[[${r}]]`).join(" ")}\nRead these first via engram or view_file before re-deriving.`;
 			additions.push(block);
 			const rec = injections.record(block.length, sessionRefs.length);
