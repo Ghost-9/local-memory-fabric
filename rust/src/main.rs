@@ -59,6 +59,8 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
         "repair" => fabric.repair(req["force"].as_bool().unwrap_or(false)),
         // C4 - the index format as data, so the gate can fail when it changes unrecorded.
         "schema" => fabric.schema_contract(),
+        // Session handoff: a bounded pointer written to inbox/, overwritten each time.
+        "handoff" => fabric.handoff(req["text"].as_str().unwrap_or("")),
         // P2 - reclaim what the index no longer needs. Reports unless forced.
         "vacuum" => fabric.vacuum(req["force"].as_bool().unwrap_or(false)),
         "index" => fabric.index(req["force"].as_bool().unwrap_or(false)),

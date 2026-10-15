@@ -692,6 +692,45 @@ impl MemoryFabric {
         }))
     }
 
+    /// Write the session handoff note into the vault.
+    ///
+    /// Distinct from `propose`/`apply`: this is not knowledge, it is a pointer, and it is meant to
+    /// be overwritten each time. It goes to `inbox/` deliberately - that directory is outside the
+    /// index's include set, so a resume note never competes with real notes in a search, and git
+    /// still versions every revision of it.
+    ///
+    /// Bounded on purpose. An unbounded handoff would recreate the problem it exists to solve: the
+    /// point is that the next session can read this instead of a 199K transcript.
+    pub(crate) fn handoff(&self, text: &str) -> Result<Value, String> {
+        const MAX_HANDOFF_BYTES: usize = 16_384;
+        if text.trim().is_empty() {
+            return Err("handoff text is required".into());
+        }
+        if text.len() > MAX_HANDOFF_BYTES {
+            return Err(format!(
+                "handoff is {} bytes; the limit is {MAX_HANDOFF_BYTES}. A handoff longer than this \
+                 is a summary of the session rather than a pointer to it, which is the thing it \
+                 exists to replace.",
+                text.len()
+            ));
+        }
+        let dir = self.vault.join("inbox");
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join("RESUME.md");
+        if path.is_symlink() {
+            return Err("refusing to write the handoff through a symlink".into());
+        }
+        fs::write(&path, text).map_err(|e| e.to_string())?;
+        set_mode(&path, 0o600);
+        Ok(json!({
+            "ok": true,
+            "path": safe_relpath("inbox/RESUME.md")?,
+            "bytes": text.len(),
+            "indexed": false,
+            "note": "Written to inbox/, which is outside the index on purpose: this is a pointer, not knowledge, and it is overwritten each time. Git versions it either way.",
+        }))
+    }
+
     pub(crate) fn status(&self) -> Result<Value, String> {
         if !self.db_path.exists() {
             return Ok(

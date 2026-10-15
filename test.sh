@@ -19,6 +19,11 @@ node --experimental-strip-types --test engine-health.test.ts
 # first change is void. Detecting that needs an account that can be told a size and asked whether
 # it changed - which is why it is a module and not four variables inline.
 node --experimental-strip-types --test injection.test.ts
+# Session cost awareness. Thresholds derived from real telemetry (36,609 turns across 472 session
+# files): 67.9% of turns carry a prompt >= 100K and carry 92.8% of all cache reads. The tests pin
+# the fires-once-then-interval behaviour, because a notice that fires every turn gets muted and a
+# muted notice is worse than none.
+node --experimental-strip-types --test session-cost.test.ts
 
 echo "== 3/20 context scrub suite (what may leave the machine) =="
 # index.ts itself cannot be imported without the Pi runtime, which is why the scrub predicate

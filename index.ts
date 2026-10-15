@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, appendFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, appendFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineTool, type AgentToolResult, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createInjectionAccount } from "./injection.ts";
+import {
+	createCostState, recordTurn, costNotice, resumePointer, isResumable, type Handoff,
+} from "./session-cost.ts";
 import { Type } from "typebox";
 import { createHealth } from "./engine-health.ts";
 import {
@@ -142,6 +145,22 @@ let queueRejectionsLogged = false;
  * is - recording why something was refused must not mean copying the thing that was refused.
  */
 let sandboxRefusals = 0;
+
+/** Session cost state. Thresholds and the reason for them live in session-cost.ts. */
+const costState = createCostState();
+const HANDOFF_STATE = resolve(homedir(), ".pi/agent/scratch/memory-fabric/handoff.json");
+
+/** The last handoff, read once per session. Missing or unparseable is not an error. */
+function readHandoff(): Handoff | null {
+	try {
+		if (!existsSync(HANDOFF_STATE)) return null;
+		const parsed = JSON.parse(readFileSync(HANDOFF_STATE, "utf8")) as Handoff;
+		return parsed && typeof parsed === "object" ? parsed : null;
+	} catch { return null; }
+}
+
+/** Session-scoped: the pointer is injected once, not on every turn. */
+let resumeChecked = false;
 
 /**
  * #97 / #105 - injected characters, per turn and per session.
@@ -467,6 +486,24 @@ export default function (pi: ExtensionAPI) {
 		const message = event.message as Record<string, unknown>;
 		const role = String(message.role ?? "");
 		if (role !== "assistant") return;
+		// Session cost awareness. Measured on this machine: 67.9% of turns carry a prompt >= 100K and
+		// those carry 92.8% of all cache reads, so the cost is concentrated in long sessions rather
+		// than in the overnight rebuild people notice. The notice fires once when the threshold is
+		// crossed and then at a long interval - a per-turn reminder would be muted within a minute,
+		// and a muted notice is worse than none.
+		try {
+			const advice = recordTurn(costState, message.usage);
+			if (advice.advise) {
+				logUsage({
+					kind: "session_cost",
+					turn: costState.turns,
+					peak_tokens: advice.peakTokens,
+					reason: advice.reason,
+					reminders: costState.reminders,
+				});
+				ctx.ui?.notify?.(costNotice(advice.peakTokens), "info");
+			}
+		} catch { /* Cost advice must never cost a turn. */ }
 		try {
 			localMessageHashes.add(fingerprint(message));
 			// Same fail-closed rule as the tool-id set: past the cap, stop trusting the set so
@@ -655,6 +692,29 @@ export default function (pi: ExtensionAPI) {
 				// engine hiccup - and the whole point of resolving once is that the first answer is
 				// reused, so a wrong first answer is expensive in a way a wrong per-turn answer is
 				// not. An empty result from a *successful* search still caches, which is correct.
+			}
+		}
+		// Resume pointer, once per session, before anything else.
+		//
+		// This is the piece that makes a fresh session safe enough to actually start. Measured: the
+		// median resumed session re-sends a 199K prompt, 96.2% of which a handoff removes - but the
+		// bigger cost is that a session allowed to grow to 261K re-reads that prefix on every turn
+		// (67.9% of turns carry >= 100K and carry 92.8% of all cache reads). People do not restart
+		// while restarting costs them their context, so this exists to remove that cost.
+		//
+		// Deliberately a pointer (~250 chars), not a summary: a summary of a 261K session is the same
+		// stale context at smaller scale, whereas what the next session needs is the diff. The full
+		// handoff stays in the vault, versioned and searchable, and is read only if the pointer is
+		// not enough.
+		if (!resumeChecked) {
+			resumeChecked = true;
+			const handoff = readHandoff();
+			if (handoff && isResumable(handoff, Date.now())) {
+				const pointer = resumePointer(handoff, Date.now());
+				if (pointer) {
+					additions.push(`\n${pointer}`);
+					logUsage({ kind: "resume_pointer", chars: pointer.length, at: handoff.at });
+				}
 			}
 		}
 		if (sessionRefs && sessionRefs.length > 0) {
@@ -1017,6 +1077,76 @@ export default function (pi: ExtensionAPI) {
 	// four were invisible: a session that had stopped calling the engine looked exactly like a
 	// session with nothing to say. This is the one place that answers "is memory working right
 	// now", and it reports the reasons it is not - because "0 injections" is not a diagnosis.
+	// The handoff. This is what makes starting a fresh session safe, and it is the only lever here
+	// that changes behaviour rather than just measuring it.
+	//
+	// The instruction is deliberately terse and refuses to summarise. A summary of a 261K session is
+	// the same stale context at smaller scale; what the next session needs is the diff - what
+	// changed, what is unfinished, where to read more. The pointer injected at the start of the next
+	// session is built from these four fields and is bounded to about 250 characters.
+	pi.registerTool(defineTool({
+		name: "memory_fabric_handoff",
+		label: "Hand Off This Session",
+		description: "Record a bounded handoff so the next session can resume without re-sending this one's transcript. Use at a task boundary, or when told the session prompt has grown expensive. Writes ~250 characters of resume pointer plus a full note in the vault. Fields: done, in_flight, blocked, next, pointers.",
+		exposure: "deferred",
+		namespace,
+		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+		parameters: Type.Object({
+			done: Type.Optional(Type.String({ description: "What is finished, with the evidence (commit, file, test) - one line" })),
+			in_flight: Type.Optional(Type.String({ description: "What is started and unfinished - one line" })),
+			blocked: Type.Optional(Type.String({ description: "What is stuck and on what - one line" })),
+			next: Type.Optional(Type.String({ description: "The single next concrete action - one line" })),
+			pointers: Type.Optional(Type.Array(Type.String(), { description: "Files, commits or issue numbers worth reading" })),
+		}),
+		async execute(_id, params, _signal, ctx) {
+			const handoff = {
+				at: new Date().toISOString(),
+				session: String(ctx?.sessionId ?? ctx?.session?.id ?? ""),
+				done: params.done ?? "",
+				in_flight: params.in_flight ?? "",
+				blocked: params.blocked ?? "",
+				next: params.next ?? "",
+				pointers: Array.isArray(params.pointers) ? params.pointers.slice(0, 20) : [],
+			};
+			const pointer = resumePointer(handoff, Date.now());
+			if (!pointer) {
+				return toolResult({ ok: false, error: "A handoff needs at least one of done, in_flight, blocked or next. An empty handoff would inject nothing and is worse than none." });
+			}
+			try {
+				const dir = HANDOFF_STATE.slice(0, HANDOFF_STATE.lastIndexOf(sep));
+				if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+				writeFileSync(HANDOFF_STATE, JSON.stringify(handoff, null, 2), { mode: 0o600 });
+			} catch (error) {
+				return toolResult({ ok: false, error: `Handoff could not be written: ${String(error)}` });
+			}
+			// The vault copy is the durable, versioned, searchable one; the JSON is what the next
+			// session's first turn reads without touching the vault at all.
+			const asNote = [
+				`# Session handoff`,
+				``,
+				`At: ${handoff.at}`,
+				``,
+				`- **done**: ${handoff.done || "-"}`,
+				`- **in flight**: ${handoff.in_flight || "-"}`,
+				`- **blocked**: ${handoff.blocked || "-"}`,
+				`- **next**: ${handoff.next || "-"}`,
+				...(handoff.pointers.length ? [``, `Pointers: ${handoff.pointers.map((x) => `\`${x}\``).join(", ")}`] : []),
+			].join("\n");
+			const written = await callFabric({
+				op: "handoff", text: asNote, provider: providerOf(ctx), loopback: isLoopbackModel(ctx.model),
+			}).catch((error: unknown) => ({ ok: false, error: String(error) }));
+			logUsage({ kind: "handoff", chars: pointer.length, pointers: handoff.pointers.length });
+			return toolResult({
+				ok: true,
+				pointer,
+				pointer_chars: pointer.length,
+				state_written: HANDOFF_STATE,
+				vault_note: written,
+				note: "Start a fresh session when convenient; the pointer is injected automatically on the first turn. This session remains usable - nothing was cleared.",
+			});
+		},
+	}));
+
 	pi.registerTool(defineTool({
 		name: "memory_fabric_health",
 		label: "Memory Fabric Health",

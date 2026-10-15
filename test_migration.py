@@ -42,6 +42,12 @@ try:
         con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
         for t in ("documents", "doc_terms", "term_df")
     )
+    # The vault is a LIVE knowledge base - other agents write to it while the gate runs. Comparing
+    # absolute counts made this test fail on a concurrent write (one appeared mid-run and the count
+    # went 124 -> 125), which is a false failure and exactly the kind that gets a strict test
+    # weakened. What a migration must guarantee is that nothing is LOST: the relpath set afterwards
+    # must be a superset of the one before.
+    docs_before = {r[0] for r in con.execute("SELECT relpath FROM documents")}
     # Build a genuinely old-format index: drop a column the ladder is supposed to add, roll the
     # version back, and clear the migration record.
     try:
@@ -73,9 +79,22 @@ try:
 
     if "export_policy" not in cols_after:
         fails.append("the migration did not restore the dropped column")
-    # `documents` is data: it must be identical, and the failure it guards against is real.
-    if counts_before[0] != counts_after[0]:
-        fails.append(f"reconciliation: document count changed {counts_before[0]} -> {counts_after[0]}")
+    # Nothing may be lost, and nothing may be duplicated. Additions from concurrent writers are
+    # normal and are reported, not failed.
+    con2 = sqlite3.connect(IDX)
+    docs_after = {r[0] for r in con2.execute("SELECT relpath FROM documents")}
+    dupes = con2.execute(
+        "SELECT relpath FROM documents GROUP BY relpath HAVING COUNT(*) > 1").fetchall()
+    con2.close()
+    lost = docs_before - docs_after
+    added_concurrently = docs_after - docs_before
+    if lost:
+        fails.append(f"reconciliation: the migration LOST {len(lost)} document(s): {sorted(lost)[:5]}")
+    if dupes:
+        fails.append(f"reconciliation: {len(dupes)} duplicated relpath(s): {[d[0] for d in dupes][:5]}")
+    if added_concurrently:
+        print(f"  concurrent writers added {len(added_concurrently)} note(s) mid-run "
+              f"({sorted(added_concurrently)[:2]}) - reported, not failed")
     # `doc_terms` and `term_df` are derived, and a migration forces a full re-read that rebuilds
     # them from current content. Asserting equality here made the gate fail on a correct
     # migration, which is how a strict test gets weakened or switched off. They are reported, not
@@ -91,7 +110,8 @@ try:
     if dflt != counts_after[0]:
         fails.append(f"the restored column did not default for pre-existing rows ({dflt}/{counts_after[0]})")
     print(f"  after migration     : columns={len(cols_after)} version={ver and ver[0]!r}")
-    print(f"  reconciliation      : documents {counts_before[0]} -> {counts_after[0]}  {'IDENTICAL' if counts_before[0] == counts_after[0] else 'CHANGED'}")
+    print(f"  reconciliation      : {len(docs_before)} documents before, {len(docs_after)} after, "
+          f"lost={len(lost)} duplicated={len(dupes)}")
     print(f"  default backfilled  : {dflt}/{counts_after[0]} rows carry 'deny_remote' (fail-closed default)")
     print(f"  recorded            : {mig and mig[0]}")
 
