@@ -32,6 +32,10 @@ node --experimental-strip-types --test memory-scope.test.ts
 # not separate a good injection from a bad one, it inverts. The tests pin the logic and the two
 # observed failures; shadow mode is the shipped behaviour.
 node --experimental-strip-types --test injection-precision.test.ts
+# Abstention: "no match" as a first-class answer. Shipped 2026-10-16 after measuring
+# 4 results across 2 queries, none of which contained the search term. Without a suite
+# in this gate the module would be decoration that can silently rot.
+node --experimental-strip-types --test abstention.test.ts
 
 echo "== 3/23 context scrub suite (what may leave the machine) =="
 # index.ts itself cannot be imported without the Pi runtime, which is why the scrub predicate
@@ -43,7 +47,7 @@ node --input-type=module -e '
 import { stripTypeScriptTypes } from "node:module";
 import { readFileSync } from "node:fs";
 let bad = 0;
-for (const f of ["index.ts", "remote-policy.ts", "scrub.ts", "remote-policy.test.ts", "scrub.test.ts"]) {
+for (const f of ["index.ts", "remote-policy.ts", "scrub.ts", "abstention.ts", "remote-policy.test.ts", "scrub.test.ts", "abstention.test.ts"]) {
 	try { stripTypeScriptTypes(readFileSync(f, "utf8")); }
 	catch (e) { bad++; console.error("  parse failed: " + f + ": " + e.message); }
 }

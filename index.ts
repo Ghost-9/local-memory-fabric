@@ -9,6 +9,7 @@ import { defineTool, type AgentToolResult, type ExtensionAPI } from "@earendil-w
 import { createInjectionAccount } from "./injection.ts";
 import { projectKey, mayInjectHandoff, handoffForProject, tierOf, projectNoteMatches } from "./memory-scope.ts";
 import { decideInjection, ENFORCE } from "./injection-precision.ts";
+import { withAbstention } from "./abstention.ts";
 import {
 	createCostState, recordTurn, costNotice, resumePointer, isResumable, type Handoff,
 } from "./session-cost.ts";
@@ -963,7 +964,12 @@ export default function (pi: ExtensionAPI) {
 				if (m) scope = `project:${m[1]}`;
 			}
 			const result = await callFabric({ op: "search", query: params.query, scope, limit: params.limit ?? 5, as_of: params.as_of, token_budget: params.token_budget, provider: providerOf(ctx), loopback: isLoopbackModel(ctx.model) });
-			return toolResult(result);
+			// "No match" as a first-class answer. Measured 2026-10-16: 4 results across 2 queries,
+			// none of which contained the search term, returned with rank_score 0.978 on the top
+			// one. rank_score is min-max normalised WITHIN the page, so it is a position and not a
+			// confidence, and nothing in the payload said so. The engine's own `abstention` reason,
+			// when it set one, is preserved verbatim - only the missing signal is filled in.
+			return toolResult(withAbstention(params.query, result as unknown as Parameters<typeof withAbstention>[1]));
 		},
 	}));
 
