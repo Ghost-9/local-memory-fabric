@@ -690,6 +690,22 @@ class MemoryFabric:
                 con.execute("CREATE VIRTUAL TABLE temp._df_vocab USING fts5vocab(main, documents_fts, 'row')")
                 con.execute("DELETE FROM term_df")
                 con.execute("INSERT INTO term_df(term,df) SELECT term, doc FROM temp._df_vocab")
+                # `doc_terms` must speak the same vocabulary as `term_df`. documents_fts is
+                # `tokenize='porter unicode61'`, so "ordering" is indexed as "order"; term_df is
+                # rebuilt from that vocabulary and so holds stems. But doc_terms was written from
+                # `tokens()`, which lowercases and does NOT stem, so it held raw surface forms. A
+                # query for "order" found df 1, matched determinism.md through FTS, then scored
+                # ZERO matched terms against doc_terms -- which stored "ordering" -- and was
+                # discarded by the two-term gate while the engine still reported total_matches > 0.
+                # The stems come from the same fts5vocab authority as term_df so the two cannot
+                # drift, and the raw forms are KEPT because unicode61 does not split camelCase and
+                # the identifier parts are terms FTS never had. Mirrors the Rust engine exactly.
+                con.execute("DROP TABLE IF EXISTS temp._df_inst")
+                con.execute("CREATE VIRTUAL TABLE temp._df_inst USING fts5vocab(main, documents_fts, 'instance')")
+                con.execute("INSERT OR IGNORE INTO doc_terms(relpath, term) "
+                            "SELECT s.relpath, v.term FROM temp._df_inst v "
+                            "JOIN documents_fts s ON s.rowid = v.doc")
+                con.execute("DROP TABLE IF EXISTS temp._df_inst")
                 con.execute("DROP TABLE IF EXISTS temp._df_vocab")
             con.execute("INSERT INTO metadata(key,value) VALUES('last_indexed_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (utc_now(),))
             con.execute("INSERT INTO metadata(key,value) VALUES('vault_path',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(self.vault.resolve()),))
@@ -814,13 +830,17 @@ class MemoryFabric:
                 con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp._sv USING fts5vocab(temp, _s, 'instance')")
                 con.execute("DELETE FROM temp._s")
                 con.executemany("INSERT INTO temp._s(rowid, t) VALUES (?, ?)", list(enumerate(probe, 1)))
-                sql = ("SELECT s.t, d.df FROM temp._sv v "
+                sql = ("SELECT s.t, v.term, d.df FROM temp._sv v "
                        "JOIN temp._s s ON s.rowid = v.doc "
                        "JOIN term_df d ON d.term = v.term")
                 df_rows = con.execute(sql).fetchall()
             else:
                 df_rows = []
-            df = {r[0]: int(r[1]) for r in df_rows}
+            df = {r[0]: int(r[2]) for r in df_rows}
+            # The join already pays for the stemmer, so keep its output: `df` ends up keyed by
+            # what the caller typed while doc_terms/term_df are keyed by the porter stem. Mirrors
+            # the Rust engine so both rank identically.
+            stem_of = {r[0]: r[1] for r in df_rows}
             # Discrimination cutoff. Measured on the live vault: a purely proportional
             # `n_docs * 0.25` moves whenever a note is added, so terms that were usable became
             # unusable for reasons unrelated to their content. Adding three notes lifted the
@@ -893,11 +913,20 @@ class MemoryFabric:
                 rps = [r["relpath"] for r in rows]
                 # Only the query's own terms can ever match, so restrict the scan to them:
                 # fetching every term per candidate read ~615 rows/document and discarded ~97%.
-                tmarks = ",".join("?" * len(useful))
+                # Fetch under the typed term AND its porter stem: doc_terms is keyed by the stem,
+                # so scanning for only what the caller typed misses every inflection the index
+                # normalised away, the per-candidate set comes back empty, and the two-term gate
+                # discards notes FTS had already matched. Mirrors the Rust engine.
+                fetch_terms = list(useful)
+                for t in useful:
+                    st = stem_of.get(t)
+                    if st is not None and st not in fetch_terms:
+                        fetch_terms.append(st)
+                tmarks = ",".join("?" * len(fetch_terms))
                 rmarks = ",".join("?" * len(rps))
                 for rel, term in con.execute(
                         f"SELECT relpath,term FROM doc_terms WHERE term IN ({tmarks}) AND relpath IN ({rmarks})",
-                        list(useful) + rps):
+                        fetch_terms + rps):
                     terms_by_relpath.setdefault(rel, set()).add(term)
             results = []
             excluded_temporal = 0
@@ -928,7 +957,12 @@ class MemoryFabric:
                 if status in {"superseded", "archived", "deprecated", "historical"} and (not as_of_date or not valid_to or as_of_date > valid_to):
                     continue
                 doc_terms = terms_by_relpath.get(row["relpath"], set())
-                matched = [t for t in useful if t in doc_terms]
+                # A note counts as matching a term under either name: the surface form the caller
+                # typed, or the stem doc_terms is keyed by. Checking only the typed form made this
+                # blind to every inflection, and since single_term_query could not rescue it the
+                # two-term gate discarded notes FTS had matched. Mirrors the Rust engine.
+                matched = [t for t in useful
+                           if t in doc_terms or stem_of.get(t) in doc_terms]
                 # A single term is normally too weak to rank on, so a document needs two. The
                 # exception was `df == 1`, which meant only `CliffCompaction` (df 3) and a handful
                 # of hapax terms could ever rank alone - so a one-term query about a common word
@@ -1238,6 +1272,22 @@ class MemoryFabric:
                 con.execute("CREATE VIRTUAL TABLE temp._df_vocab USING fts5vocab(main, documents_fts, 'row')")
                 con.execute("DELETE FROM term_df")
                 con.execute("INSERT INTO term_df(term,df) SELECT term, doc FROM temp._df_vocab")
+                # `doc_terms` must speak the same vocabulary as `term_df`. documents_fts is
+                # `tokenize='porter unicode61'`, so "ordering" is indexed as "order"; term_df is
+                # rebuilt from that vocabulary and so holds stems. But doc_terms was written from
+                # `tokens()`, which lowercases and does NOT stem, so it held raw surface forms. A
+                # query for "order" found df 1, matched determinism.md through FTS, then scored
+                # ZERO matched terms against doc_terms -- which stored "ordering" -- and was
+                # discarded by the two-term gate while the engine still reported total_matches > 0.
+                # The stems come from the same fts5vocab authority as term_df so the two cannot
+                # drift, and the raw forms are KEPT because unicode61 does not split camelCase and
+                # the identifier parts are terms FTS never had. Mirrors the Rust engine exactly.
+                con.execute("DROP TABLE IF EXISTS temp._df_inst")
+                con.execute("CREATE VIRTUAL TABLE temp._df_inst USING fts5vocab(main, documents_fts, 'instance')")
+                con.execute("INSERT OR IGNORE INTO doc_terms(relpath, term) "
+                            "SELECT s.relpath, v.term FROM temp._df_inst v "
+                            "JOIN documents_fts s ON s.rowid = v.doc")
+                con.execute("DROP TABLE IF EXISTS temp._df_inst")
                 con.execute("DROP TABLE IF EXISTS temp._df_vocab")
                 con.execute("COMMIT")
             except Exception:

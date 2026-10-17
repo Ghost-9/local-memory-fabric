@@ -48,6 +48,35 @@
 ## [Unreleased]
 
 ### Fixed
+- **The two-term gate could not see what FTS5 had matched** (`doc_terms` and `term_df` spoke
+  different vocabularies). `documents_fts` is `tokenize='porter unicode61'`, so "ordering" is
+  indexed as `order`; `term_df` is rebuilt from that vocabulary and holds stems. But `doc_terms`
+  was written from `tokenize()`, which lowercases and does **not** stem, so it held raw surface
+  forms. A query for "order" found `df 1`, matched the right note through FTS, then scored **zero**
+  `matched` terms against `doc_terms` (which stored "ordering") and was discarded by
+  `matched.len() < 2`.
+  Single-term queries hid the bug entirely, because `single_term_query` bypasses that gate. Every
+  multi-term query whose words occurred only under another surface form abstained *while reporting
+  `total_matches > 0`* — the self-contradicting "matches exist but none passed the overlap or
+  temporal gate". Three fixture queries hit it: `why is the order of results not guaranteed`,
+  `rankings are not answers`, `notes that replace older notes` — all three returned nothing.
+  Fixes: `doc_terms` now also carries the porter stems, taken from the same `fts5vocab` authority
+  that builds `term_df` so the two cannot drift; the per-candidate scan fetches the stem alongside
+  the typed term; and `matched` counts a note under either name. Raw forms are **kept** because
+  unicode61 does not split camelCase and the identifier parts are terms FTS never had. Applied
+  identically to the Rust and Python engines.
+  Measured on the 136-case fixture: **recall@3 0.9180 → 0.9344**, no-hit precision unchanged at
+  0.9286, Python/Rust parity restored (`result_order_mismatches` back to 0), recall@5 still 1.0.
+  **mrr@3 moved 0.7485 → 0.7354**: the gate was doing precision work as well as costing recall, so
+  letting the wrongly-discarded notes back in lets them compete. Per-case diff: 2 queries newly
+  found, 5 pushed down the ranking, 0 lost. Still above the 0.73 floor, but it is a real trade and
+  is recorded rather than buried.
+  The 544-case parity golden was re-captured **after** classifying all 31 drifts: 3 were
+  previously-abstaining queries now answering, 20 were notes the gate had wrongly discarded, 8 were
+  reordering, and **0** were a query that stopped answering. Capture refuses unless both engines
+  agree, so it is not a way to launder a regression.
+
+### Fixed
 - **The gate could not report on itself.** Step 21 read the iCloud backup directory, and macOS TCC
   raised `PermissionError` on the uncaught `os.listdir`. That aborted the whole script, so **steps
   22 and 23 never ran** — including the only automated type check on `index.ts`,

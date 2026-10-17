@@ -1,5 +1,5 @@
 {
- "captured_at": "2026-10-15T20:23:32Z",
+ "captured_at": "2026-10-17T12:07:38Z",
  "cases": [
   {
    "abstention": null,
@@ -840,9 +840,9 @@
    "refs": [
     "projects/decoy-prompt-cache.md",
     "projects/prompt-cache.md",
+    "projects/kv-cache.md",
     "projects/decoy-determinism.md",
-    "projects/resident-context.md",
-    "projects/determinism.md"
+    "projects/resident-context.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -1364,10 +1364,12 @@
    "refs": [
     "projects/decoy-evidence-trail.md",
     "projects/evidence-trail.md",
-    "projects/retrieval-abstention.md"
+    "projects/retrieval-abstention.md",
+    "projects/decoy-bm25-ranking.md",
+    "projects/bm25-ranking.md"
    ],
    "scope": "all",
-   "shown": 3,
+   "shown": 5,
    "total_matches": 7
   },
   {
@@ -1402,10 +1404,11 @@
    "ok": true,
    "query": "token length minimum acronym",
    "refs": [
-    "projects/acronyms.md"
+    "projects/acronyms.md",
+    "projects/decoy-acronyms.md"
    ],
    "scope": "all",
-   "shown": 1,
+   "shown": 2,
    "total_matches": 9
   },
   {
@@ -1482,10 +1485,12 @@
    "query": "stemming inflected words",
    "refs": [
     "projects/fts5-tokenizer.md",
-    "projects/decoy-fts5-tokenizer.md"
+    "projects/decoy-fts5-tokenizer.md",
+    "projects/decoy-bm25-ranking.md",
+    "projects/bm25-ranking.md"
    ],
    "scope": "all",
-   "shown": 2,
+   "shown": 4,
    "total_matches": 4
   },
   {
@@ -1558,10 +1563,13 @@
    "ok": true,
    "query": "cold start cost event",
    "refs": [
-    "projects/resident-context.md"
+    "projects/resident-context.md",
+    "projects/decoy-prompt-cache.md",
+    "projects/kv-cache.md",
+    "projects/prompt-cache.md"
    ],
    "scope": "all",
-   "shown": 1,
+   "shown": 4,
    "total_matches": 4
   },
   {
@@ -1598,11 +1606,12 @@
    "refs": [
     "projects/decoy-prefix-cache-stability.md",
     "projects/prefix-cache-stability.md",
-    "projects/resident-context.md",
-    "projects/provider-allowlist.md"
+    "projects/decoy-prompt-cache.md",
+    "projects/kv-cache.md",
+    "projects/prompt-cache.md"
    ],
    "scope": "all",
-   "shown": 4,
+   "shown": 5,
    "total_matches": 9
   },
   {
@@ -1725,7 +1734,7 @@
     "projects/decoy-document-frequency.md",
     "projects/bm25-ranking.md",
     "projects/decoy-incremental-index.md",
-    "projects/decoy-acronyms.md"
+    "projects/decoy-fts5-tokenizer.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -1890,10 +1899,13 @@
    "query": "who is allowed to read the notes",
    "refs": [
     "projects/decoy-provider-allowlist.md",
-    "projects/provider-allowlist.md"
+    "projects/provider-allowlist.md",
+    "projects/decoy-resident-context.md",
+    "projects/decoy-bm25-ranking.md",
+    "projects/resident-context.md"
    ],
    "scope": "all",
-   "shown": 2,
+   "shown": 5,
    "total_matches": 102
   },
   {
@@ -1932,7 +1944,7 @@
     "projects/writeback-proposal.md",
     "projects/decoy-incremental-index.md",
     "projects/incremental-index.md",
-    "projects/determinism.md"
+    "projects/decoy-prefix-cache-stability.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -1972,9 +1984,9 @@
    "refs": [
     "projects/decoy-temporal-supersession.md",
     "projects/temporal-supersession.md",
-    "projects/decoy-engine-parity.md",
-    "projects/acronyms.md",
-    "projects/prefix-cache-stability.md"
+    "projects/decoy-retrieval-abstention.md",
+    "projects/retrieval-abstention.md",
+    "projects/decoy-engine-parity.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -2050,12 +2062,15 @@
    "total_matches": 0
   },
   {
-   "abstention": "matches exist but none passed the overlap or temporal gate; inspect total_matches and the date",
+   "abstention": null,
    "ok": true,
    "query": "why is the order of results not guaranteed",
-   "refs": [],
+   "refs": [
+    "projects/determinism.md",
+    "projects/retrieval-abstention.md"
+   ],
    "scope": "all",
-   "shown": 0,
+   "shown": 2,
    "total_matches": 9
   },
   {
@@ -2132,11 +2147,11 @@
    "ok": true,
    "query": "how do I stop re-reading every single file",
    "refs": [
+    "projects/decoy-incremental-index.md",
+    "projects/decoy-resident-context.md",
+    "projects/decoy-provider-allowlist.md",
     "projects/resident-context.md",
-    "projects/provider-allowlist.md",
-    "projects/prompt-cache.md",
-    "projects/acronyms.md",
-    "projects/retrieval-abstention.md"
+    "projects/provider-allowlist.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -2213,10 +2228,11 @@
    "ok": true,
    "query": "splitting a name into pieces",
    "refs": [
-    "projects/identifiers.md"
+    "projects/identifiers.md",
+    "projects/fts5-tokenizer.md"
    ],
    "scope": "all",
-   "shown": 1,
+   "shown": 2,
    "total_matches": 2
   },
   {
@@ -2251,13 +2267,14 @@
    "ok": true,
    "query": "how is a word cut down to its base",
    "refs": [
+    "projects/decoy-fts5-tokenizer.md",
     "projects/fts5-tokenizer.md",
     "projects/writeback-proposal.md",
     "projects/append-only.md",
     "projects/bm25-ranking.md"
    ],
    "scope": "all",
-   "shown": 4,
+   "shown": 5,
    "total_matches": 5
   },
   {
@@ -2376,10 +2393,13 @@
    "query": "what does it mean for a secret to be excluded",
    "refs": [
     "projects/decoy-credential-filter.md",
-    "projects/credential-filter.md"
+    "projects/decoy-privacy-loopback.md",
+    "projects/credential-filter.md",
+    "projects/path-symlink.md",
+    "projects/privacy-loopback.md"
    ],
    "scope": "all",
-   "shown": 2,
+   "shown": 5,
    "total_matches": 5
   },
   {
@@ -3116,12 +3136,18 @@
    "total_matches": 0
   },
   {
-   "abstention": "matches exist but none passed the overlap or temporal gate; inspect total_matches and the date",
+   "abstention": null,
    "ok": true,
    "query": "rankings are not answers",
-   "refs": [],
+   "refs": [
+    "projects/no-hit.md",
+    "projects/bm25-ranking.md",
+    "projects/decoy-bm25-ranking.md",
+    "projects/determinism.md",
+    "projects/decoy-retrieval-abstention.md"
+   ],
    "scope": "all",
-   "shown": 0,
+   "shown": 5,
    "total_matches": 14
   },
   {
@@ -3195,10 +3221,14 @@
    "ok": true,
    "query": "what changes when the plan changes",
    "refs": [
-    "projects/determinism.md"
+    "projects/determinism.md",
+    "projects/decoy-prefix-cache-stability.md",
+    "projects/prefix-cache-stability.md",
+    "projects/incremental-index.md",
+    "projects/provider-allowlist.md"
    ],
    "scope": "all",
-   "shown": 1,
+   "shown": 5,
    "total_matches": 5
   },
   {
@@ -3229,12 +3259,14 @@
    "total_matches": 0
   },
   {
-   "abstention": "matches exist but none passed the overlap or temporal gate; inspect total_matches and the date",
+   "abstention": null,
    "ok": true,
    "query": "notes that replace older notes",
-   "refs": [],
+   "refs": [
+    "projects/temporal-supersession.md"
+   ],
    "scope": "all",
-   "shown": 0,
+   "shown": 1,
    "total_matches": 96
   },
   {
@@ -3510,10 +3542,14 @@
    "ok": true,
    "query": "reading is not writing",
    "refs": [
-    "projects/provider-allowlist.md"
+    "projects/decoy-provider-allowlist.md",
+    "projects/provider-allowlist.md",
+    "projects/resident-context.md",
+    "projects/decoy-resident-context.md",
+    "projects/writeback-proposal.md"
    ],
    "scope": "all",
-   "shown": 1,
+   "shown": 5,
    "total_matches": 12
   },
   {
@@ -3549,10 +3585,13 @@
    "query": "exempted provider read access",
    "refs": [
     "projects/decoy-provider-allowlist.md",
-    "projects/provider-allowlist.md"
+    "projects/provider-allowlist.md",
+    "projects/decoy-resident-context.md",
+    "projects/decoy-bm25-ranking.md",
+    "projects/resident-context.md"
    ],
    "scope": "all",
-   "shown": 2,
+   "shown": 5,
    "total_matches": 6
   },
   {
@@ -3750,12 +3789,14 @@
    "ok": true,
    "query": "human approves the change",
    "refs": [
+    "projects/decoy-prefix-cache-stability.md",
+    "projects/prefix-cache-stability.md",
     "projects/writeback-proposal.md",
-    "projects/incremental-index.md",
-    "projects/determinism.md"
+    "projects/path-symlink.md",
+    "projects/incremental-index.md"
    ],
    "scope": "all",
-   "shown": 3,
+   "shown": 5,
    "total_matches": 7
   },
   {
@@ -3829,10 +3870,11 @@
    "ok": true,
    "query": "cannot rewrite an existing line",
    "refs": [
-    "projects/append-only.md"
+    "projects/append-only.md",
+    "projects/document-frequency.md"
    ],
    "scope": "all",
-   "shown": 1,
+   "shown": 2,
    "total_matches": 8
   },
   {
@@ -3869,10 +3911,11 @@
    "refs": [
     "projects/decoy-append-only.md",
     "projects/append-only.md",
-    "projects/prompt-cache.md"
+    "projects/prompt-cache.md",
+    "projects/writeback-proposal.md"
    ],
    "scope": "all",
-   "shown": 3,
+   "shown": 4,
    "total_matches": 4
   },
   {
@@ -3990,10 +4033,11 @@
     "projects/credential-filter.md",
     "projects/decoy-kv-cache.md",
     "projects/decoy-credential-filter.md",
+    "projects/engine-parity.md",
     "projects/kv-cache.md"
    ],
    "scope": "all",
-   "shown": 4,
+   "shown": 5,
    "total_matches": 13
   },
   {
@@ -4321,7 +4365,7 @@
     "projects/decoy-retrieval-abstention.md",
     "projects/decoy-privacy-loopback.md",
     "projects/privacy-loopback.md",
-    "projects/no-hit.md"
+    "projects/scope-separation.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -4402,10 +4446,12 @@
    "refs": [
     "projects/decoy-incremental-index.md",
     "projects/incremental-index.md",
+    "projects/prefix-cache-stability.md",
+    "projects/decoy-prefix-cache-stability.md",
     "projects/determinism.md"
    ],
    "scope": "all",
-   "shown": 3,
+   "shown": 5,
    "total_matches": 11
   },
   {
@@ -4441,10 +4487,10 @@
    "query": "tokenizer part of the skip key",
    "refs": [
     "projects/incremental-index.md",
+    "projects/decoy-incremental-index.md",
     "projects/identifiers.md",
     "projects/decoy-kv-cache.md",
-    "projects/kv-cache.md",
-    "projects/determinism.md"
+    "projects/fts5-tokenizer.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -4641,10 +4687,11 @@
    "query": "inverted index stem",
    "refs": [
     "projects/bm25-ranking.md",
+    "projects/decoy-bm25-ranking.md",
     "projects/fts5-tokenizer.md"
    ],
    "scope": "all",
-   "shown": 2,
+   "shown": 3,
    "total_matches": 11
   },
   {
@@ -4884,8 +4931,8 @@
     "projects/decoy-append-only.md",
     "projects/append-only.md",
     "projects/prompt-cache.md",
-    "projects/kv-cache.md",
-    "projects/credential-filter.md"
+    "projects/decoy-temporal-supersession.md",
+    "projects/kv-cache.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -4963,11 +5010,12 @@
    "refs": [
     "projects/prefix-cache-stability.md",
     "projects/decoy-scope-separation.md",
+    "projects/resident-context.md",
     "projects/scope-separation.md",
     "projects/privacy-loopback.md"
    ],
    "scope": "all",
-   "shown": 4,
+   "shown": 5,
    "total_matches": 5
   },
   {
@@ -5046,11 +5094,12 @@
    "refs": [
     "projects/resident-context.md",
     "projects/prefix-cache-stability.md",
+    "projects/decoy-prefix-cache-stability.md",
     "projects/acronyms.md",
-    "projects/retrieval-abstention.md"
+    "projects/prompt-cache.md"
    ],
    "scope": "all",
-   "shown": 4,
+   "shown": 5,
    "total_matches": 6
   },
   {

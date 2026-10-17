@@ -297,6 +297,37 @@ impl MemoryFabric {
                 [],
             )
             .map_err(|e| e.to_string())?;
+            // `doc_terms` must speak the same vocabulary as `term_df`, or the two-term gate in
+            // retrieval.rs cannot see what FTS5 matched.
+            //
+            // The split was measurable and total. `documents_fts` is `tokenize='porter
+            // unicode61'`, so "ordering" is indexed as `order` and "replacement" as `replac`;
+            // `term_df` is rebuilt from that vocabulary and so holds stems. But `doc_terms` was
+            // written from `text::tokenize()`, which lowercases and does NOT stem, so it held the
+            // raw surface forms. A query for "order" therefore found df 1 and matched
+            // determinism.md through FTS, then scored ZERO `matched` terms against `doc_terms` -
+            // which stored "ordering" - and was discarded by `matched.len() < 2`. Single-term
+            // queries hid the bug because `single_term_query` bypasses that gate; every
+            // multi-term query whose words occur only under another surface form abstained while
+            // reporting total_matches > 0, i.e. "matches exist but none passed the gate".
+            //
+            // The stems come from the same `fts5vocab` authority that builds `term_df`, so the two
+            // tables cannot drift. The raw forms are KEPT rather than replaced: unicode61 does not
+            // split camelCase, so `tokenize()`'s identifier parts are terms FTS never had and the
+            // fixture's camel/acronym cases depend on them. Retrieval needs the union - both the
+            // stems it matches on and the parts a person actually types.
+            tx.execute("DROP TABLE IF EXISTS temp._df_inst", []).ok();
+            tx.execute(
+                "CREATE VIRTUAL TABLE temp._df_inst USING fts5vocab(main, documents_fts, 'instance')",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+            tx.execute(
+                "INSERT OR IGNORE INTO doc_terms(relpath, term)                  SELECT s.relpath, v.term FROM temp._df_inst v JOIN documents_fts s ON s.rowid = v.doc",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+            tx.execute("DROP TABLE IF EXISTS temp._df_inst", []).ok();
             tx.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
         }
         tx.execute("INSERT INTO metadata(key,value) VALUES('last_indexed_at',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [now_utc()]).map_err(|e| e.to_string())?;

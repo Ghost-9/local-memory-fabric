@@ -370,6 +370,7 @@ impl MemoryFabric {
         ordered.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
         let probe: Vec<&str> = ordered.into_iter().take(64).map(|t| t.as_str()).collect();
         let mut df: HashMap<String, i64> = HashMap::new();
+            let mut stem_of: HashMap<String, String> = HashMap::new();
         if !probe.is_empty() {
             con.execute_batch(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS temp._s USING fts5(t, tokenize='porter unicode61');                 CREATE VIRTUAL TABLE IF NOT EXISTS temp._sv USING fts5vocab(temp, _s, 'instance');                 DELETE FROM temp._s;",
@@ -390,14 +391,26 @@ impl MemoryFabric {
                 .execute(params.as_slice())
                 .map_err(|e| e.to_string())?;
 
-            let sql = "SELECT s.t, d.df FROM temp._sv v JOIN temp._s s ON s.rowid = v.doc JOIN term_df d ON d.term = v.term";
+            let sql = "SELECT s.t, v.term, d.df FROM temp._sv v JOIN temp._s s ON s.rowid = v.doc JOIN term_df d ON d.term = v.term";
             let mut stmt = con.prepare(sql).map_err(|e| e.to_string())?;
             let rows = stmt
-                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)?,
+                    ))
+                })
                 .map_err(|e| e.to_string())?;
             for row in rows {
-                let (t, n) = row.map_err(|e| e.to_string())?;
-                df.insert(t, n);
+                let (t, stem, n) = row.map_err(|e| e.to_string())?;
+                df.insert(t.clone(), n);
+                // The join already pays for the stemmer, so keep its output. `df` ends up keyed by
+                // what the caller typed (`rankings`) while `doc_terms` and `term_df` are keyed by
+                // the porter stem (`ranking`). Anything downstream that asks "does this note
+                // contain this term" must try both, or it will disagree with the FTS match that
+                // selected the candidate in the first place.
+                stem_of.insert(t, stem);
             }
         }
         // Absolute floor + proportional ceiling. Measured on the live vault: a purely proportional
@@ -523,12 +536,25 @@ impl MemoryFabric {
             // Only the query's own terms can ever be matched, so restrict the scan to them.
             // Fetching every term for every candidate read ~615 rows per document and threw
             // ~97% away, because `matched` only ever intersects `useful`.
-            let term_ph = (1..=useful.len())
+            // Fetch under the typed term AND its porter stem. `doc_terms` is keyed by the stem,
+            // so scanning for only what the caller typed misses every inflection the index
+            // normalised away - "rankings" would not find a note holding "rank", the per-candidate
+            // set would come back empty, and the two-term gate below would then discard notes FTS
+            // had already matched. The dedup keeps the placeholder count honest.
+            let mut fetch_terms: Vec<String> = useful.clone();
+            for t in &useful {
+                if let Some(st) = stem_of.get(t) {
+                    if !fetch_terms.iter().any(|x| x == st) {
+                        fetch_terms.push(st.clone());
+                    }
+                }
+            }
+            let term_ph = (1..=fetch_terms.len())
                 .map(|i| format!("?{i}"))
                 .collect::<Vec<_>>()
                 .join(",");
             let rel_ph = (1..=relpaths.len())
-                .map(|i| format!("?{}", useful.len() + i))
+                .map(|i| format!("?{}", fetch_terms.len() + i))
                 .collect::<Vec<_>>()
                 .join(",");
             let sql = format!(
@@ -536,7 +562,7 @@ impl MemoryFabric {
             );
             let mut q = con.prepare(&sql).map_err(|e| e.to_string())?;
             let mut params: Vec<&dyn rusqlite::ToSql> =
-                useful.iter().map(|t| t as &dyn rusqlite::ToSql).collect();
+                fetch_terms.iter().map(|t| t as &dyn rusqlite::ToSql).collect();
             params.extend(relpaths.iter().map(|p| p as &dyn rusqlite::ToSql));
             let params = params;
             let iter = q
@@ -598,9 +624,23 @@ impl MemoryFabric {
                 continue;
             }
             let doc_terms = terms_by_relpath.get(&row.relpath).cloned().unwrap_or_default();
+            // A note counts as matching a query term under either name: the surface form the
+            // caller typed, or the porter stem `doc_terms` is keyed by. Checking only the typed
+            // form made `matched` blind to every inflection the index normalised away - "rankings"
+            // against a note holding "ranking" scored zero, and since `single_term_query` could
+            // not rescue it (the query had more than one usable term) the candidate was discarded
+            // by the two-term gate below and the search abstained while reporting total_matches >
+            // 0. That gate is a precision feature, so it must not become a recall hole: a term FTS
+            // just matched cannot be absent from the note it matched in.
             let matched: Vec<String> = useful
                 .iter()
-                .filter(|t| doc_terms.contains(t.as_str()))
+                .filter(|t| {
+                    doc_terms.contains(t.as_str())
+                        || stem_of
+                            .get(*t)
+                            .map(|st| doc_terms.contains(st.as_str()))
+                            .unwrap_or(false)
+                })
                 .cloned()
                 .collect();
             let distinctive = matched
