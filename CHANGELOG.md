@@ -47,6 +47,27 @@
 
 ## [Unreleased]
 
+### Fixed
+- **The gate could not report on itself.** Step 21 read the iCloud backup directory, and macOS TCC
+  raised `PermissionError` on the uncaught `os.listdir`. That aborted the whole script, so **steps
+  22 and 23 never ran** — including the only automated type check on `index.ts`,
+  `remote-policy.ts` and `scrub.ts`, the security predicate files. The step now handles the denial,
+  says `UNVERIFIED` in capitals, and lets the remaining steps run.
+  This is the same defect class as the `/tmp` `tsc` skip fixed in 0.3.4, inverted: there a step could
+  not *fail*, here a step could not be *reported*.
+- **`ALL GATES OK` is no longer printed over an unverified step.** The step still exits 0 so later
+  steps run, but the summary line and the exit code now say what happened: the gate ends
+  `GATES PASSED WITH UNVERIFIED STEPS` with exit 2. A green word covering an unchecked step converts
+  "unknown" into "fine" on the way past the reader.
+  Step 22 now runs for the first time and reports `clean` — the security predicates type-check.
+- **The index never gave space back.** `auto_vacuum` was `NONE` and the only reclamation path was a
+  full `VACUUM` gated behind `force` — correctly, since rewriting the whole file is not something to
+  do unattended on every index pass. Measured leak: 299 freelist pages, **1.93 MB, 7% of an
+  18.5 MB file**. New databases are now created `auto_vacuum = INCREMENTAL`, and the `vacuum`
+  report path drains freed pages on each call. The forced rewrite path is unchanged for files
+  created before the pragma existed. One-time migration of the live index: 18.55 → 16.62 MB,
+  `integrity_check` = ok.
+
 ### Changed — breaking, security-relevant
 - **Remote write-back is now enabled by default.** `PI_MEMORY_REMOTE_FULL_ACCESS` changed from
   opt-in to opt-out on the operator's explicit instruction (2026-10-14), so a repository can save

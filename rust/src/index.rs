@@ -667,6 +667,27 @@ impl MemoryFabric {
         let page_size = count("PRAGMA page_size");
         let reclaimable = freelist * page_size;
 
+        // Reclaim incrementally, on every report, without a full rewrite.
+        //
+        // Measured 2026-10-17: the index sat at `auto_vacuum = NONE` with 299 freelist pages
+        // (1.93 MB, 7% of an 18.5 MB file) because the only reclamation path was a full VACUUM
+        // gated behind `force`. A full rewrite is right when asked for and wrong to run
+        // unattended on every index pass, so this hands pages back a little at a time when the
+        // database is in INCREMENTAL mode. A file created before that pragma was set still needs
+        // the forced rewrite, so that path is unchanged.
+        let auto_vacuum = count("PRAGMA auto_vacuum");
+        let inc_before: i64 = fs::metadata(&self.db_path).map(|m| m.len() as i64).unwrap_or(0);
+        if auto_vacuum == 2 && freelist > 0 {
+            // Cannot run inside a transaction, same as VACUUM below.
+            if let Err(e) = con.execute_batch("PRAGMA incremental_vacuum") {
+                if std::env::var("FABRIC_DEBUG").is_ok() {
+                    eprintln!("[fabric] incremental_vacuum: {e}");
+                }
+            }
+        }
+        let inc_after: i64 = fs::metadata(&self.db_path).map(|m| m.len() as i64).unwrap_or(0);
+        let incremental_reclaimed = (inc_before - inc_after).max(0);
+
         let mut removed = json!(null);
         con.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
         if force {
@@ -699,6 +720,8 @@ impl MemoryFabric {
             "term_df_rows_above_document_count": dead_df,
             "freelist_pages": freelist,
             "reclaimable_bytes": reclaimable,
+            "auto_vacuum": auto_vacuum,
+            "incremental_reclaimed": incremental_reclaimed,
             "index_bytes": size_before,
             "written": removed,
             "note": "VACUUM rewrites the whole file, so it runs only with force. Without it this reports.",

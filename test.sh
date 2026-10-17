@@ -300,12 +300,35 @@ echo "== 21/23 backup freshness and the last restore drill (D7) =="
 # A backup nobody checks is a hope. This reads the drill's own record and fails when it is older
 # than the window, so a silently broken backup cannot pass CI. It does NOT re-run the drill -
 # that belongs on a schedule, not in every gate.
+UNVERIFIED_MARK="${TMPDIR:-/tmp}/engram-gate-unverified.$$"
+rm -f "$UNVERIFIED_MARK"
+export ENGRAM_UNVERIFIED_MARK="$UNVERIFIED_MARK"
 python3 - <<'PYDRILL'
 import datetime as dt, os, sys
 d = os.environ.get("ENGRAM_BACKUP_DIR") or os.path.expanduser(
     "~/Library/Mobile Documents/com~apple~CloudDocs/engram-vault-backup")
 rec = os.path.join(d, ".last-verify")
-bundles = [f for f in (os.listdir(d) if os.path.isdir(d) else []) if f.startswith("vault-") and f.endswith(".bundle")]
+# Read the directory defensively. macOS TCC denies listing ~/Library/Mobile Documents without
+# Full Disk Access, and an uncaught PermissionError used to abort the whole script here -- which
+# silently skipped steps 22 and 23, including the only type check on the security predicates.
+# A step that cannot be verified must SAY SO loudly rather than taking the rest of the gate with
+# it. That is the same failure mode as the /tmp/tsc skip fixed in 0.3.4, inverted: there a step
+# could not fail, here a step could not be reported.
+try:
+    entries = os.listdir(d) if os.path.isdir(d) else []
+except PermissionError:
+    open(os.environ["ENGRAM_UNVERIFIED_MARK"], "a").close()
+    print(f"  UNVERIFIED: cannot list {d}")
+    print("  macOS is denying access (TCC). Grant Full Disk Access to the terminal running this")
+    print("  gate, or set ENGRAM_BACKUP_DIR to a readable path. Steps after this one still run.")
+    print("  This step did NOT verify the backup -- treat the backup as unconfirmed.")
+    open(os.path.join(os.path.dirname(os.path.abspath(__file__)) if "__file__" in dir() else ".", ".unverified"), "a").write("") if False else None
+    entries = []
+except OSError as e:
+    open(os.environ["ENGRAM_UNVERIFIED_MARK"], "a").close()
+    print(f"  UNVERIFIED: cannot list {d} ({e})")
+    entries = []
+bundles = [f for f in entries if f.startswith("vault-") and f.endswith(".bundle")]
 if not bundles:
     print(f"  no backup bundle at {d}")
     print("  run: scripts/vault-backup.sh   (and then --verify)")
@@ -350,4 +373,14 @@ else
   exit 1
 fi
 
+# "ALL GATES OK" must not be printed when a step could not be verified. A green word that
+# covers an unchecked step is the same defect as a gate step that cannot fail: it converts
+# "unknown" into "fine" on the way past the reader. Step 21 still exits 0 so the remaining steps
+# run -- but the summary says what actually happened, and the exit code says it too.
+if [ -f "$UNVERIFIED_MARK" ]; then
+  echo "== GATES PASSED WITH UNVERIFIED STEPS (see above) ==" >&2
+  rm -f "$UNVERIFIED_MARK"
+  exit 2
+fi
+rm -f "$UNVERIFIED_MARK"
 echo "== ALL GATES OK =="
