@@ -30,6 +30,14 @@ const GENERIC = new Set([
 	"two", "also", "just", "only", "more", "most", "much", "many", "some", "such", "than", "too",
 	"very", "into", "onto", "over", "under", "about", "after", "before", "again", "still", "need",
 	"needs", "want", "work", "working", "fix", "fixes", "fixed", "issue", "issues", "thing",
+	// "found" added 2026-10-17. This file's own header cites "fix all the issues that you
+	// found" as the observed failure shape, and `found` was the one word in it that survived
+	// contentWords() — so the query still ANSWERED instead of abstaining. A past-participle
+	// verb carrying no topical signal in a code corpus. Regression-checked against the
+	// 136-case gold fixture before and after; no metric moved. Deliberately ONE word: a
+	// broader set would move the injection gate further, and that gate is shadow mode and
+	// uncalibrated.
+	"found",
 	"things", "check", "checks", "checked", "run", "runs", "use", "used", "uses", "let", "lets",
 ]);
 

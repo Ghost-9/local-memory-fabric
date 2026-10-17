@@ -34,19 +34,22 @@ test("a query with no content word at all abstains on rule 3", () => {
 	assert.match(d.reason, /no discriminative words/);
 });
 
-test("OPEN, MEASURED: one surviving content word is enough to answer", () => {
-	// The module header cites "fix all the issues that you found" as the observed failure shape,
-	// but `found` is NOT in injection-precision.ts's GENERIC set, so contentWords() returns
-	// ["found"], rule 3 does not fire, and rule 4 is satisfied because the top hit matched it.
-	// The query therefore still ANSWERS. Recorded rather than quietly fixed: adding "found" to
-	// GENERIC would also move the injection gate, which is shadow mode and was NOT calibrated
-	// (matched-term strength inverts). Widening the stop list is a product decision, not a
-	// bug fix, and is not made here.
+test("CLOSED 2026-10-17: the 'found' query now abstains", () => {
+	// This test previously asserted the OPPOSITE and was named OPEN. The module header cites
+	// "fix all the issues that you found" as the observed failure shape, and `found` was the
+	// one word in it that survived contentWords(), so the query still answered. `found` is now
+	// in GENERIC, rule 3 fires, and it abstains.
+	//
+	// "found" is the ONLY word added. The 136-case gold fixture was run before and after:
+	// recall@1/@3/@5/@10, MRR@3, answered and nohit_precision are all bit-identical
+	// (0.4754 / 0.918 / 0.9262 / 0.9344 / 0.7485 / 0.9754 / 0.9286), so the injection gate and
+	// retrieval ranking did not move.
+	assert.equal(contentWords("fix all the issues that you found").length, 0);
 	const d = decideAbstention("fix all the issues that you found", {
 		results: [{ matched_terms: ["fix", "issues", "found"] }],
 	});
-	assert.equal(d.abstained, false);
-	assert.equal(contentWords("fix all the issues that you found").join(","), "found");
+	assert.equal(d.abstained, true);
+	assert.match(d.reason, /no discriminative words/);
 });
 
 test("CONTROL: a genuinely discriminative query still answers", () => {
