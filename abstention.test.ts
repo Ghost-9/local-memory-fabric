@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decideAbstention, withAbstention } from "./abstention.ts";
+import { decideAbstention, withAbstention, isFilenameShaped } from "./abstention.ts";
 import { decideInjection, contentWords } from "./injection-precision.ts";
 
 // Evidence captured live on 2026-10-16 against this vault (matched_terms copied verbatim from
@@ -115,12 +115,53 @@ test("search keeps a looser bar than injection, on the same evidence", () => {
 	assert.equal(decideInjection("ranking precision recall", evidence).inject, false);
 });
 
-test("OPEN, MEASURED: t3.json is still NOT abstained, and that is recorded rather than forgotten", () => {
-	// Its top hit does contain a content word (`json`), so rule 4 correctly does not fire. The
-	// phrase `t3.json` exists nowhere in the vault, but every literal-hit and coverage rule was
-	// measured against this corpus and REJECTED: a literal hit is absent from 13/13 correct
-	// identifier answers, and a coverage threshold flags 81 of 139 queries the project asserts
-	// must keep answering (median answered coverage 0.648 vs 0.92 for this query). So there is no
-	// threshold that catches this one without breaking those. See CHANGELOG 2.0.1.
-	assert.equal(decideAbstention("t3.json", LIVE["t3.json"]).abstained, false);
+test("CLOSED 2026-10-17: a filename nothing contains abstains; one that IS there answers", () => {
+	// Previously recorded as OPEN and unsolvable. That was true of a GENERAL literal rule -
+	// measured absent from 13/13 correct identifier answers - but it was over-generalised into
+	// "no rule works". The lever never tried was scoping the rule to the query's SHAPE.
+	//
+	// Measured 2026-10-17 against this live vault: `engram search "t3.json"` returned 5 notes with
+	// matched_terms ['t3','json'], and 3 of the top 4 excerpts do not contain the string at all -
+	// `t3` was matching "T3 Code", the product name. Segment matches are not the file asked for.
+	const collision = {
+		results: [
+			{ matched_terms: ["t3", "json"], excerpt: "# T3 Code nightly - desktop build fails on t3 Code" },
+			{ matched_terms: ["t3", "json"], excerpt: "harness comparison: T3 Code vs pi" },
+		],
+	};
+	const d = decideAbstention("t3.json", collision);
+	assert.equal(d.abstained, true, "a filename no source contains must abstain");
+	assert.match(d.reason, /literal/);
+	assert.match(d.reason, /segments/);
+
+	// The honest positive: one hit DOES contain the literal, and it must be returned.
+	const real = {
+		results: [{ matched_terms: ["t3", "json"], excerpt: "the workspace file t3.json is missing" }],
+	};
+	assert.equal(decideAbstention("t3.json", real).abstained, false,
+		"a filename that IS present must answer - the rule is not 'filenames never answer'");
+});
+
+test("the filename rule does not fire without excerpt evidence", () => {
+	// No excerpt means no evidence either way. Abstaining here would be a guess, and a wrong
+	// abstention hides a real answer.
+	assert.equal(
+		decideAbstention("t3.json", { results: [{ matched_terms: ["t3", "json"] }] }).abstained,
+		false,
+	);
+});
+
+test("the filename rule does not fire on natural-language queries", () => {
+	// isFilenameShaped is the whole safety property: 0 of the 122 parsed gold-fixture queries
+	// contain a dot, so a phrase query can never reach this rule.
+	for (const q of ["how does ranking work", "format grep files", "fix all the issues"]) {
+		assert.equal(isFilenameShaped(q), false, `"${q}" must not be filename-shaped`);
+	}
+	for (const q of ["t3.json", "package.json", "config.toml", "agent.rs"]) {
+		assert.equal(isFilenameShaped(q), true, `"${q}" must be filename-shaped`);
+	}
+	const nl = decideAbstention("how does ranking work", {
+		results: [{ matched_terms: ["ranking", "work"], excerpt: "ranking work notes" }],
+	});
+	assert.equal(nl.abstained, false);
 });

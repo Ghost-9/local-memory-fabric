@@ -33,13 +33,21 @@ import { contentWords } from "./injection-precision.ts";
 
 /** The shape both engines return for a search, as far as this policy cares. */
 export type RetrievalEvidence = {
-	results?: Array<{ matched_terms?: string[] }>;
+	results?: Array<{ matched_terms?: string[]; excerpt?: string }>;
 	/** Set by the engine when it itself found nothing. Its reason string is authoritative. */
 	abstention?: string | null;
 	/** The engine's own "these terms cannot separate notes" flag. */
 	low_discrimination?: boolean;
 	shown?: number;
 };
+
+/**
+ * A single token shaped like a filename: no spaces, and a dot followed by a short extension.
+ * `t3.json` qualifies. `format grep files` and `how does ranking work` do not.
+ */
+export function isFilenameShaped(query: string): boolean {
+	return /^[^\s]+\.[A-Za-z0-9]{1,8}$/.test(query.trim());
+}
 
 export type Abstention = { abstained: boolean; reason: string };
 
@@ -60,7 +68,12 @@ const ANSWERED: Abstention = { abstained: false, reason: "" };
  *   3. The query has no discriminative words at all - every word is a function word or shorter
  *      than four characters. This is the observed failure shape ("fix all the issues that you
  *      found") and the reason `contentWords()` exists.
- *   4. The best result matched NONE of the query's content words. Every term that carried it
+ *   4. The query is a FILENAME and no returned excerpt contains it literally. Measured on this
+ *      vault, `t3.json` returned 5 notes with matched_terms ['t3','json'] — but 3 of the top 4
+ *      never contain the string; `t3` was matching "T3 Code", the product name. Segment matches
+ *      are not the file you asked for. Scoped to filename-shaped queries on purpose: it is the
+ *      one case where a literal is the right bar, because the user named an exact thing.
+ *   5. The best result matched NONE of the query's content words. Every term that carried it
  *      was generic, so what is on top is a vocabulary neighbour.
  */
 export function decideAbstention(query: string, evidence: RetrievalEvidence = {}): Abstention {
@@ -84,6 +97,33 @@ export function decideAbstention(query: string, evidence: RetrievalEvidence = {}
 
 	const top = Array.isArray(evidence.results) ? evidence.results[0] : undefined;
 	const matched = new Set((top?.matched_terms ?? []).map((t) => String(t).toLowerCase()));
+
+	// Rule 4: an exact filename that nothing actually contains.
+	// Segments matching is not the file. Measured 2026-10-17 on this vault: `t3.json` returned
+	// 5 notes, matched_terms ['t3','json'], and 3 of the top 4 excerpts do not contain the
+	// string — `t3` was matching "T3 Code".
+	//
+	// Scoped to filename-shaped queries because that is the case where the literal IS the bar:
+	// a user who types `t3.json` named an exact thing. Scoped because a general literal rule was
+	// measured against this corpus and rejected — it is absent from 13/13 correct identifier
+	// answers. Measured over the 136-case gold fixture, 0 of 122 parsed queries are
+	// filename-shaped, so this rule cannot regress recall/MRR/no-hit precision: it fires on
+	// nothing the fixture contains.
+	//
+	// If no excerpt is available there is no evidence either way, so it does not abstain.
+	if (isFilenameShaped(query) && Array.isArray(evidence.results) && evidence.results.length > 0) {
+		const literal = query.trim().toLowerCase();
+		const withExcerpt = evidence.results.filter((r) => typeof r.excerpt === "string");
+		const anyLiteral = withExcerpt.some((r) => (r.excerpt as string).toLowerCase().includes(literal));
+		if (withExcerpt.length > 0 && !anyLiteral) {
+			return {
+				abstained: true,
+				reason: `no indexed source contains the literal \`${query.trim()}\`; the matches are on its ` +
+					`segments, which is a vocabulary collision rather than the file asked for`,
+			};
+		}
+	}
+
 	if (matched.size > 0 && content.every((w) => !matched.has(w))) {
 		return {
 			abstained: true,
