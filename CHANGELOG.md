@@ -1,3 +1,50 @@
+## [2026-10-17] — "no match" as a first-class answer
+
+### Added
+- **Abstention.** `memory_fabric_search` now returns `abstained: boolean` plus an explicit
+  `abstention` reason, so three states that used to collapse into one confident-looking payload are
+  distinguishable: "nothing indexed", "nothing matched", and "matched but not discriminatively".
+  The engine's own reason, when it set one, is preserved verbatim.
+  - `abstention.ts` holds the policy, pure and testable, because `index.ts` imports Pi's runtime and
+    therefore cannot be imported by any suite. That is the same reasoning that produced `scrub.ts`.
+  - It reuses `injection-precision.ts`'s `contentWords()` / `GENERIC` set rather than declaring a
+    second stop list; two divergent definitions of "this query has a topic" would disagree, which is
+    the bug this repo keeps re-finding.
+  - Search keeps a deliberately **looser** bar than injection, per the asymmetry
+    `injection-precision.ts` argues for: a question the agent asked is worth a thin answer,
+    unsolicited context is not.
+  - 11 tests, and the suite is now a step in `test.sh`. Before this it did not exist in the gate,
+    which made it decoration that could rot silently.
+
+### Fixed
+- **The `"found"` gap.** `injection-precision.ts`'s own header cites "fix all the issues that you
+  found" as the observed failure shape, and `found` was the one word in it that survived
+  `contentWords()`, so the query still answered instead of abstaining. One word added.
+  Regression-checked against the 136-case gold fixture before and after: recall@1/@3/@5/@10,
+  MRR@3, answered and nohit_precision are bit-identical, so neither the retrieval ranking nor the
+  injection gate moved.
+
+### Changed — compatibility
+- Both `before_agent_start` handlers now narrow on `event.messageType === "user"`. pi 1.2.0 made that
+  event a discriminated union that also fires for `pi.sendMessage({triggerTurn:true})` runs, whose
+  variant carries no `prompt`; upstream requires handlers that act only on user prompts to narrow on
+  the discriminant. Without it, session-start work (STATUS.md injection, the resume pointer, ref
+  resolution) re-fired on every extension-triggered run.
+
+### Known, still open
+- `t3.json` is still not abstained: its top hit does contain a content word, and every literal-hit
+  and coverage rule was measured against this corpus and REJECTED - a literal hit is absent from
+  13/13 correct identifier answers, and a coverage threshold flags 81 of 139 queries that must keep
+  answering. There is no threshold that catches it without breaking those.
+- Gate steps 22-23 of 23 do not run. Step 21 aborts on
+  `PermissionError: .../Mobile Documents/com~apple~CloudDocs/engram-vault-backup` - macOS TCC
+  blocking iCloud Drive for this process. Environmental; granting Full Disk Access is an operator
+  decision and was not taken here.
+
+### Security
+- Untouched: the context scrub and the Apple Notes blocker are separate hooks, neither gated by
+  `injectionDisabled`, and no access policy changed.
+
 ## [Unreleased]
 
 ### Changed — breaking, security-relevant
