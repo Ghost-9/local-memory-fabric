@@ -10,7 +10,7 @@ pub(crate) const VERSION: &str = "2.0.0";
 /// These move independently: the engine can fix a bug without touching the format (no migration
 /// needed), and the format can change without a new engine release being what forces it. An
 /// expand-only ladder means a bump is safe to roll back by running the older binary.
-pub(crate) const SCHEMA_VERSION: &str = "3";
+pub(crate) const SCHEMA_VERSION: &str = "4";
 pub(crate) const MAX_REQUEST_BYTES: usize = 131_072;
 pub(crate) const MAX_RESULT_CHARS_DEFAULT: usize = 6_000;
 /// Ceiling for one context packet. 6_000 tokens x 4 chars - the previous Python clamp, now

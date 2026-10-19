@@ -4,7 +4,7 @@ use crate::paths::{VERSION, now_utc, safe_relpath, set_mode};
 use crate::policy::{apple_path_re, secret_fingerprint, secret_signature};
 use crate::text::{
     extract_wikilinks, frontmatter_value, headings_for, is_skipped_name, scope_for, sha256,
-    title_for, tokenize,
+    title_for,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
@@ -242,23 +242,10 @@ impl MemoryFabric {
             } else {
                 added += 1;
             }
-            tx.execute("INSERT INTO documents(relpath,title,scope,classification,source_status,valid_from,valid_to,superseded_by,provider_policy,export_policy,body,content_hash,mtime_ns,indexed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'loopback_allowlist_only','deny_remote',?9,?10,?11,?12) ON CONFLICT(relpath) DO UPDATE SET title=excluded.title,scope=excluded.scope,classification=excluded.classification,source_status=excluded.source_status,valid_from=excluded.valid_from,valid_to=excluded.valid_to,superseded_by=excluded.superseded_by,provider_policy=excluded.provider_policy,export_policy=excluded.export_policy,body=excluded.body,content_hash=excluded.content_hash,mtime_ns=excluded.mtime_ns,indexed_at=excluded.indexed_at",
-                params![rel,title,scope,classification,status,valid_from,valid_to,superseded_by,text,digest,mtime_ns,now_utc()]).map_err(|e| e.to_string())?;
             let slug_clean = rel.trim_end_matches(".md").replace('/', " ").replace('-', " ").replace('_', " ");
             let full_headings = format!("{headings}\n{slug_clean}");
-            tx.execute(
-                "INSERT INTO documents_fts(relpath,title,headings,body) VALUES(?1,?2,?3,?4)",
-                params![rel, title, full_headings, text],
-            )
-            .map_err(|e| e.to_string())?;
-            let all_terms = tokenize(&format!("{title}\n{full_headings}\n{text}"));
-            for term in all_terms {
-                tx.execute(
-                    "INSERT OR IGNORE INTO doc_terms(relpath,term) VALUES(?1,?2)",
-                    params![rel, term],
-                )
-                .map_err(|e| e.to_string())?;
-            }
+            tx.execute("INSERT INTO documents(relpath,title,scope,classification,source_status,valid_from,valid_to,superseded_by,provider_policy,export_policy,headings,body,content_hash,mtime_ns,indexed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'loopback_allowlist_only','deny_remote',?9,?10,?11,?12,?13) ON CONFLICT(relpath) DO UPDATE SET title=excluded.title,scope=excluded.scope,classification=excluded.classification,source_status=excluded.source_status,valid_from=excluded.valid_from,valid_to=excluded.valid_to,superseded_by=excluded.superseded_by,provider_policy=excluded.provider_policy,export_policy=excluded.export_policy,headings=excluded.headings,body=excluded.body,content_hash=excluded.content_hash,mtime_ns=excluded.mtime_ns,indexed_at=excluded.indexed_at",
+                params![rel,title,scope,classification,status,valid_from,valid_to,superseded_by,full_headings,text,digest,mtime_ns,now_utc()]).map_err(|e| e.to_string())?;
             // Index relational wikilinks
             let links = extract_wikilinks(&text);
             tx.execute("DELETE FROM note_links WHERE source=?1", [&rel])
@@ -297,37 +284,6 @@ impl MemoryFabric {
                 [],
             )
             .map_err(|e| e.to_string())?;
-            // `doc_terms` must speak the same vocabulary as `term_df`, or the two-term gate in
-            // retrieval.rs cannot see what FTS5 matched.
-            //
-            // The split was measurable and total. `documents_fts` is `tokenize='porter
-            // unicode61'`, so "ordering" is indexed as `order` and "replacement" as `replac`;
-            // `term_df` is rebuilt from that vocabulary and so holds stems. But `doc_terms` was
-            // written from `text::tokenize()`, which lowercases and does NOT stem, so it held the
-            // raw surface forms. A query for "order" therefore found df 1 and matched
-            // determinism.md through FTS, then scored ZERO `matched` terms against `doc_terms` -
-            // which stored "ordering" - and was discarded by `matched.len() < 2`. Single-term
-            // queries hid the bug because `single_term_query` bypasses that gate; every
-            // multi-term query whose words occur only under another surface form abstained while
-            // reporting total_matches > 0, i.e. "matches exist but none passed the gate".
-            //
-            // The stems come from the same `fts5vocab` authority that builds `term_df`, so the two
-            // tables cannot drift. The raw forms are KEPT rather than replaced: unicode61 does not
-            // split camelCase, so `tokenize()`'s identifier parts are terms FTS never had and the
-            // fixture's camel/acronym cases depend on them. Retrieval needs the union - both the
-            // stems it matches on and the parts a person actually types.
-            tx.execute("DROP TABLE IF EXISTS temp._df_inst", []).ok();
-            tx.execute(
-                "CREATE VIRTUAL TABLE temp._df_inst USING fts5vocab(main, documents_fts, 'instance')",
-                [],
-            )
-            .map_err(|e| e.to_string())?;
-            tx.execute(
-                "INSERT OR IGNORE INTO doc_terms(relpath, term)                  SELECT s.relpath, v.term FROM temp._df_inst v JOIN documents_fts s ON s.rowid = v.doc",
-                [],
-            )
-            .map_err(|e| e.to_string())?;
-            tx.execute("DROP TABLE IF EXISTS temp._df_inst", []).ok();
             tx.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
         }
         tx.execute("INSERT INTO metadata(key,value) VALUES('last_indexed_at',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [now_utc()]).map_err(|e| e.to_string())?;
@@ -674,14 +630,14 @@ impl MemoryFabric {
         let con = self.connect()?;
         let count = |sql: &str| -> i64 { con.query_row(sql, [], |r| r.get(0)).unwrap_or(0) };
         let docs = count("SELECT COUNT(*) FROM documents");
-        let doc_terms = count("SELECT COUNT(*) FROM doc_terms");
         let term_df = count("SELECT COUNT(*) FROM term_df");
+        let fts_integrity_ok = con.execute(
+            "INSERT INTO documents_fts(documents_fts,rank) VALUES('integrity-check',1)",
+            [],
+        ).is_ok();
         // Orphans: rows whose document is gone. The index path prunes these for notes it knows
         // were removed, so anything here arrived another way - a crash mid-delete, or a manual
         // index edit.
-        let orphan_terms = count(
-            "SELECT COUNT(*) FROM doc_terms WHERE relpath NOT IN (SELECT relpath FROM documents)",
-        );
         con.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
         con.execute(
             "CREATE VIRTUAL TABLE temp._df_vocab USING fts5vocab(main, documents_fts, 'row')",
@@ -720,10 +676,7 @@ impl MemoryFabric {
         let incremental_reclaimed = (inc_before - inc_after).max(0);
 
         let mut removed = json!(null);
-        con.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
         if force {
-            con.execute("DELETE FROM doc_terms WHERE relpath NOT IN (SELECT relpath FROM documents)", [])
-                .map_err(|e| e.to_string())?;
             con.execute("DELETE FROM term_df WHERE term NOT IN (SELECT term FROM temp._df_vocab)", [])
                 .map_err(|e| e.to_string())?;
             con.execute("DELETE FROM note_links WHERE source NOT IN (SELECT relpath FROM documents)", [])
@@ -733,20 +686,25 @@ impl MemoryFabric {
             con.execute_batch("PRAGMA optimize").ok();
             let after: i64 = fs::metadata(&self.db_path).map(|m| m.len() as i64).unwrap_or(0);
             removed = json!({
-                "orphan_doc_terms": orphan_terms,
                 "orphan_term_df": orphan_df,
                 "bytes_before": size_before,
                 "bytes_after": after,
                 "bytes_reclaimed": size_before - after,
             });
         }
+        // Dropped AFTER the delete above, not before it. The earlier ordering dropped the vocabulary
+        // and then queried it one line later, so EVERY `vacuum --force` failed with
+        // "no such table: temp._df_vocab" - which meant the only path that compacts a migrated index
+        // was dead, and the pages freed by dropping doc_terms stayed in the file as freelist forever.
+        // Step 17 of the gate did not catch it because it runs vacuum WITHOUT force, where the temp
+        // table is never consulted. That gap is the reason this survived two release cycles.
+        con.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
         Ok(json!({
             "ok": true,
             "vacuumed": force,
             "documents": docs,
-            "doc_terms": doc_terms,
             "term_df": term_df,
-            "orphan_doc_terms": orphan_terms,
+            "fts_integrity_ok": fts_integrity_ok,
             "orphan_term_df": orphan_df,
             "term_df_rows_above_document_count": dead_df,
             "freelist_pages": freelist,
@@ -756,6 +714,7 @@ impl MemoryFabric {
             "index_bytes": size_before,
             "written": removed,
             "note": "VACUUM rewrites the whole file, so it runs only with force. Without it this reports.",
+            "freelist_note": "A migrated index holds the dropped tables' pages as freelist until this runs with force. bytes_per_document counts the file, so it overstates the footprint until then.",
         }))
     }
 

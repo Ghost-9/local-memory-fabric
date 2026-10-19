@@ -200,10 +200,11 @@ import json,sys
 d = json.load(sys.stdin)
 # %-formatting, not an f-string: this runs under whatever python3 is on PATH, and 3.9 cannot
 # nest the same quote type inside an f-string expression.
-print("  index hygiene: documents=%d doc_terms=%d term_df=%d orphans=%d reclaimable=%dB"
-      % (d["documents"], d["doc_terms"], d["term_df"], d["orphan_doc_terms"], d["reclaimable_bytes"]))
-if d["orphan_doc_terms"] or d["orphan_term_df"]:
-    print("  note: orphans present - run the vacuum command with force to reclaim them")
+print("  index hygiene: documents=%d term_df=%d orphan_df=%d FTS integrity=%s reclaimable=%dB"
+      % (d["documents"], d["term_df"], d["orphan_term_df"], d["fts_integrity_ok"], d["reclaimable_bytes"]))
+if d["orphan_term_df"] or not d["fts_integrity_ok"]:
+    print("  GATE FAILURE: derived FTS state is inconsistent", file=sys.stderr)
+    raise SystemExit(1)
 '
 
 echo "== 18/23 consolidation: extractive, derived, non-destructive =="

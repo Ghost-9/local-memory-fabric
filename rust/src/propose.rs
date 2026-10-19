@@ -1,7 +1,7 @@
 use crate::MemoryFabric;
 use crate::paths::{now_utc, safe_relpath, set_mode, set_open_mode};
 use crate::policy::secret_signature;
-use crate::text::{json_error, regex, sha256, tokenize};
+use crate::text::{json_error, regex, sha256};
 use rusqlite::params;
 use serde_json::{Value, json};
 use similar::TextDiff;
@@ -199,26 +199,13 @@ pub(crate) fn sandbox(
     let now = now_utc();
     let head: String = text.chars().take(SANDBOX_HEAD_CHARS).collect();
     con.execute(
-        "INSERT INTO documents(relpath,title,scope,classification,source_status,valid_from,valid_to,superseded_by,provider_policy,export_policy,body,content_hash,mtime_ns,indexed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'loopback_allowlist_only','deny_remote',?9,?10,?11,?12) ON CONFLICT(relpath) DO UPDATE SET title=excluded.title,body=excluded.body,content_hash=excluded.content_hash,indexed_at=excluded.indexed_at",
+        "INSERT INTO documents(relpath,title,scope,classification,source_status,valid_from,valid_to,superseded_by,provider_policy,export_policy,headings,body,content_hash,mtime_ns,indexed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'loopback_allowlist_only','deny_remote','',?9,?10,?11,?12) ON CONFLICT(relpath) DO UPDATE SET title=excluded.title,headings=excluded.headings,body=excluded.body,content_hash=excluded.content_hash,indexed_at=excluded.indexed_at",
         params![rel, if title.trim().is_empty() { "sandbox".to_string() } else { title.to_string() },
                 if scope.trim().is_empty() { "episodic".to_string() } else { scope.trim().to_string() },
                 "local_only", "current", None::<String>, None::<String>, None::<String>,
                 text, &digest, now, now],
     )
     .map_err(|e| e.to_string())?;
-    con.execute("DELETE FROM doc_terms WHERE relpath=?1", [&rel])
-        .map_err(|e| e.to_string())?;
-    con.execute("DELETE FROM documents_fts WHERE relpath=?1", [&rel])
-        .map_err(|e| e.to_string())?;
-    con.execute("INSERT INTO documents_fts(relpath,title,headings,body) VALUES(?1,?2,?3,?4)",
-                params![rel, if title.trim().is_empty() { "sandbox" } else { title }, "", text])
-        .map_err(|e| e.to_string())?;
-    // Mirror index.rs exactly: doc_terms is (relpath,term) with no df column, and term_df is
-    // derived from it. Writing a df here would be a schema drift that only shows up on search.
-    for term in tokenize(text) {
-        con.execute("INSERT OR IGNORE INTO doc_terms(relpath,term) VALUES(?1,?2)", params![rel, term])
-            .map_err(|e| e.to_string())?;
-    }
     con.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
     con.execute("CREATE VIRTUAL TABLE temp._df_vocab USING fts5vocab(main, documents_fts, 'row')", [])
         .map_err(|e| e.to_string())?;

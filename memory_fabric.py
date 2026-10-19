@@ -473,6 +473,7 @@ class MemoryFabric:
                 superseded_by TEXT,
                 provider_policy TEXT NOT NULL DEFAULT 'loopback_allowlist_only',
                 export_policy TEXT NOT NULL DEFAULT 'deny_remote',
+                headings TEXT NOT NULL DEFAULT '',
                 body TEXT NOT NULL,
                 content_hash TEXT NOT NULL,
                 mtime_ns INTEGER NOT NULL,
@@ -482,12 +483,6 @@ class MemoryFabric:
                 relpath UNINDEXED, title, headings, body,
                 tokenize='porter unicode61'
             );
-            CREATE TABLE IF NOT EXISTS doc_terms (
-                relpath TEXT NOT NULL,
-                term TEXT NOT NULL,
-                PRIMARY KEY(relpath, term)
-            ) WITHOUT ROWID;
-            CREATE INDEX IF NOT EXISTS doc_terms_by_term ON doc_terms(term);
             CREATE TABLE IF NOT EXISTS term_df (term TEXT PRIMARY KEY, df INTEGER NOT NULL) WITHOUT ROWID;
                         CREATE TABLE IF NOT EXISTS note_links (
                 source_relpath TEXT NOT NULL,
@@ -518,7 +513,10 @@ class MemoryFabric:
             CREATE INDEX IF NOT EXISTS secret_alarms_unresolved ON secret_alarms(resolved_at);
         """)
         version = con.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
-        migrated = version is None or version[0] != "2"
+        from_version = version[0] if version else "0"
+        migrated = from_version != "4"
+        docs_before = int(con.execute("SELECT COUNT(*) FROM documents").fetchone()[0])
+        migration_steps: list[str] = []
         columns = {row[1] for row in con.execute("PRAGMA table_info(documents)")}
         migrations = {
             "source_status": "TEXT NOT NULL DEFAULT 'unspecified'",
@@ -527,12 +525,51 @@ class MemoryFabric:
             "superseded_by": "TEXT",
             "provider_policy": "TEXT NOT NULL DEFAULT 'loopback_allowlist_only'",
             "export_policy": "TEXT NOT NULL DEFAULT 'deny_remote'",
+            "headings": "TEXT NOT NULL DEFAULT ''",
         }
         for name, declaration in migrations.items():
             if name not in columns:
                 con.execute(f"ALTER TABLE documents ADD COLUMN {name} {declaration}")
                 migrated = True
-        con.execute("INSERT INTO metadata(key,value) VALUES('schema_version','2') ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+                migration_steps.append(f"add column documents.{name}")
+        if "headings" not in columns:
+            con.execute("UPDATE documents SET headings=COALESCE((SELECT headings FROM documents_fts f WHERE f.relpath=documents.relpath),'')")
+        fts_sql = con.execute("SELECT sql FROM sqlite_master WHERE name='documents_fts'").fetchone()[0]
+        if "content='documents'" not in fts_sql or "porter" not in fts_sql:
+            con.execute("DROP TABLE IF EXISTS documents_fts_v4")
+            con.execute("CREATE VIRTUAL TABLE documents_fts_v4 USING fts5(relpath UNINDEXED,title,headings,body,content='documents',content_rowid='id',tokenize='porter unicode61')")
+            con.execute("INSERT INTO documents_fts_v4(rowid,relpath,title,headings,body) SELECT id,relpath,title,headings,body FROM documents")
+            fts_rows = int(con.execute("SELECT COUNT(*) FROM documents_fts_v4_docsize").fetchone()[0])
+            docs = int(con.execute("SELECT COUNT(*) FROM documents").fetchone()[0])
+            if fts_rows != docs:
+                raise RuntimeError(f"migration reconciliation failed: documents/FTS rows went {docs} -> {fts_rows}; schema version was not advanced")
+            con.execute("DROP TABLE documents_fts")
+            con.execute("ALTER TABLE documents_fts_v4 RENAME TO documents_fts")
+            migrated = True
+            migration_steps.append("rebuild documents_fts as external content")
+        con.executescript("""
+            DROP TRIGGER IF EXISTS documents_fts_ai;
+            DROP TRIGGER IF EXISTS documents_fts_ad;
+            DROP TRIGGER IF EXISTS documents_fts_au;
+            CREATE TRIGGER documents_fts_ai AFTER INSERT ON documents BEGIN
+                INSERT INTO documents_fts(rowid,relpath,title,headings,body) VALUES(new.id,new.relpath,new.title,new.headings,new.body);
+            END;
+            CREATE TRIGGER documents_fts_ad AFTER DELETE ON documents BEGIN
+                INSERT INTO documents_fts(documents_fts,rowid,relpath,title,headings,body) VALUES('delete',old.id,old.relpath,old.title,old.headings,old.body);
+            END;
+            CREATE TRIGGER documents_fts_au AFTER UPDATE OF relpath,title,headings,body ON documents BEGIN
+                INSERT INTO documents_fts(documents_fts,rowid,relpath,title,headings,body) VALUES('delete',old.id,old.relpath,old.title,old.headings,old.body);
+                INSERT INTO documents_fts(rowid,relpath,title,headings,body) VALUES(new.id,new.relpath,new.title,new.headings,new.body);
+            END;
+            DROP TABLE IF EXISTS doc_terms;
+        """)
+        docs_after = int(con.execute("SELECT COUNT(*) FROM documents").fetchone()[0])
+        if docs_after != docs_before:
+            raise RuntimeError(f"migration reconciliation failed: documents rows went {docs_before} -> {docs_after}; schema version was not advanced")
+        con.execute("INSERT INTO metadata(key,value) VALUES('schema_version','4') ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+        if from_version != "4":
+            con.execute("INSERT INTO metadata(key,value) VALUES('last_migration',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                        (f"{from_version}->4 steps={migration_steps!r} reconciled=true at {utc_now()}",))
         return migrated
 
     def _iter_sources(self) -> list[Path]:
@@ -637,9 +674,7 @@ class MemoryFabric:
                         (hashlib.sha256(f"{rel}:{fingerprint}".encode("utf-8")).hexdigest()[:12],
                          rel, kind, fingerprint, utc_now()))
                     if rel in existing:
-                        con.execute("DELETE FROM documents_fts WHERE relpath=?", (rel,))
                         con.execute("DELETE FROM documents WHERE relpath=?", (rel,))
-                        con.execute("DELETE FROM doc_terms WHERE relpath=?", (rel,))
                     continue
                 digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
                 if not force and not schema_migrated and rel in existing and existing[rel][0] == digest:
@@ -654,24 +689,20 @@ class MemoryFabric:
                 superseded_by = frontmatter_value(text, "superseded_by")
                 if rel in existing:
                     updated += 1
-                    con.execute("DELETE FROM documents_fts WHERE relpath=?", (rel,))
-                    con.execute("DELETE FROM doc_terms WHERE relpath=?", (rel,))
                     con.execute("DELETE FROM note_links WHERE source_relpath=?", (rel,))
                 else:
                     added += 1
-                con.execute("""INSERT INTO documents(relpath,title,scope,classification,source_status,valid_from,valid_to,superseded_by,
-                    provider_policy,export_policy,body,content_hash,mtime_ns,indexed_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(relpath) DO UPDATE SET title=excluded.title,scope=excluded.scope,
-                    classification=excluded.classification,source_status=excluded.source_status,valid_from=excluded.valid_from,
-                    valid_to=excluded.valid_to,superseded_by=excluded.superseded_by,provider_policy=excluded.provider_policy,
-                    export_policy=excluded.export_policy,body=excluded.body,content_hash=excluded.content_hash,
-                    mtime_ns=excluded.mtime_ns,indexed_at=excluded.indexed_at""",
-                    (rel, title, scope, classification, source_status, valid_from, valid_to, superseded_by,
-                     "loopback_allowlist_only", "deny_remote", text, digest, st.st_mtime_ns, utc_now()))
                 slug_terms = rel[:-3].replace("/", " ").replace("-", " ").replace("_", " ") if rel.endswith(".md") else rel.replace("/", " ").replace("-", " ").replace("_", " ")
                 full_headings = (headings + "\n" + slug_terms).strip()
-                con.execute("INSERT INTO documents_fts(relpath,title,headings,body) VALUES(?,?,?,?)", (rel, title, full_headings, text))
-                con.executemany("INSERT OR IGNORE INTO doc_terms(relpath,term) VALUES(?,?)", ((rel, term) for term in tokens(title + "\n" + full_headings + "\n" + text)))
+                con.execute("""INSERT INTO documents(relpath,title,scope,classification,source_status,valid_from,valid_to,superseded_by,
+                    provider_policy,export_policy,headings,body,content_hash,mtime_ns,indexed_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(relpath) DO UPDATE SET title=excluded.title,scope=excluded.scope,
+                    classification=excluded.classification,source_status=excluded.source_status,valid_from=excluded.valid_from,
+                    valid_to=excluded.valid_to,superseded_by=excluded.superseded_by,provider_policy=excluded.provider_policy,
+                    export_policy=excluded.export_policy,headings=excluded.headings,body=excluded.body,content_hash=excluded.content_hash,
+                    mtime_ns=excluded.mtime_ns,indexed_at=excluded.indexed_at""",
+                    (rel, title, scope, classification, source_status, valid_from, valid_to, superseded_by,
+                     "loopback_allowlist_only", "deny_remote", full_headings, text, digest, st.st_mtime_ns, utc_now()))
                 for link in extract_wikilinks(text):
                     con.execute("INSERT OR IGNORE INTO note_links(source_relpath,target_relpath,indexed_at) VALUES(?,?,?)", (rel, link, utc_now()))
             removed = 0
@@ -680,9 +711,7 @@ class MemoryFabric:
                 # see them; without this they would be swept as stale on every reindex.
                 if rel.startswith("sandbox/"):
                     continue
-                con.execute("DELETE FROM documents_fts WHERE relpath=?", (rel,))
                 con.execute("DELETE FROM documents WHERE relpath=?", (rel,))
-                con.execute("DELETE FROM doc_terms WHERE relpath=?", (rel,))
                 con.execute("DELETE FROM note_links WHERE source_relpath=?", (rel,))
                 removed += 1
             if added > 0 or updated > 0 or removed > 0 or force:
@@ -690,22 +719,6 @@ class MemoryFabric:
                 con.execute("CREATE VIRTUAL TABLE temp._df_vocab USING fts5vocab(main, documents_fts, 'row')")
                 con.execute("DELETE FROM term_df")
                 con.execute("INSERT INTO term_df(term,df) SELECT term, doc FROM temp._df_vocab")
-                # `doc_terms` must speak the same vocabulary as `term_df`. documents_fts is
-                # `tokenize='porter unicode61'`, so "ordering" is indexed as "order"; term_df is
-                # rebuilt from that vocabulary and so holds stems. But doc_terms was written from
-                # `tokens()`, which lowercases and does NOT stem, so it held raw surface forms. A
-                # query for "order" found df 1, matched determinism.md through FTS, then scored
-                # ZERO matched terms against doc_terms -- which stored "ordering" -- and was
-                # discarded by the two-term gate while the engine still reported total_matches > 0.
-                # The stems come from the same fts5vocab authority as term_df so the two cannot
-                # drift, and the raw forms are KEPT because unicode61 does not split camelCase and
-                # the identifier parts are terms FTS never had. Mirrors the Rust engine exactly.
-                con.execute("DROP TABLE IF EXISTS temp._df_inst")
-                con.execute("CREATE VIRTUAL TABLE temp._df_inst USING fts5vocab(main, documents_fts, 'instance')")
-                con.execute("INSERT OR IGNORE INTO doc_terms(relpath, term) "
-                            "SELECT s.relpath, v.term FROM temp._df_inst v "
-                            "JOIN documents_fts s ON s.rowid = v.doc")
-                con.execute("DROP TABLE IF EXISTS temp._df_inst")
                 con.execute("DROP TABLE IF EXISTS temp._df_vocab")
             con.execute("INSERT INTO metadata(key,value) VALUES('last_indexed_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (utc_now(),))
             con.execute("INSERT INTO metadata(key,value) VALUES('vault_path',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(self.vault.resolve()),))
@@ -838,8 +851,8 @@ class MemoryFabric:
                 df_rows = []
             df = {r[0]: int(r[2]) for r in df_rows}
             # The join already pays for the stemmer, so keep its output: `df` ends up keyed by
-            # what the caller typed while doc_terms/term_df are keyed by the porter stem. Mirrors
-            # the Rust engine so both rank identically.
+            # what the caller typed while term_df is keyed by the porter stem. Mirrors Rust so
+            # both engines rank identically.
             stem_of = {r[0]: r[1] for r in df_rows}
             # Discrimination cutoff. Measured on the live vault: a purely proportional
             # `n_docs * 0.25` moves whenever a note is added, so terms that were usable became
@@ -911,22 +924,15 @@ class MemoryFabric:
             terms_by_relpath: dict[str, set[str]] = {}
             if rows:
                 rps = [r["relpath"] for r in rows]
-                # Only the query's own terms can ever match, so restrict the scan to them:
-                # fetching every term per candidate read ~615 rows/document and discarded ~97%.
-                # Fetch under the typed term AND its porter stem: doc_terms is keyed by the stem,
-                # so scanning for only what the caller typed misses every inflection the index
-                # normalised away, the per-candidate set comes back empty, and the two-term gate
-                # discards notes FTS had already matched. Mirrors the Rust engine.
-                fetch_terms = list(useful)
-                for t in useful:
-                    st = stem_of.get(t)
-                    if st is not None and st not in fetch_terms:
-                        fetch_terms.append(st)
-                tmarks = ",".join("?" * len(fetch_terms))
+                # Intersect porter-normalized query tokens with terms FTS actually indexed.
+                con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp._dv USING fts5vocab(main, documents_fts, 'instance')")
+                tmarks = ",".join("?" * len(useful))
                 rmarks = ",".join("?" * len(rps))
                 for rel, term in con.execute(
-                        f"SELECT relpath,term FROM doc_terms WHERE term IN ({tmarks}) AND relpath IN ({rmarks})",
-                        fetch_terms + rps):
+                        f"SELECT d.relpath,s.t FROM temp._sv q JOIN temp._s s ON s.rowid=q.doc "
+                        f"JOIN temp._dv v ON v.term=q.term JOIN documents d ON d.id=v.doc "
+                        f"WHERE s.t IN ({tmarks}) AND d.relpath IN ({rmarks}) GROUP BY d.relpath,s.t",
+                        list(useful) + rps):
                     terms_by_relpath.setdefault(rel, set()).add(term)
             results = []
             excluded_temporal = 0
@@ -956,13 +962,7 @@ class MemoryFabric:
                     continue
                 if status in {"superseded", "archived", "deprecated", "historical"} and (not as_of_date or not valid_to or as_of_date > valid_to):
                     continue
-                doc_terms = terms_by_relpath.get(row["relpath"], set())
-                # A note counts as matching a term under either name: the surface form the caller
-                # typed, or the stem doc_terms is keyed by. Checking only the typed form made this
-                # blind to every inflection, and since single_term_query could not rescue it the
-                # two-term gate discarded notes FTS had matched. Mirrors the Rust engine.
-                matched = [t for t in useful
-                           if t in doc_terms or stem_of.get(t) in doc_terms]
+                matched = [t for t in useful if t in terms_by_relpath.get(row["relpath"], set())]
                 # A single term is normally too weak to rank on, so a document needs two. The
                 # exception was `df == 1`, which meant only `CliffCompaction` (df 3) and a handful
                 # of hapax terms could ever rank alone - so a one-term query about a common word
@@ -1254,40 +1254,15 @@ class MemoryFabric:
             con.execute("BEGIN IMMEDIATE")
             try:
                 con.execute(
-                    "INSERT INTO documents(relpath,title,scope,classification,source_status,valid_from,valid_to,superseded_by,provider_policy,export_policy,body,content_hash,mtime_ns,indexed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'loopback_allowlist_only','deny_remote',?9,?10,?11,?12) "
-                    "ON CONFLICT(relpath) DO UPDATE SET title=excluded.title,body=excluded.body,content_hash=excluded.content_hash,indexed_at=excluded.indexed_at",
+                    "INSERT INTO documents(relpath,title,scope,classification,source_status,valid_from,valid_to,superseded_by,provider_policy,export_policy,headings,body,content_hash,mtime_ns,indexed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'loopback_allowlist_only','deny_remote','',?9,?10,?11,?12) "
+                    "ON CONFLICT(relpath) DO UPDATE SET title=excluded.title,headings=excluded.headings,body=excluded.body,content_hash=excluded.content_hash,indexed_at=excluded.indexed_at",
                     (rel, title.strip() or "sandbox", (scope.strip() or "episodic"), "local_only",
                      "current", None, None, None, text, digest, now, now),
                 )
-                con.execute("DELETE FROM doc_terms WHERE relpath=?", (rel,))
-                con.execute("DELETE FROM documents_fts WHERE relpath=?", (rel,))
-                con.execute("INSERT INTO documents_fts(relpath,title,headings,body) VALUES(?1,?2,?3,?4)",
-                            (rel, title.strip() or "sandbox", "", text))
-                # Mirror index(): doc_terms is (relpath,term) with no df column, and term_df
-                # is derived from it. Writing a df here would be schema drift that only
-                # surfaces on search.
-                for term in tokens(text):
-                    con.execute("INSERT OR IGNORE INTO doc_terms(relpath,term) VALUES(?1,?2)", (rel, term))
                 con.execute("DROP TABLE IF EXISTS temp._df_vocab")
                 con.execute("CREATE VIRTUAL TABLE temp._df_vocab USING fts5vocab(main, documents_fts, 'row')")
                 con.execute("DELETE FROM term_df")
                 con.execute("INSERT INTO term_df(term,df) SELECT term, doc FROM temp._df_vocab")
-                # `doc_terms` must speak the same vocabulary as `term_df`. documents_fts is
-                # `tokenize='porter unicode61'`, so "ordering" is indexed as "order"; term_df is
-                # rebuilt from that vocabulary and so holds stems. But doc_terms was written from
-                # `tokens()`, which lowercases and does NOT stem, so it held raw surface forms. A
-                # query for "order" found df 1, matched determinism.md through FTS, then scored
-                # ZERO matched terms against doc_terms -- which stored "ordering" -- and was
-                # discarded by the two-term gate while the engine still reported total_matches > 0.
-                # The stems come from the same fts5vocab authority as term_df so the two cannot
-                # drift, and the raw forms are KEPT because unicode61 does not split camelCase and
-                # the identifier parts are terms FTS never had. Mirrors the Rust engine exactly.
-                con.execute("DROP TABLE IF EXISTS temp._df_inst")
-                con.execute("CREATE VIRTUAL TABLE temp._df_inst USING fts5vocab(main, documents_fts, 'instance')")
-                con.execute("INSERT OR IGNORE INTO doc_terms(relpath, term) "
-                            "SELECT s.relpath, v.term FROM temp._df_inst v "
-                            "JOIN documents_fts s ON s.rowid = v.doc")
-                con.execute("DROP TABLE IF EXISTS temp._df_inst")
                 con.execute("DROP TABLE IF EXISTS temp._df_vocab")
                 con.execute("COMMIT")
             except Exception:

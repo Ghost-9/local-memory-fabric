@@ -255,12 +255,10 @@ impl MemoryFabric {
                 id INTEGER PRIMARY KEY, relpath TEXT NOT NULL UNIQUE, title TEXT NOT NULL, scope TEXT NOT NULL,
                 classification TEXT NOT NULL, source_status TEXT NOT NULL DEFAULT 'unspecified', valid_from TEXT,
                 valid_to TEXT, superseded_by TEXT, provider_policy TEXT NOT NULL DEFAULT 'loopback_allowlist_only',
-                export_policy TEXT NOT NULL DEFAULT 'deny_remote', body TEXT NOT NULL, content_hash TEXT NOT NULL,
+                export_policy TEXT NOT NULL DEFAULT 'deny_remote', headings TEXT NOT NULL DEFAULT '', body TEXT NOT NULL, content_hash TEXT NOT NULL,
                 mtime_ns INTEGER NOT NULL, indexed_at TEXT NOT NULL
             );
             CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(relpath UNINDEXED,title,headings,body,tokenize='porter unicode61');
-            CREATE TABLE IF NOT EXISTS doc_terms(relpath TEXT NOT NULL,term TEXT NOT NULL,PRIMARY KEY(relpath,term)) WITHOUT ROWID;
-            CREATE INDEX IF NOT EXISTS doc_terms_by_term ON doc_terms(term);
             CREATE TABLE IF NOT EXISTS term_df(term TEXT PRIMARY KEY,df INTEGER NOT NULL) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL) WITHOUT ROWID;
             -- Credential exposure alarms: mirrors the Python engine. A note matching the secret
@@ -303,27 +301,21 @@ impl MemoryFabric {
         for col in iter {
             columns.insert(col.map_err(|e| e.to_string())?);
         }
-        // C1 - an expand-only migration ladder. Every step adds a column with a default, which is
-        // the property that makes the change safe in both directions: an older engine still reads
-        // the table (it ignores columns it does not know), and a newer one sees the default for
-        // rows written before the change. Nothing here rewrites or drops, so a failed step leaves
-        // the schema valid at the previous rung - there is no half-migrated state to recover from.
+        // C1 - expand source columns first, then replace derived FTS transactionally. A failed
+        // source-column step leaves the prior schema valid; a failed FTS rebuild rolls back to the
+        // previous derived table. The source document rows are never dropped or rewritten away.
         //
         // C3 - reconcile around the migration. A structural change must not alter data: the row
         // counts before and after have to match, or the migration did something it was not
         // supposed to. That check is the difference between "the ALTER returned OK" and "the data
         // is intact".
-        let counts = |c: &Connection| -> Result<(i64, i64, i64), String> {
+        let counts = |c: &Connection| -> Result<i64, String> {
             let one = |sql: &str| -> Result<i64, String> {
                 c.query_row(sql, [], |r| r.get(0)).map_err(|e| e.to_string())
             };
-            Ok((
-                one("SELECT COUNT(*) FROM documents")?,
-                one("SELECT COUNT(*) FROM doc_terms")?,
-                one("SELECT COUNT(*) FROM term_df")?,
-            ))
+            one("SELECT COUNT(*) FROM documents")
         };
-        let before = counts(con).unwrap_or((0, 0, 0));
+        let before = counts(con).unwrap_or(0);
         let migrations = [
             ("source_status", "TEXT NOT NULL DEFAULT 'unspecified'"),
             ("valid_from", "TEXT"),
@@ -334,6 +326,7 @@ impl MemoryFabric {
                 "TEXT NOT NULL DEFAULT 'loopback_allowlist_only'",
             ),
             ("export_policy", "TEXT NOT NULL DEFAULT 'deny_remote'"),
+            ("headings", "TEXT NOT NULL DEFAULT ''"),
         ];
         let mut steps: Vec<String> = Vec::new();
         for (name, declaration) in migrations {
@@ -346,6 +339,12 @@ impl MemoryFabric {
                 steps.push(format!("add column documents.{name}"));
                 migrated = true;
             }
+        }
+        // Preserve the already-derived heading text while moving the FTS table to external
+        // content. `documents` remains the authority for every indexed field.
+        if !columns.contains("headings") {
+            con.execute("UPDATE documents SET headings=COALESCE((SELECT headings FROM documents_fts f WHERE f.relpath=documents.relpath),'')", [])
+                .map_err(|e| format!("migration step copy FTS headings failed: {e}"))?;
         }
         // MEASURED AND REVERTED: aligning the FTS vocabulary DOWN to ours.
         //
@@ -391,25 +390,60 @@ impl MemoryFabric {
             Some(sql) => {
                 let has_porter = sql.contains("porter");
                 let want_porter = EXPECTED_FTS_TOKENIZER.contains("porter");
-                has_porter != want_porter
+                has_porter != want_porter || !sql.contains("content='documents'")
             }
             None => true,
         };
         if mismatched {
-            con.execute_batch("DROP TABLE IF EXISTS documents_fts")
-                .map_err(|e| e.to_string())?;
-            con.execute_batch(&format!(
-                "CREATE VIRTUAL TABLE documents_fts USING fts5(relpath UNINDEXED,title,headings,body,tokenize='{EXPECTED_FTS_TOKENIZER}')"
-            ))
-            .map_err(|e| e.to_string())?;
+            con.execute_batch("SAVEPOINT migration_fts_v4")
+                .map_err(|e| format!("could not start FTS migration: {e}"))?;
+            let rebuild = (|| -> Result<i64, String> {
+                con.execute_batch(&format!(
+                    "DROP TABLE IF EXISTS documents_fts_v4;
+                     CREATE VIRTUAL TABLE documents_fts_v4 USING fts5(relpath UNINDEXED,title,headings,body,content='documents',content_rowid='id',tokenize='{EXPECTED_FTS_TOKENIZER}');
+                     INSERT INTO documents_fts_v4(rowid,relpath,title,headings,body) SELECT id,relpath,title,headings,body FROM documents;"
+                )).map_err(|e| format!("could not build external-content FTS index: {e}"))?;
+                let rows = con.query_row("SELECT COUNT(*) FROM documents_fts_v4_docsize", [], |r| r.get::<_, i64>(0))
+                    .map_err(|e| format!("could not reconcile external-content FTS index: {e}"))?;
+                if rows != before {
+                    return Err(format!("migration reconciliation failed: documents/FTS rows went {before} -> {rows}"));
+                }
+                con.execute_batch("DROP TABLE documents_fts; ALTER TABLE documents_fts_v4 RENAME TO documents_fts;")
+                    .map_err(|e| format!("could not install external-content FTS index: {e}"))?;
+                Ok(rows)
+            })();
+            if let Err(e) = rebuild {
+                con.execute_batch("ROLLBACK TO migration_fts_v4; RELEASE migration_fts_v4").ok();
+                return Err(format!("{e}; schema version was not advanced"));
+            }
+            con.execute_batch("RELEASE migration_fts_v4")
+                .map_err(|e| format!("could not finish FTS migration: {e}"))?;
             migrated = true;   // forces a full re-read so the table is refilled
-            steps.push(format!("rebuild documents_fts to tokenize='{EXPECTED_FTS_TOKENIZER}'"));
+            steps.push(format!("rebuild documents_fts as external content to tokenize='{EXPECTED_FTS_TOKENIZER}'"));
         }
+
+        // Trigger maintenance protects every documents write path, including edits and deletes.
+        con.execute_batch("\
+            DROP TRIGGER IF EXISTS documents_fts_ai;
+            DROP TRIGGER IF EXISTS documents_fts_ad;
+            DROP TRIGGER IF EXISTS documents_fts_au;
+            CREATE TRIGGER documents_fts_ai AFTER INSERT ON documents BEGIN
+                INSERT INTO documents_fts(rowid,relpath,title,headings,body) VALUES(new.id,new.relpath,new.title,new.headings,new.body);
+            END;
+            CREATE TRIGGER documents_fts_ad AFTER DELETE ON documents BEGIN
+                INSERT INTO documents_fts(documents_fts,rowid,relpath,title,headings,body) VALUES('delete',old.id,old.relpath,old.title,old.headings,old.body);
+            END;
+            CREATE TRIGGER documents_fts_au AFTER UPDATE OF relpath,title,headings,body ON documents BEGIN
+                INSERT INTO documents_fts(documents_fts,rowid,relpath,title,headings,body) VALUES('delete',old.id,old.relpath,old.title,old.headings,old.body);
+                INSERT INTO documents_fts(rowid,relpath,title,headings,body) VALUES(new.id,new.relpath,new.title,new.headings,new.body);
+            END;
+            DROP TABLE IF EXISTS doc_terms;
+        ").map_err(|e| format!("could not install derived-index maintenance: {e}"))?;
 
         let after = counts(con).map_err(|e| e.to_string())?;
         if before != after {
             return Err(format!(
-                "migration reconciliation failed: documents/doc_terms/term_df went {before:?} -> {after:?}. \
+                "migration reconciliation failed: documents rows went {before:?} -> {after:?}. \
                  An expand-only migration must not change row counts. The schema version was NOT \
                  advanced, so the next run will retry rather than build on a broken state."
             ));
@@ -490,6 +524,8 @@ impl MemoryFabric {
             })
             .optional()
             .unwrap_or(None);
+        let documents: i64 = con.query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+        let index_bytes = std::fs::metadata(&self.db_path).map(|m| m.len()).unwrap_or(0);
         Ok(json!({
             "ok": true,
             "schema_version": recorded,
@@ -499,8 +535,11 @@ impl MemoryFabric {
             "tables": tables,
             "documents_columns": doc_columns,
             "fts_tokenizer": EXPECTED_FTS_TOKENIZER,
-            "migration_policy": "expand-only: steps add columns with defaults and never rewrite, rename or drop, so a failure leaves the previous rung valid",
-            "rollback": "none needed by construction; an older engine reads the table and ignores unknown columns",
+            "index_bytes": index_bytes,
+            "documents": documents,
+            "bytes_per_document": if documents > 0 { index_bytes / documents as u64 } else { 0 },
+            "migration_policy": "expand-first: source documents are preserved; derived FTS is rebuilt and reconciled before legacy derived tables are dropped",
+            "rollback": "source document rows are preserved; derived indexes can be rebuilt by reindexing",
         }))
     }
 }
@@ -535,10 +574,6 @@ fn string_list(value: &Value, key: &str, default: &[&str]) -> Result<Vec<String>
 }
 
 pub(crate) fn delete_fts_terms(con: &Connection, rel: &str) -> Result<(), String> {
-    con.execute("DELETE FROM documents_fts WHERE relpath=?1", [rel])
-        .map_err(|e| e.to_string())?;
-    con.execute("DELETE FROM doc_terms WHERE relpath=?1", [rel])
-        .map_err(|e| e.to_string())?;
     con.execute("DELETE FROM note_links WHERE source=?1", [rel])
         .map_err(|e| e.to_string())?;
     Ok(())

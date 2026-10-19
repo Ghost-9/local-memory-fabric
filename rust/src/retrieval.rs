@@ -406,10 +406,9 @@ impl MemoryFabric {
                 let (t, stem, n) = row.map_err(|e| e.to_string())?;
                 df.insert(t.clone(), n);
                 // The join already pays for the stemmer, so keep its output. `df` ends up keyed by
-                // what the caller typed (`rankings`) while `doc_terms` and `term_df` are keyed by
-                // the porter stem (`ranking`). Anything downstream that asks "does this note
-                // contain this term" must try both, or it will disagree with the FTS match that
-                // selected the candidate in the first place.
+                // what the caller typed (`rankings`) while term_df is keyed by the porter stem
+                // (`ranking`). Keep the mapping so document-frequency ranking uses the exact
+                // indexed vocabulary that selected each candidate.
                 stem_of.insert(t, stem);
             }
         }
@@ -533,36 +532,22 @@ impl MemoryFabric {
         let mut terms_by_relpath: HashMap<String, HashSet<String>> = HashMap::new();
         if !candidates.is_empty() {
             let relpaths: Vec<&str> = candidates.iter().map(|c| c.relpath.as_str()).collect();
-            // Only the query's own terms can ever be matched, so restrict the scan to them.
-            // Fetching every term for every candidate read ~615 rows per document and threw
-            // ~97% away, because `matched` only ever intersects `useful`.
-            // Fetch under the typed term AND its porter stem. `doc_terms` is keyed by the stem,
-            // so scanning for only what the caller typed misses every inflection the index
-            // normalised away - "rankings" would not find a note holding "rank", the per-candidate
-            // set would come back empty, and the two-term gate below would then discard notes FTS
-            // had already matched. The dedup keeps the placeholder count honest.
-            let mut fetch_terms: Vec<String> = useful.clone();
-            for t in &useful {
-                if let Some(st) = stem_of.get(t) {
-                    if !fetch_terms.iter().any(|x| x == st) {
-                        fetch_terms.push(st.clone());
-                    }
-                }
-            }
-            let term_ph = (1..=fetch_terms.len())
+            // Intersect the Porter-normalized query vocabulary with the actual FTS instance
+            // vocabulary, so matched_terms reports query tokens FTS matched in each candidate.
+            con.execute_batch("CREATE VIRTUAL TABLE IF NOT EXISTS temp._dv USING fts5vocab(main, documents_fts, 'instance')")
+                .map_err(|e| e.to_string())?;
+            let term_ph = (1..=useful.len())
                 .map(|i| format!("?{i}"))
                 .collect::<Vec<_>>()
                 .join(",");
             let rel_ph = (1..=relpaths.len())
-                .map(|i| format!("?{}", fetch_terms.len() + i))
+                .map(|i| format!("?{}", useful.len() + i))
                 .collect::<Vec<_>>()
                 .join(",");
-            let sql = format!(
-                "SELECT relpath,term FROM doc_terms WHERE term IN ({term_ph}) AND relpath IN ({rel_ph})"
-            );
+            let sql = format!("SELECT d.relpath,s.t FROM temp._sv q JOIN temp._s s ON s.rowid=q.doc JOIN temp._dv v ON v.term=q.term JOIN documents d ON d.id=v.doc WHERE s.t IN ({term_ph}) AND d.relpath IN ({rel_ph}) GROUP BY d.relpath,s.t");
             let mut q = con.prepare(&sql).map_err(|e| e.to_string())?;
             let mut params: Vec<&dyn rusqlite::ToSql> =
-                fetch_terms.iter().map(|t| t as &dyn rusqlite::ToSql).collect();
+                useful.iter().map(|t| t as &dyn rusqlite::ToSql).collect();
             params.extend(relpaths.iter().map(|p| p as &dyn rusqlite::ToSql));
             let params = params;
             let iter = q
@@ -623,26 +608,9 @@ impl MemoryFabric {
             {
                 continue;
             }
-            let doc_terms = terms_by_relpath.get(&row.relpath).cloned().unwrap_or_default();
-            // A note counts as matching a query term under either name: the surface form the
-            // caller typed, or the porter stem `doc_terms` is keyed by. Checking only the typed
-            // form made `matched` blind to every inflection the index normalised away - "rankings"
-            // against a note holding "ranking" scored zero, and since `single_term_query` could
-            // not rescue it (the query had more than one usable term) the candidate was discarded
-            // by the two-term gate below and the search abstained while reporting total_matches >
-            // 0. That gate is a precision feature, so it must not become a recall hole: a term FTS
-            // just matched cannot be absent from the note it matched in.
-            let matched: Vec<String> = useful
-                .iter()
-                .filter(|t| {
-                    doc_terms.contains(t.as_str())
-                        || stem_of
-                            .get(*t)
-                            .map(|st| doc_terms.contains(st.as_str()))
-                            .unwrap_or(false)
-                })
-                .cloned()
-                .collect();
+            let matched: Vec<String> = terms_by_relpath.get(&row.relpath)
+                .map(|set| useful.iter().filter(|t| set.contains(*t)).cloned().collect())
+                .unwrap_or_default();
             let distinctive = matched
                 .iter()
                 .any(|t| t.len() >= 9 && df.get(t).copied() == Some(1));
