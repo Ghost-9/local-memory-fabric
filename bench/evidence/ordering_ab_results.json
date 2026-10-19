@@ -1,0 +1,498 @@
+[
+  {
+    "experiment": "SECTION_WEIGHT: 0.15 (base) -> 0.0",
+    "n": 5,
+    "arm_a": {
+      "recall_at_1": 0.4672,
+      "recall_at_3": 0.9344,
+      "recall_at_5": 0.9426,
+      "mrr_at_3": 0.7354,
+      "nohit_precision": 0.9286
+    },
+    "arm_b": {
+      "recall_at_1": 0.5082,
+      "recall_at_3": 0.9344,
+      "recall_at_5": 0.9344,
+      "mrr_at_3": 0.7617,
+      "nohit_precision": 0.9286
+    },
+    "median_delta": {
+      "recall_at_1": 0.041,
+      "recall_at_3": 0.0,
+      "recall_at_5": -0.0082,
+      "mrr_at_3": 0.0263,
+      "nohit_precision": 0.0
+    },
+    "diff_series": {
+      "recall_at_1": [
+        0.041,
+        0.041,
+        0.041,
+        0.041,
+        0.041
+      ],
+      "recall_at_3": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "recall_at_5": [
+        -0.0082,
+        -0.0082,
+        -0.0082,
+        -0.0082,
+        -0.0082
+      ],
+      "mrr_at_3": [
+        0.0263,
+        0.0263,
+        0.0263,
+        0.0263,
+        0.0263
+      ],
+      "nohit_precision": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  {
+    "experiment": "SECTION_WEIGHT: 0.15 (base) -> 0.30 (loss test)",
+    "n": 5,
+    "arm_a": {
+      "recall_at_1": 0.4672,
+      "recall_at_3": 0.9344,
+      "recall_at_5": 0.9426,
+      "mrr_at_3": 0.7354,
+      "nohit_precision": 0.9286
+    },
+    "arm_b": {
+      "recall_at_1": 0.4426,
+      "recall_at_3": 0.9344,
+      "recall_at_5": 0.9426,
+      "mrr_at_3": 0.7222,
+      "nohit_precision": 0.9286
+    },
+    "median_delta": {
+      "recall_at_1": -0.0246,
+      "recall_at_3": 0.0,
+      "recall_at_5": 0.0,
+      "mrr_at_3": -0.0132,
+      "nohit_precision": 0.0
+    },
+    "diff_series": {
+      "recall_at_1": [
+        -0.0246,
+        -0.0246,
+        -0.0246,
+        -0.0246,
+        -0.0246
+      ],
+      "recall_at_3": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "recall_at_5": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mrr_at_3": [
+        -0.0132,
+        -0.0132,
+        -0.0132,
+        -0.0132,
+        -0.0132
+      ],
+      "nohit_precision": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  {
+    "experiment": "SECTION_WEIGHT: 0.15 (base) -> 0.50 (loss test)",
+    "n": 5,
+    "arm_a": {
+      "recall_at_1": 0.4672,
+      "recall_at_3": 0.9344,
+      "recall_at_5": 0.9426,
+      "mrr_at_3": 0.7354,
+      "nohit_precision": 0.9286
+    },
+    "arm_b": {
+      "recall_at_1": 0.3689,
+      "recall_at_3": 0.9262,
+      "recall_at_5": 0.9426,
+      "mrr_at_3": 0.6799,
+      "nohit_precision": 0.9286
+    },
+    "median_delta": {
+      "recall_at_1": -0.0983,
+      "recall_at_3": -0.0082,
+      "recall_at_5": 0.0,
+      "mrr_at_3": -0.0555,
+      "nohit_precision": 0.0
+    },
+    "diff_series": {
+      "recall_at_1": [
+        -0.0983,
+        -0.0983,
+        -0.0983,
+        -0.0983,
+        -0.0983
+      ],
+      "recall_at_3": [
+        -0.0082,
+        -0.0082,
+        -0.0082,
+        -0.0082,
+        -0.0082
+      ],
+      "recall_at_5": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mrr_at_3": [
+        -0.0555,
+        -0.0555,
+        -0.0555,
+        -0.0555,
+        -0.0555
+      ],
+      "nohit_precision": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  {
+    "experiment": "REPETITION_WEIGHT: 1.0 (base) -> 2.0 (with sec=0.0)",
+    "n": 5,
+    "arm_a": {
+      "recall_at_1": 0.5082,
+      "recall_at_3": 0.9344,
+      "recall_at_5": 0.9344,
+      "mrr_at_3": 0.7617,
+      "nohit_precision": 0.9286
+    },
+    "arm_b": {
+      "recall_at_1": 0.5328,
+      "recall_at_3": 0.9344,
+      "recall_at_5": 0.9344,
+      "mrr_at_3": 0.7749,
+      "nohit_precision": 0.9286
+    },
+    "median_delta": {
+      "recall_at_1": 0.0246,
+      "recall_at_3": 0.0,
+      "recall_at_5": 0.0,
+      "mrr_at_3": 0.0132,
+      "nohit_precision": 0.0
+    },
+    "diff_series": {
+      "recall_at_1": [
+        0.0246,
+        0.0246,
+        0.0246,
+        0.0246,
+        0.0246
+      ],
+      "recall_at_3": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "recall_at_5": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mrr_at_3": [
+        0.0132,
+        0.0132,
+        0.0132,
+        0.0132,
+        0.0132
+      ],
+      "nohit_precision": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  {
+    "experiment": "REPETITION_WEIGHT: 1.0 (base) -> 3.0 (with sec=0.0)",
+    "n": 5,
+    "arm_a": {
+      "recall_at_1": 0.5082,
+      "recall_at_3": 0.9344,
+      "recall_at_5": 0.9344,
+      "mrr_at_3": 0.7617,
+      "nohit_precision": 0.9286
+    },
+    "arm_b": {
+      "recall_at_1": 0.5902,
+      "recall_at_3": 0.9426,
+      "recall_at_5": 0.9426,
+      "mrr_at_3": 0.8029,
+      "nohit_precision": 0.9286
+    },
+    "median_delta": {
+      "recall_at_1": 0.082,
+      "recall_at_3": 0.0082,
+      "recall_at_5": 0.0082,
+      "mrr_at_3": 0.0412,
+      "nohit_precision": 0.0
+    },
+    "diff_series": {
+      "recall_at_1": [
+        0.082,
+        0.082,
+        0.082,
+        0.082,
+        0.082
+      ],
+      "recall_at_3": [
+        0.0082,
+        0.0082,
+        0.0082,
+        0.0082,
+        0.0082
+      ],
+      "recall_at_5": [
+        0.0082,
+        0.0082,
+        0.0082,
+        0.0082,
+        0.0082
+      ],
+      "mrr_at_3": [
+        0.0412,
+        0.0412,
+        0.0412,
+        0.0412,
+        0.0412
+      ],
+      "nohit_precision": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  {
+    "experiment": "TITLE_WEIGHT: 4.0 (base) -> 6.0 (with sec=0.0, rep=3.0)",
+    "n": 5,
+    "arm_a": {
+      "recall_at_1": 0.5902,
+      "recall_at_3": 0.9426,
+      "recall_at_5": 0.9426,
+      "mrr_at_3": 0.8029,
+      "nohit_precision": 0.9286
+    },
+    "arm_b": {
+      "recall_at_1": 0.6066,
+      "recall_at_3": 0.9426,
+      "recall_at_5": 0.9426,
+      "mrr_at_3": 0.813,
+      "nohit_precision": 0.9286
+    },
+    "median_delta": {
+      "recall_at_1": 0.0164,
+      "recall_at_3": 0.0,
+      "recall_at_5": 0.0,
+      "mrr_at_3": 0.0101,
+      "nohit_precision": 0.0
+    },
+    "diff_series": {
+      "recall_at_1": [
+        0.0164,
+        0.0164,
+        0.0164,
+        0.0164,
+        0.0164
+      ],
+      "recall_at_3": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "recall_at_5": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mrr_at_3": [
+        0.0101,
+        0.0101,
+        0.0101,
+        0.0101,
+        0.0101
+      ],
+      "nohit_precision": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  {
+    "experiment": "TITLE_WEIGHT: 6.0 -> 10.0 (loss/overfit test)",
+    "n": 5,
+    "arm_a": {
+      "recall_at_1": 0.6066,
+      "recall_at_3": 0.9426,
+      "recall_at_5": 0.9426,
+      "mrr_at_3": 0.813,
+      "nohit_precision": 0.9286
+    },
+    "arm_b": {
+      "recall_at_1": 0.6066,
+      "recall_at_3": 0.9426,
+      "recall_at_5": 0.9426,
+      "mrr_at_3": 0.8116,
+      "nohit_precision": 0.9286
+    },
+    "median_delta": {
+      "recall_at_1": 0.0,
+      "recall_at_3": 0.0,
+      "recall_at_5": 0.0,
+      "mrr_at_3": -0.0014,
+      "nohit_precision": 0.0
+    },
+    "diff_series": {
+      "recall_at_1": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "recall_at_3": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "recall_at_5": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mrr_at_3": [
+        -0.0014,
+        -0.0014,
+        -0.0014,
+        -0.0014,
+        -0.0014
+      ],
+      "nohit_precision": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  {
+    "experiment": "HEADING_WEIGHT: 1.5 -> 3.0 (loss/noise test)",
+    "n": 5,
+    "arm_a": {
+      "recall_at_1": 0.6066,
+      "recall_at_3": 0.9426,
+      "recall_at_5": 0.9426,
+      "mrr_at_3": 0.813,
+      "nohit_precision": 0.9286
+    },
+    "arm_b": {
+      "recall_at_1": 0.6066,
+      "recall_at_3": 0.9426,
+      "recall_at_5": 0.9426,
+      "mrr_at_3": 0.813,
+      "nohit_precision": 0.9286
+    },
+    "median_delta": {
+      "recall_at_1": 0.0,
+      "recall_at_3": 0.0,
+      "recall_at_5": 0.0,
+      "mrr_at_3": 0.0,
+      "nohit_precision": 0.0
+    },
+    "diff_series": {
+      "recall_at_1": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "recall_at_3": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "recall_at_5": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mrr_at_3": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "nohit_precision": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  }
+]
