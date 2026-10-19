@@ -38,9 +38,16 @@ PI = os.environ.get("PI_BIN", "pi")
 def run_one(task, inject, cwd, timeout):
     """One pi run over RPC. Returns (answer_text, usage, seconds, error)."""
     env = dict(os.environ)
+    # Injection is HELD BY DEFAULT since 2026-10-20 (plan item 1), so the arms can no longer be
+    # "set DISABLE in the control, pop it in the treatment" - popping it would leave the treatment
+    # held too and the experiment would silently become A/A while still printing a comparison. The
+    # switch is therefore set explicitly in both arms, which keeps the one-variable property and
+    # makes it visible in the code rather than implied by absence.
     if not inject:
+        env.pop("MEMORY_FABRIC_ENABLE_INJECTION", None)
         env["MEMORY_FABRIC_DISABLE_INJECTION"] = "1"
     else:
+        env["MEMORY_FABRIC_ENABLE_INJECTION"] = "1"
         env.pop("MEMORY_FABRIC_DISABLE_INJECTION", None)
 
     proc = subprocess.Popen(
@@ -137,7 +144,7 @@ def main():
 
     print(f"task suite  {len(tasks)} tasks x {args.pairs} pair(s), {len(tasks)*args.pairs*2} runs")
     print(f"  cwd    : {args.cwd}")
-    print(f"  arms   : treatment (injection on) vs control (MEMORY_FABRIC_DISABLE_INJECTION=1)")
+    print(f"  arms   : treatment (MEMORY_FABRIC_ENABLE_INJECTION=1) vs control (disable=1, the held default)")
     print()
 
     rows, skipped = [], 0

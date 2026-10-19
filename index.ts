@@ -218,8 +218,26 @@ let resumeChecked = false;
  * assertion that memory helps. Set MEMORY_FABRIC_DISABLE_INJECTION=1 and every injection site
  * stands down: the ref search is not issued, the resume pointer is not read, and the block is not
  * added. The arm then differs from the treatment in exactly one variable.
+ *
+ * HELD BY DEFAULT SINCE 2026-10-20 (plan item 1). The measurement that justified injection does not
+ * exist: 168 recorded injections produced 6 reads, and a 72-run paired task suite gave a median
+ * per-pair delta of +0.0% on the vault tasks injection was built for. The cost is not zero - the
+ * block is inserted through `before_agent_start`, which mutates the prompt, and before this change
+ * there was no turn guard, so it could fire at turn 30 and invalidate every cached prefix ahead of
+ * it. Turning it on is now an explicit act: MEMORY_FABRIC_ENABLE_INJECTION=1.
+ *
+ * The capability is kept, not deleted, and it is still reachable by pull rather than push: an agent
+ * that wants the refs calls memory_fabric_context. That is the same visible-by-default reasoning
+ * already applied to the six promoted tools.
  */
-const injectionDisabled = process.env.MEMORY_FABRIC_DISABLE_INJECTION === "1";
+const injectionDisabled = process.env.MEMORY_FABRIC_ENABLE_INJECTION !== "1";
+
+/**
+ * Even when injection is explicitly enabled, it may only fire before anything is cached (plan item
+ * 2). The guard reads event.messages for a prior assistant turn, because a session that has already
+ * produced a turn has already cached a prefix and inserting a message would invalidate every turn
+ * after it while adding no information the model does not already have.
+ */
 
 /** The most recent shadow-gate decision, so it can be enforced after the refs are built. */
 let lastDecision: { inject: boolean } | null = null;
@@ -231,7 +249,12 @@ let lastDecision: { inject: boolean } | null = null;
  * one injection is enough; repeating it every turn duplicated the same text for no benefit.
  */
 let injectedThisSession = false;
-if (injectionDisabled) logUsage({ kind: "injection_disabled" });
+// Logged in both directions and at load time, not at injection time. The gate has to be able to prove
+// the two arms differ by exactly one variable without depending on whether refs happened to resolve -
+// a session that enabled injection and then found nothing to inject is still a treatment session, and
+// a check that waited for an `inject` record would fail the gate for a reason unrelated to the switch.
+if (injectionDisabled) logUsage({ kind: "injection_disabled", reason: "held_by_default" });
+else logUsage({ kind: "injection_enabled" });
 
 
 /**
@@ -896,7 +919,16 @@ export default function (pi: ExtensionAPI) {
 		// 0 and the cache kept matching - but it grew context by ~82 tokens per turn of pure
 		// duplication, and it is the opposite of the documented behaviour. The first copy stays in
 		// the history, so injecting once loses nothing.
-		if (!injectionDisabled && !injectedThisSession && sessionRefs && sessionRefs.length > 0) {
+		// Plan item 2: a turn guard, which this never had. `injectedThisSession` latched on the first
+		// turn that happened to have refs, so a session whose refs resolved at turn 30 injected at turn
+		// 30 - after thirty turns of context were already cached. The block is inserted as a message,
+		// so every cached prefix after that point is invalidated. On turn 0 nothing is cached yet and
+		// the insertion is nearly free. The first copy stays in history either way, so holding past
+		// turn 0 loses no information the model would otherwise have had - it only loses the case where
+		// the notes would have been silently re-billed on every subsequent turn.
+		const priorAssistantTurn = Array.isArray((event as any)?.messages)
+			&& (event as any).messages.some((m: any) => m && m.role === "assistant");
+		if (!injectionDisabled && !injectedThisSession && !priorAssistantTurn && sessionRefs && sessionRefs.length > 0) {
 			injectedThisSession = true;
 			const block = `\n## Memory has relevant notes\n${sessionRefs.map((r) => `[[${r}]]`).join(" ")}\nRead these first via engram or view_file before re-deriving.`;
 			additions.push(block);

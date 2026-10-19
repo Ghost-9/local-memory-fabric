@@ -269,10 +269,18 @@ if "task suite" not in r.stdout:
 for line in r.stdout.splitlines():
     if line.strip().startswith("pair "): print("  " + line.strip())
 recent = tail()
-if not any(x.get("kind") == "injection_disabled" for x in recent):
-    print("  GATE FAILURE: MEMORY_FABRIC_DISABLE_INJECTION did not take effect - both arms would be the treatment", file=sys.stderr)
+# The switch must be provable in BOTH directions. Injection is held by default since plan item 1, so
+# "an injection_disabled record exists" became trivially true of almost every session and stopped
+# proving anything about the arms. Enabled state is logged explicitly too, so each arm is identified by
+# its own record rather than by the absence of a record - which is exactly what a silent A/A looks like.
+kinds = {x.get("kind") for x in recent}
+if "injection_disabled" not in kinds:
+    print("  GATE FAILURE: the control arm did not record injection_disabled", file=sys.stderr)
     sys.exit(1)
-print("  control arm verified: injection was actually disabled, so the arms differ in one variable")
+if "injection_enabled" not in kinds:
+    print("  GATE FAILURE: the treatment arm did not record injection_enabled - the arms would be A/A", file=sys.stderr)
+    sys.exit(1)
+print("  both arms verified: control recorded injection_disabled, treatment recorded injection_enabled")
 PYSUITE
 
 echo "== 20/23 usage record and what it can answer (#95) =="
