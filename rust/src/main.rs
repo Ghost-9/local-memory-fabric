@@ -53,6 +53,12 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
     }
     match op {
         "status" => fabric.status(),
+
+            // Plan items 38/39. `doctor` answers "is this working?" in one command; `init` takes a
+            // machine with no config to an indexed vault. Both were advice in the README and nothing
+            // executable.
+            "doctor" => fabric.doctor(),
+            "init" => fabric.init(),
         // D6 - crash-consistency and index/vault divergence. Repairs nothing, by design.
         "verify" => fabric.verify(),
         // C2 - integrity check, then rebuild only when the index is genuinely unusable.
@@ -635,10 +641,144 @@ fn watch_loop() -> Result<(), String> {
     }
 }
 
+impl MemoryFabric {
+    /// Plan item 39. One command that answers "is this working?".
+    ///
+    /// Every number here already existed behind a different operation - `status` for counts,
+    /// `verify` for divergence, `vacuum` for reclaimable bytes. What did not exist was a single
+    /// answer, so a new user had to know which four commands to run and how to read them together.
+    /// This reports the facts and then a verdict, and it never claims OK by omission: anything it
+    /// could not check is listed as unchecked.
+    pub(crate) fn doctor(&self) -> Result<Value, String> {
+        let mut checks = Vec::new();
+        let mut problems = Vec::new();
+        let mut unchecked = Vec::new();
+
+        let config_path = self.home.join("config.json");
+        let config_present = config_path.exists();
+        checks.push(json!({"check": "config", "ok": config_present,
+            "detail": if config_present { config_path.display().to_string() }
+                      else { "absent - built-in defaults are in force, which is a working state".into() }}));
+
+        let vault_present = self.vault.is_dir();
+        checks.push(json!({"check": "vault", "ok": vault_present, "detail": self.vault.display().to_string()}));
+        if !vault_present {
+            problems.push(format!("the vault directory {} does not exist; run `engram init`", self.vault.display()));
+        }
+
+        // The allowlist is the security predicate. A config that loads but allows nobody is a working
+        // install that silently refuses every search, which is the failure most likely to be reported
+        // as "it is broken".
+        let providers = self.config.local_providers.len();
+        checks.push(json!({"check": "provider allowlist", "ok": providers > 0,
+            "detail": format!("{providers} allowed; search is refused without one, by design")}));
+        if providers == 0 {
+            problems.push("no model provider is allowlisted, so every search will be refused. Set local_providers in config.json.".into());
+        }
+
+        let st = self.status()?;
+        let indexed = st["indexed"].as_bool().unwrap_or(false);
+        let docs = st["documents"].as_i64().unwrap_or(0);
+        checks.push(json!({"check": "index", "ok": indexed && docs > 0,
+            "detail": format!("{docs} documents, {} bytes each", st["bytes_per_document"])}));
+        if docs == 0 {
+            problems.push("the index is empty; run `engram index`".into());
+        }
+
+        let integrity = st["integrity"].as_str().unwrap_or("unknown").to_string();
+        checks.push(json!({"check": "integrity", "ok": integrity == "ok", "detail": integrity.clone()}));
+        if integrity != "ok" {
+            problems.push(format!("index integrity is {integrity}; run `engram repair`"));
+        }
+
+        let alarms = st["unresolved_alarms"].as_i64().unwrap_or(0);
+        checks.push(json!({"check": "secret alarms", "ok": alarms == 0,
+            "detail": format!("{alarms} unresolved")}));
+        if alarms > 0 {
+            problems.push(format!("{alarms} unresolved secret alarm(s); list with `engram alarms`"));
+        }
+
+        // Vault durability is checked by asking git, and reported as unchecked when git is absent -
+        // not as passing.
+        match std::process::Command::new("git").arg("-C").arg(&self.vault)
+            .args(["status", "--porcelain"]).output()
+        {
+            Ok(out) if out.status.success() => {
+                let dirty = String::from_utf8_lossy(&out.stdout).lines().count();
+                checks.push(json!({"check": "vault recoverable", "ok": dirty == 0,
+                    "detail": format!("{dirty} uncommitted file(s){}",
+                        if dirty > 0 { "; their current state has no revert point" } else { "" })}));
+                if dirty > 0 {
+                    problems.push(format!("{dirty} uncommitted file(s) in the vault have no revert point"));
+                }
+            }
+            _ => {
+                unchecked.push("vault recoverability (git not available in the vault)");
+                checks.push(json!({"check": "vault recoverable", "ok": false, "skipped": true,
+                    "detail": "git unavailable - NOT checked, not passing"}));
+            }
+        }
+
+        Ok(json!({
+            "ok": problems.is_empty(),
+            "checks": checks,
+            "problems": problems,
+            "unchecked": unchecked,
+            "verdict": if problems.is_empty() { "no problems found".to_string() }
+                       else { format!("{} problem(s) need attention", problems.len()) },
+        }))
+    }
+
+    /// Plan item 38. From no config to an indexed vault, in one command.
+    ///
+    /// Writes a minimal config only when none exists: every field has a built-in default (see
+    /// Config::from_json), so an empty object is a complete, working configuration and there is
+    /// nothing to edit before the first search. That is deliberate - a tool that requires the user to
+    /// author a config before it will answer is the thing this item exists to remove.
+    pub(crate) fn init(&self) -> Result<Value, String> {
+        let config_path = self.home.join("config.json");
+        let mut actions = Vec::new();
+        let mut created_config = false;
+        if !config_path.exists() {
+            if let Some(parent) = config_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+            }
+            std::fs::write(&config_path, "{\n  \"_comment\": \"Defaults apply to every field. Add local_providers to allow a model to read memory.\"\n}\n")
+                .map_err(|e| format!("cannot write {}: {e}", config_path.display()))?;
+            created_config = true;
+            actions.push(format!("created {}", config_path.display()));
+        }
+        let vault_created = if !self.vault.is_dir() {
+            std::fs::create_dir_all(&self.vault).map_err(|e| format!("cannot create {}: {e}", self.vault.display()))?;
+            actions.push(format!("created the vault directory {}", self.vault.display()));
+            true
+        } else { false };
+
+        let indexed = self.index(false)?;
+        let docs = indexed["documents"].as_i64().unwrap_or(0);
+        actions.push(format!("indexed {docs} document(s)"));
+
+        Ok(json!({
+            "ok": true,
+            "created_config": created_config,
+            "created_vault": vault_created,
+            "documents": docs,
+            "actions": actions,
+            "next": if docs == 0 {
+                "the vault is empty. Add Markdown files and run `engram index`."
+            } else {
+                "run `engram doctor` to confirm, then `engram search <query>`."
+            },
+        }))
+    }
+}
+
 fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
     let cmd = args.first()?.as_str();
     match cmd {
         "status" => Some(json!({ "op": "status" })),
+        "init" => Some(json!({ "op": "init" })),
+        "doctor" => Some(json!({ "op": "doctor" })),
         "index" => {
             let force = args.iter().any(|a| a == "--force");
             Some(json!({ "op": "index", "force": force }))
@@ -1038,6 +1178,12 @@ GLOBAL FLAGS:
 
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        // Was unreachable: the flag fell through to the JSON reader and answered
+        // "request must be valid JSON", which is a confusing reply to `--version`.
+        println!("Engram / Local Memory Fabric {} (schema {})", env!("CARGO_PKG_VERSION"), crate::paths::SCHEMA_VERSION);
+        return;
+    }
     if args.iter().any(|a| a == "--help" || a == "-h" || a == "help") {
         print_help();
         return;
