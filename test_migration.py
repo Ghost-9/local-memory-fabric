@@ -12,41 +12,110 @@ the real index path over it and asserts:
 
 The reconciliation assertion is exercised for real here, because a migration with no structural
 step reconciles trivially and would pass whether or not the check existed.
+
+HERMETIC SINCE 2026-10-19. This test used to run against the live index and the live vault, and the
+vault is a knowledge base other agents write to while the gate runs. A concurrent write shifts
+document frequencies, which shifts ranking, which made `before_refs == refs_after` fail on a
+CORRECT migration - a false failure, and the exact kind that gets a strict test weakened or deleted.
+
+The earlier partial fix relaxed the count comparison to a superset check and left the search
+comparison racing. Relaxing is the wrong direction. Instead the corpus is now frozen: the vault is
+copied into a temporary directory and the engine is pointed at it through MEMORY_FABRIC_VAULT and
+MEMORY_FABRIC_HOME. Nothing else on the machine can move under the test, so "the migration changed
+no ranking" is a real assertion again rather than a race that happens to pass.
+
+Cost: ~131 markdown files copied, under 100 ms. Worth it - a gate that fails at random teaches the
+reader to ignore it.
 """
-import json, os, shutil, sqlite3, subprocess, sys
+import json, os, shutil, sqlite3, subprocess, sys, tempfile
 
 BIN = "rust/target/release/memory-fabric"
-IDX = os.path.expanduser("~/.pi/agent/scratch/memory-fabric/index.sqlite3")
+LIVE_VAULT = os.path.expanduser("~/system-memory")
+LIVE_CONFIG = os.path.expanduser("~/.pi/agent/scratch/memory-fabric/config.json")
 fails = []
 
+
+def _freeze_vault():
+    """Copy the live vault's markdown into a temp dir; return (workdir, vault, home, env, count)."""
+    work = tempfile.mkdtemp(prefix="engram-migration-")
+    vault, home = os.path.join(work, "vault"), os.path.join(work, "home")
+    os.makedirs(vault)
+    os.makedirs(home)
+    # The config carries the include_dirs whitelist AND the provider allowlist. Without it a fresh
+    # state directory is fail-closed: search returns {"blocked": ...} because no provider is allowed,
+    # and a test that ignores that would silently compare two empty result sets and pass. Copying it
+    # also keeps the include/exclude rules identical to production, which is what we want to test.
+    shutil.copy2(LIVE_CONFIG, os.path.join(home, "config.json"))
+    n = 0
+    for root, dirs, files in os.walk(LIVE_VAULT):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for fn in files:
+            if not fn.endswith(".md"):
+                continue
+            src = os.path.join(root, fn)
+            dst = os.path.join(vault, os.path.relpath(src, LIVE_VAULT))
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            try:
+                shutil.copy2(src, dst)
+                n += 1
+            except OSError:
+                pass  # a file vanishing mid-copy is fine; we want a stable snapshot, not this file
+    env = {**os.environ, "MEMORY_FABRIC_VAULT": vault, "MEMORY_FABRIC_HOME": home}
+    return work, vault, home, env, n
+
+
+WORK, VAULT, HOME, ENV, COPIED = _freeze_vault()
+IDX = os.path.join(HOME, "index.sqlite3")
+# Self-check: if this ever points outside the temp workdir, the test is racing the live vault again
+# and its search comparison means nothing. Cheaper to assert than to notice a random red gate later.
+assert os.path.realpath(IDX).startswith(os.path.realpath(WORK) + os.sep), (
+    f"migration test is not hermetic: index {IDX} is outside {WORK}")
+assert ENV["MEMORY_FABRIC_VAULT"] == VAULT and ENV["MEMORY_FABRIC_HOME"] == HOME
+
+
 def q(op):
-    r = subprocess.run([BIN], input=json.dumps(op), capture_output=True, text=True)
+    r = subprocess.run([BIN], input=json.dumps(op), capture_output=True, text=True, env=ENV)
     try:
         return json.loads(r.stdout)
     except Exception:
         return {"_unparseable": (r.stdout or r.stderr)[:200]}
 
+
 def S(**kw):
     return q({"op": "search", "scope": "all", "limit": 5, "provider": "pi", "loopback": True, **kw})
 
-if not os.path.exists(IDX):
-    print("  no index; skipping"); sys.exit(0)
 
-backup = IDX + ".migration-test"
-shutil.copy2(IDX, backup)
 try:
+    if not COPIED:
+        print("  empty vault copy; nothing to migrate")
+        sys.exit(0)
+    # Build the frozen index. This is the baseline both sides of the migration are measured against.
+    q({"op": "index"})
+    if not os.path.exists(IDX):
+        print("  could not build a frozen index; skipping")
+        sys.exit(0)
+    con0 = sqlite3.connect(IDX)
+    frozen_docs = con0.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+    con0.close()
+    if frozen_docs == 0:
+        # Never let this pass silently: an empty index on both sides makes every comparison trivially
+        # equal, which is how a broken test reports success.
+        print("  FAIL: the frozen index holds 0 documents, so nothing here would be tested", file=sys.stderr)
+        sys.exit(1)
+    print(f"  frozen corpus       : {COPIED} notes copied, {frozen_docs} indexed from a temp vault "
+          f"(no concurrent writers possible)")
+
     before = S(query="decision log")
     before_refs = [r["source_ref"] for r in before.get("results", [])]
+    if not before_refs:
+        print(f"  FAIL: the probe query returned nothing from a {frozen_docs}-document index; "
+              f"response was {str(before)[:200]}", file=sys.stderr)
+        sys.exit(1)
     con = sqlite3.connect(IDX)
     counts_before = tuple(
         con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
         for t in ("documents", "doc_terms", "term_df")
     )
-    # The vault is a LIVE knowledge base - other agents write to it while the gate runs. Comparing
-    # absolute counts made this test fail on a concurrent write (one appeared mid-run and the count
-    # went 124 -> 125), which is a false failure and exactly the kind that gets a strict test
-    # weakened. What a migration must guarantee is that nothing is LOST: the relpath set afterwards
-    # must be a superset of the one before.
     docs_before = {r[0] for r in con.execute("SELECT relpath FROM documents")}
     # Build a genuinely old-format index: drop a column the ladder is supposed to add, roll the
     # version back, and clear the migration record.
@@ -54,7 +123,8 @@ try:
         con.execute("ALTER TABLE documents DROP COLUMN export_policy")
     except sqlite3.OperationalError as e:
         print(f"  sqlite cannot drop a column here ({e}); skipping the structural case")
-        con.close(); sys.exit(0)
+        con.close()
+        sys.exit(0)
     con.execute("UPDATE metadata SET value='2' WHERE key='schema_version'")
     con.execute("DELETE FROM metadata WHERE key='last_migration'")
     con.commit()
@@ -79,30 +149,29 @@ try:
 
     if "export_policy" not in cols_after:
         fails.append("the migration did not restore the dropped column")
-    # Nothing may be lost, and nothing may be duplicated. Additions from concurrent writers are
-    # normal and are reported, not failed.
+    # With a frozen corpus nothing may be lost, duplicated, OR added. This is stricter than the
+    # superset check it replaces: that check existed only to tolerate the race this test no longer has.
     con2 = sqlite3.connect(IDX)
     docs_after = {r[0] for r in con2.execute("SELECT relpath FROM documents")}
     dupes = con2.execute(
         "SELECT relpath FROM documents GROUP BY relpath HAVING COUNT(*) > 1").fetchall()
     con2.close()
     lost = docs_before - docs_after
-    added_concurrently = docs_after - docs_before
+    added = docs_after - docs_before
     if lost:
         fails.append(f"reconciliation: the migration LOST {len(lost)} document(s): {sorted(lost)[:5]}")
+    if added:
+        # Impossible with a frozen corpus: it means the re-read invented documents.
+        fails.append(f"reconciliation: the migration ADDED {len(added)} document(s) from a frozen corpus: {sorted(added)[:5]}")
     if dupes:
         fails.append(f"reconciliation: {len(dupes)} duplicated relpath(s): {[d[0] for d in dupes][:5]}")
-    if added_concurrently:
-        print(f"  concurrent writers added {len(added_concurrently)} note(s) mid-run "
-              f"({sorted(added_concurrently)[:2]}) - reported, not failed")
     # `doc_terms` and `term_df` are derived, and a migration forces a full re-read that rebuilds
-    # them from current content. Asserting equality here made the gate fail on a correct
-    # migration, which is how a strict test gets weakened or switched off. They are reported, not
-    # asserted. The invariant that matters - that the ALTER itself changes no rows - is asserted
-    # inside init_db, between the columns being added and the version being written.
+    # them from current content. With a frozen corpus they must come back identical. Asserting this
+    # on the live vault was impossible; here it is the real check that the re-read is deterministic.
     if counts_before[1:] != counts_after[1:]:
-        print(f"  derived tables rebuilt: doc_terms {counts_before[1]}->{counts_after[1]}, "
-              f"term_df {counts_before[2]}->{counts_after[2]} (expected: a migration forces a re-read)")
+        fails.append(
+            f"derived tables differ across a migration over an unchanged corpus: "
+            f"doc_terms {counts_before[1]}->{counts_after[1]}, term_df {counts_before[2]}->{counts_after[2]}")
     if not ver or ver[0] != "3":
         fails.append(f"schema_version is {ver!r}, expected '3'")
     if not mig:
@@ -111,7 +180,9 @@ try:
         fails.append(f"the restored column did not default for pre-existing rows ({dflt}/{counts_after[0]})")
     print(f"  after migration     : columns={len(cols_after)} version={ver and ver[0]!r}")
     print(f"  reconciliation      : {len(docs_before)} documents before, {len(docs_after)} after, "
-          f"lost={len(lost)} duplicated={len(dupes)}")
+          f"lost={len(lost)} added={len(added)} duplicated={len(dupes)}")
+    print(f"  derived tables      : doc_terms {counts_before[1]}->{counts_after[1]}, "
+          f"term_df {counts_before[2]}->{counts_after[2]} (must be identical over a frozen corpus)")
     print(f"  default backfilled  : {dflt}/{counts_after[0]} rows carry 'deny_remote' (fail-closed default)")
     print(f"  recorded            : {mig and mig[0]}")
 
@@ -121,11 +192,7 @@ try:
         fails.append(f"search results changed across the migration: {before_refs} -> {refs_after}")
     print(f"  search unchanged    : {refs_after == before_refs}")
 finally:
-    for junk in [IDX, IDX + "-wal", IDX + "-shm"]:
-        if os.path.exists(junk):
-            os.remove(junk)
-    shutil.copy2(backup, IDX)
-    os.remove(backup)
+    shutil.rmtree(WORK, ignore_errors=True)
 
 if fails:
     for f in fails:
