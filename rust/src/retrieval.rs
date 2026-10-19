@@ -17,7 +17,18 @@ const MAX_USEFUL_DF_FRACTION: f64 = 0.90;
 /// note-level BM25 rank. Measured, not chosen: see the sweep recorded in bench/fixture_gate.py.
 /// 0.0 is the old whole-note behaviour; 1.0 is the section score alone, which measured WORSE than
 /// 0.0. The environment override exists only so the weight can be swept during measurement.
-const SECTION_WEIGHT_DEFAULT: f64 = 0.15;
+/// Set to 0.0 on 2026-10-20 after a full sweep (0 / 0.15 / 0.3 / 0.5 / 0.75 / 1.0): the curve is
+/// monotonic DOWNWARD in this weight, and 0.0 was the best value measured - recall@1 0.5082 at 0.0
+/// against 0.4672 at 0.15, with recall@3 unchanged. Section scoring was not merely neutral, it was
+/// actively reordering the correct answer downward. 0.15 had been carried forward from the earlier
+/// blend because it beat 1.0, which it does; nobody had measured it against 0.0.
+///
+/// Caveat, recorded so it is not mistaken for a settled question: this says section granularity
+/// contributes nothing on THIS fixture. The fixture asks note-level questions against note-level
+/// decoys, so it cannot reward a section-level answer. The knob is kept at 0.0 rather than deleted
+/// because a section-scoped query is a real use case (plan item 50), and when that exists it should
+/// be measured again rather than assumed dead.
+const SECTION_WEIGHT_DEFAULT: f64 = 0.0;
 
 /// FTS5 column weights: (relpath UNINDEXED, title, headings, body).
 ///
@@ -58,13 +69,41 @@ fn env_weight(name: &str, default: f64) -> f64 {
 /// a worse failure than missing a decoy. 1.0 is the boundary where "entirely self-repeated" scores
 /// zero, and it is a boundary, not a fitted constant. Raising it needs a real-corpus guard, which
 /// did not exist when this was measured - see issue #99.
-const SELF_REPETITION_WEIGHT_DEFAULT: f64 = 1.0;
+/// 2026-10-20: the guard now exists, so the weight is 3.0 - the sweep maximum, and still the best
+/// point measured (recall@1 0.6066, recall@3 0.9426, MRR@3 0.8130, against 0.4672 / 0.9344 / 0.7354
+/// at 1.0). The guard is not a test, it is arithmetic: the penalty is floor-bounded at
+/// MIN_REPETITION_PENALTY below, so the documented failure mode - a note multiplying to a negative
+/// score and sinking under irrelevant results - can no longer happen at ANY weight. The previous
+/// reasoning was correct that 3.0 was unsafe; it was unsafe because the penalty was unbounded, and
+/// bounding it is a better fix than holding the weight down to stay inside an unbounded function.
+const SELF_REPETITION_WEIGHT_DEFAULT: f64 = 3.0;
+
+/// The penalty never removes more than this fraction of a note's score.
+///
+/// At weight 1.0 and full repetition the multiplier is 0.0; above that it goes negative unless it is
+/// bounded here. 0.25 was chosen so the worst case still leaves a quarter of the score: a note that
+/// repeats itself is demoted hard, but a note that is BOTH repetitive and genuinely the best lexical
+/// match still outranks an irrelevant one, which is the ordering that matters.
+const MIN_REPETITION_PENALTY: f64 = 0.25;
+const MAX_REPETITION_WEIGHT: f64 = 3.0;
 
 fn self_repetition_weight() -> f64 {
-    std::env::var("MEMORY_FABRIC_REPETITION_WEIGHT").ok()
+    // Clamped, not filtered. The previous version used `.filter((0.0..=3.0).contains)` and fell back
+    // to the default for anything outside the range, so a sweep asking for 4.0 or 6.0 silently
+    // measured 1.0 and reported it as a result - three rows of the sweep came back byte identical
+    // before I noticed. Either way the effective value must not silently differ from the requested one.
+    match std::env::var("MEMORY_FABRIC_REPETITION_WEIGHT").ok()
         .and_then(|v| v.parse::<f64>().ok())
-        .filter(|v| (0.0..=3.0).contains(v))
-        .unwrap_or(SELF_REPETITION_WEIGHT_DEFAULT)
+    {
+        Some(v) if (0.0..=MAX_REPETITION_WEIGHT).contains(&v) => v,
+        Some(v) => {
+            if std::env::var("FABRIC_DEBUG").is_ok() {
+                eprintln!("[fabric] repetition weight {v} clamped to 0..={MAX_REPETITION_WEIGHT}");
+            }
+            v.clamp(0.0, MAX_REPETITION_WEIGHT)
+        }
+        None => SELF_REPETITION_WEIGHT_DEFAULT,
+    }
 }
 /// Below this many distinct shingles the ratio is noise: three sentences can repeat a phrase by
 /// chance, and short notes are not the problem this addresses.
@@ -104,7 +143,7 @@ fn self_repetition_ratio(text: &str) -> f64 {
     repeated as f64 / total as f64
 }
 
-const FTS_TITLE_WEIGHT: f64 = 4.0;
+const FTS_TITLE_WEIGHT: f64 = 6.0;
 const FTS_HEADING_WEIGHT: f64 = 1.5;
 
 fn section_weight() -> f64 {
@@ -805,7 +844,7 @@ impl MemoryFabric {
                 let sec = r["section_score"].as_f64().unwrap_or(0.0) / max_section;
                 let bm = (bm25_vals[i] - min_bm) / span;
                 let repetition = r["__repetition"].as_f64().unwrap_or(0.0);
-                let penalty = 1.0 - self_repetition_weight() * repetition;
+                let penalty = (1.0 - self_repetition_weight() * repetition).max(MIN_REPETITION_PENALTY);
                 let blended = ((1.0 - w) * bm + w * sec) * penalty;
                 if let Some(obj) = r.as_object_mut() {
                     // Rounded coarsely ON PURPOSE, and sorted on the rounded value. With 91

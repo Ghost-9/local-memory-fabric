@@ -216,11 +216,22 @@ def _self_repetition_ratio(text: str) -> float:
 
 
 def _section_weight() -> float:
-    return _env_float("MEMORY_FABRIC_SECTION_WEIGHT", 0.15, 0.0, 1.0)
+    return _env_float("MEMORY_FABRIC_SECTION_WEIGHT", 0.0, 0.0, 1.0)
 
 
 def _repetition_weight() -> float:
-    return _env_float("MEMORY_FABRIC_REPETITION_WEIGHT", 1.0, 0.0, 3.0)
+    return _env_float("MEMORY_FABRIC_REPETITION_WEIGHT", 3.0, 0.0, 3.0)
+
+
+def _title_weight() -> float:
+    """FTS5 title-column weight. Mirrors fts_title_weight() in rust/src/retrieval.rs.
+
+    This was hardcoded as 4.0 in the ranking SQL until 2026-10-20, so raising it on the Rust side
+    silently broke parity: python kept scoring titles at 4.0 while rust used 6.0, and the fixture
+    reported recall@1 0.5902 against 0.6066. Interpolated now, so the two engines cannot disagree
+    about a number that is meant to be the same number.
+    """
+    return _env_float("MEMORY_FABRIC_TITLE_WEIGHT", 6.0, 0.0, 100.0)
 
 
 def _env_float(name: str, default: float, low: float, high: float) -> float:
@@ -278,7 +289,7 @@ def rank_results(results: list[dict[str, Any]], useful: list[str], df: dict[str,
     for i, r in enumerate(results):
         sec = section_scores[i] / max_section
         bm = (bm_vals[i] - lo) / span
-        penalty = 1.0 - rw * _self_repetition_ratio(bodies.get(r["source_ref"], ""))
+        penalty = max(0.25, 1.0 - rw * _self_repetition_ratio(bodies.get(r["source_ref"], "")))
         # Rounded to 3 decimals to match the Rust engine: with many near-identical
         # documents the top of the list is ties, and comparing raw floats let the two
         # engines disagree about which tied note came first.
@@ -917,7 +928,7 @@ class MemoryFabric:
                     WHERE {' AND '.join(where)}""", params).fetchone()[0])
             page_params = list(params) + [max(1, min(int(limit), 20)) * 10]
             rows = con.execute(f"""SELECT d.relpath,d.title,d.scope,d.classification,d.source_status,d.valid_from,d.valid_to,d.superseded_by,
-                d.provider_policy,d.export_policy,d.body,d.indexed_at,bm25(documents_fts,0.0,4.0,1.5,1.0) AS rank
+                d.provider_policy,d.export_policy,d.body,d.indexed_at,bm25(documents_fts,0.0,{_title_weight()},1.5,1.0) AS rank
                 FROM documents_fts JOIN documents d ON d.relpath=documents_fts.relpath
                 WHERE {' AND '.join(where)} ORDER BY rank, documents_fts.relpath LIMIT ?""", page_params).fetchall()
             # One lookup for every candidate instead of one query per candidate.

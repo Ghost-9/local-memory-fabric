@@ -1,5 +1,5 @@
 {
- "captured_at": "2026-10-19T21:01:11Z",
+ "captured_at": "2026-10-19T22:04:32Z",
  "cases": [
   {
    "abstention": null,
@@ -84,8 +84,8 @@
    "ok": true,
    "query": "KV cache",
    "refs": [
-    "projects/decoy-kv-cache.md",
     "projects/kv-cache.md",
+    "projects/decoy-kv-cache.md",
     "projects/acronyms.md"
    ],
    "scope": "all",
@@ -124,8 +124,8 @@
    "ok": true,
    "query": "KV",
    "refs": [
-    "projects/decoy-kv-cache.md",
     "projects/kv-cache.md",
+    "projects/decoy-kv-cache.md",
     "projects/acronyms.md"
    ],
    "scope": "all",
@@ -242,9 +242,9 @@
    "ok": true,
    "query": "FTS5",
    "refs": [
+    "projects/fts5-tokenizer.md",
     "projects/decoy-fts5-tokenizer.md",
     "projects/decoy-bm25-ranking.md",
-    "projects/fts5-tokenizer.md",
     "projects/bm25-ranking.md"
    ],
    "scope": "all",
@@ -283,9 +283,9 @@
    "ok": true,
    "query": "fts5",
    "refs": [
+    "projects/fts5-tokenizer.md",
     "projects/decoy-fts5-tokenizer.md",
     "projects/decoy-bm25-ranking.md",
-    "projects/fts5-tokenizer.md",
     "projects/bm25-ranking.md"
    ],
    "scope": "all",
@@ -324,9 +324,9 @@
    "ok": true,
    "query": "porter",
    "refs": [
+    "projects/fts5-tokenizer.md",
     "projects/decoy-fts5-tokenizer.md",
     "projects/decoy-bm25-ranking.md",
-    "projects/fts5-tokenizer.md",
     "projects/bm25-ranking.md"
    ],
    "scope": "all",
@@ -754,8 +754,8 @@
    "ok": true,
    "query": "append-only",
    "refs": [
-    "projects/decoy-append-only.md",
     "projects/append-only.md",
+    "projects/decoy-append-only.md",
     "projects/prompt-cache.md",
     "projects/credential-filter.md",
     "projects/incremental-index.md"
@@ -796,9 +796,9 @@
    "ok": true,
    "query": "prompt cache prefix",
    "refs": [
-    "projects/decoy-prefix-cache-stability.md",
     "projects/prompt-cache.md",
     "projects/prefix-cache-stability.md",
+    "projects/decoy-prefix-cache-stability.md",
     "projects/decoy-prompt-cache.md",
     "projects/kv-cache.md"
    ],
@@ -841,8 +841,8 @@
     "projects/decoy-prompt-cache.md",
     "projects/prompt-cache.md",
     "projects/kv-cache.md",
-    "projects/decoy-determinism.md",
-    "projects/resident-context.md"
+    "projects/resident-context.md",
+    "projects/decoy-determinism.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -922,8 +922,8 @@
    "ok": true,
    "query": "resident context size",
    "refs": [
-    "projects/decoy-resident-context.md",
     "projects/resident-context.md",
+    "projects/decoy-resident-context.md",
     "projects/prompt-cache.md",
     "projects/document-frequency.md"
    ],
@@ -1284,8 +1284,8 @@
    "refs": [
     "projects/path-symlink.md",
     "projects/decoy-path-symlink.md",
-    "projects/decoy-writeback-proposal.md",
-    "projects/writeback-proposal.md"
+    "projects/writeback-proposal.md",
+    "projects/decoy-writeback-proposal.md"
    ],
    "scope": "all",
    "shown": 4,
@@ -1362,11 +1362,11 @@
    "ok": true,
    "query": "ranked evidence as-of",
    "refs": [
-    "projects/decoy-evidence-trail.md",
     "projects/evidence-trail.md",
     "projects/retrieval-abstention.md",
-    "projects/decoy-bm25-ranking.md",
-    "projects/bm25-ranking.md"
+    "projects/decoy-evidence-trail.md",
+    "projects/bm25-ranking.md",
+    "projects/decoy-determinism.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -1443,8 +1443,8 @@
    "ok": true,
    "query": "case boundary identifier",
    "refs": [
-    "projects/decoy-identifiers.md",
     "projects/identifiers.md",
+    "projects/decoy-identifiers.md",
     "projects/fts5-tokenizer.md",
     "projects/privacy-loopback.md"
    ],
@@ -1646,10 +1646,10 @@
    "ok": true,
    "query": "what happens when the model forgets earlier instructions",
    "refs": [
-    "projects/decoy-prefix-cache-stability.md",
     "projects/prefix-cache-stability.md",
+    "projects/decoy-prefix-cache-stability.md",
     "projects/prompt-cache.md",
-    "projects/decoy-resident-context.md",
+    "projects/resident-context.md",
     "projects/decoy-prompt-cache.md"
    ],
    "scope": "all",
@@ -1688,8 +1688,8 @@
    "ok": true,
    "query": "how do I keep my prompts cheap",
    "refs": [
-    "projects/decoy-prompt-cache.md",
     "projects/prompt-cache.md",
+    "projects/decoy-prompt-cache.md",
     "projects/decoy-prefix-cache-stability.md",
     "projects/prefix-cache-stability.md",
     "projects/decoy-resident-context.md"
@@ -1731,8 +1731,8 @@
    "query": "what makes a word too common to be useful",
    "refs": [
     "projects/document-frequency.md",
-    "projects/decoy-document-frequency.md",
     "projects/bm25-ranking.md",
+    "projects/decoy-document-frequency.md",
     "projects/decoy-incremental-index.md",
     "projects/decoy-fts5-tokenizer.md"
    ],
@@ -1815,10 +1815,10 @@
    "query": "how do I undo something already written",
    "refs": [
     "projects/append-only.md",
-    "projects/decoy-append-only.md",
     "projects/temporal-supersession.md",
-    "projects/decoy-provider-allowlist.md",
-    "projects/writeback-proposal.md"
+    "projects/writeback-proposal.md",
+    "projects/decoy-append-only.md",
+    "projects/decoy-provider-allowlist.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -1858,8 +1858,8 @@
    "refs": [
     "projects/path-symlink.md",
     "projects/decoy-path-symlink.md",
-    "projects/decoy-writeback-proposal.md",
     "projects/decoy-source-provenance.md",
+    "projects/decoy-writeback-proposal.md",
     "projects/scope-separation.md"
    ],
    "scope": "all",
@@ -1902,7 +1902,7 @@
     "projects/provider-allowlist.md",
     "projects/decoy-resident-context.md",
     "projects/decoy-bm25-ranking.md",
-    "projects/resident-context.md"
+    "projects/bm25-ranking.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -1940,10 +1940,10 @@
    "ok": true,
    "query": "will this automatically change my files",
    "refs": [
-    "projects/decoy-writeback-proposal.md",
     "projects/writeback-proposal.md",
-    "projects/decoy-incremental-index.md",
+    "projects/decoy-writeback-proposal.md",
     "projects/incremental-index.md",
+    "projects/decoy-incremental-index.md",
     "projects/decoy-prefix-cache-stability.md"
    ],
    "scope": "all",
@@ -1982,11 +1982,11 @@
    "ok": true,
    "query": "what should I do when two answers disagree in time",
    "refs": [
-    "projects/decoy-temporal-supersession.md",
     "projects/temporal-supersession.md",
+    "projects/decoy-temporal-supersession.md",
     "projects/decoy-retrieval-abstention.md",
     "projects/retrieval-abstention.md",
-    "projects/decoy-engine-parity.md"
+    "projects/acronyms.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -2024,8 +2024,8 @@
    "ok": true,
    "query": "how do I know the engine agrees with itself",
    "refs": [
-    "projects/decoy-engine-parity.md",
     "projects/engine-parity.md",
+    "projects/decoy-engine-parity.md",
     "projects/credential-filter.md",
     "projects/path-symlink.md",
     "projects/resident-context.md"
@@ -2106,10 +2106,10 @@
    "query": "what is it called when a system has nothing to say",
    "refs": [
     "projects/retrieval-abstention.md",
-    "projects/decoy-retrieval-abstention.md",
     "projects/scope-separation.md",
-    "projects/decoy-privacy-loopback.md",
-    "projects/decoy-scope-separation.md"
+    "projects/decoy-retrieval-abstention.md",
+    "projects/privacy-loopback.md",
+    "projects/decoy-privacy-loopback.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -2148,9 +2148,9 @@
    "query": "how do I stop re-reading every single file",
    "refs": [
     "projects/decoy-incremental-index.md",
-    "projects/decoy-resident-context.md",
-    "projects/decoy-provider-allowlist.md",
     "projects/resident-context.md",
+    "projects/decoy-provider-allowlist.md",
+    "projects/decoy-resident-context.md",
     "projects/provider-allowlist.md"
    ],
    "scope": "all",
@@ -2392,8 +2392,8 @@
    "ok": true,
    "query": "what does it mean for a secret to be excluded",
    "refs": [
-    "projects/decoy-credential-filter.md",
     "projects/decoy-privacy-loopback.md",
+    "projects/decoy-credential-filter.md",
     "projects/credential-filter.md",
     "projects/path-symlink.md",
     "projects/privacy-loopback.md"
@@ -2518,11 +2518,11 @@
    "ok": true,
    "query": "stable metadata",
    "refs": [
+    "projects/filler/note-000.md",
+    "projects/filler/note-001.md",
     "projects/filler/note-002.md",
-    "projects/filler/note-004.md",
-    "projects/filler/note-006.md",
-    "projects/filler/note-007.md",
-    "projects/filler/note-009.md"
+    "projects/filler/note-003.md",
+    "projects/filler/note-004.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -2728,8 +2728,8 @@
    "ok": true,
    "query": "context",
    "refs": [
-    "projects/decoy-resident-context.md",
     "projects/resident-context.md",
+    "projects/decoy-resident-context.md",
     "projects/prompt-cache.md"
    ],
    "scope": "all",
@@ -2811,10 +2811,10 @@
    "query": "query",
    "refs": [
     "projects/decoy-retrieval-abstention.md",
+    "projects/temporal-supersession.md",
     "projects/scope-separation.md",
-    "projects/identifiers.md",
     "projects/determinism.md",
-    "projects/acronyms.md"
+    "projects/identifiers.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -3142,9 +3142,9 @@
    "refs": [
     "projects/no-hit.md",
     "projects/bm25-ranking.md",
-    "projects/decoy-bm25-ranking.md",
     "projects/determinism.md",
-    "projects/decoy-retrieval-abstention.md"
+    "projects/decoy-retrieval-abstention.md",
+    "projects/decoy-determinism.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -3383,9 +3383,9 @@
    "refs": [
     "projects/decoy-source-provenance.md",
     "projects/source-provenance.md",
+    "projects/path-symlink.md",
     "projects/decoy-path-symlink.md",
-    "projects/decoy-provider-allowlist.md",
-    "projects/path-symlink.md"
+    "projects/decoy-provider-allowlist.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -3501,8 +3501,8 @@
    "ok": true,
    "query": "superseded claim visibility",
    "refs": [
-    "projects/decoy-evidence-trail.md",
     "projects/temporal-supersession.md",
+    "projects/decoy-evidence-trail.md",
     "projects/evidence-trail.md",
     "projects/decoy-temporal-supersession.md"
    ],
@@ -3544,9 +3544,9 @@
    "refs": [
     "projects/decoy-provider-allowlist.md",
     "projects/provider-allowlist.md",
-    "projects/resident-context.md",
+    "projects/writeback-proposal.md",
     "projects/decoy-resident-context.md",
-    "projects/writeback-proposal.md"
+    "projects/resident-context.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -3584,11 +3584,11 @@
    "ok": true,
    "query": "exempted provider read access",
    "refs": [
-    "projects/decoy-provider-allowlist.md",
     "projects/provider-allowlist.md",
+    "projects/decoy-provider-allowlist.md",
     "projects/decoy-resident-context.md",
     "projects/decoy-bm25-ranking.md",
-    "projects/resident-context.md"
+    "projects/bm25-ranking.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -3627,8 +3627,8 @@
    "query": "write switch off by default",
    "refs": [
     "projects/provider-allowlist.md",
-    "projects/decoy-provider-allowlist.md",
     "projects/writeback-proposal.md",
+    "projects/decoy-provider-allowlist.md",
     "projects/append-only.md"
    ],
    "scope": "all",
@@ -3793,7 +3793,7 @@
     "projects/prefix-cache-stability.md",
     "projects/writeback-proposal.md",
     "projects/path-symlink.md",
-    "projects/incremental-index.md"
+    "projects/provider-allowlist.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -3909,10 +3909,10 @@
    "ok": true,
    "query": "applying twice is idempotent",
    "refs": [
-    "projects/decoy-append-only.md",
     "projects/append-only.md",
-    "projects/prompt-cache.md",
-    "projects/writeback-proposal.md"
+    "projects/decoy-append-only.md",
+    "projects/writeback-proposal.md",
+    "projects/prompt-cache.md"
    ],
    "scope": "all",
    "shown": 4,
@@ -3990,8 +3990,8 @@
    "refs": [
     "projects/path-symlink.md",
     "projects/decoy-path-symlink.md",
-    "projects/decoy-writeback-proposal.md",
     "projects/writeback-proposal.md",
+    "projects/decoy-writeback-proposal.md",
     "projects/scope-separation.md"
    ],
    "scope": "all",
@@ -4112,10 +4112,10 @@
    "query": "when should the engine stay quiet",
    "refs": [
     "projects/retrieval-abstention.md",
+    "projects/engine-parity.md",
     "projects/decoy-retrieval-abstention.md",
-    "projects/decoy-evidence-trail.md",
-    "projects/decoy-engine-parity.md",
-    "projects/engine-parity.md"
+    "projects/evidence-trail.md",
+    "projects/decoy-evidence-trail.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -4320,10 +4320,10 @@
    "query": "stable",
    "refs": [
     "projects/decoy-determinism.md",
+    "projects/filler/note-000.md",
+    "projects/filler/note-001.md",
     "projects/filler/note-002.md",
-    "projects/filler/note-004.md",
-    "projects/filler/note-006.md",
-    "projects/filler/note-007.md"
+    "projects/filler/note-003.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -4363,8 +4363,8 @@
    "refs": [
     "projects/retrieval-abstention.md",
     "projects/decoy-retrieval-abstention.md",
-    "projects/decoy-privacy-loopback.md",
     "projects/privacy-loopback.md",
+    "projects/decoy-privacy-loopback.md",
     "projects/scope-separation.md"
    ],
    "scope": "all",
@@ -4487,10 +4487,10 @@
    "query": "tokenizer part of the skip key",
    "refs": [
     "projects/incremental-index.md",
-    "projects/decoy-incremental-index.md",
     "projects/identifiers.md",
-    "projects/decoy-kv-cache.md",
-    "projects/fts5-tokenizer.md"
+    "projects/fts5-tokenizer.md",
+    "projects/decoy-incremental-index.md",
+    "projects/kv-cache.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -4687,8 +4687,8 @@
    "query": "inverted index stem",
    "refs": [
     "projects/bm25-ranking.md",
-    "projects/decoy-bm25-ranking.md",
-    "projects/fts5-tokenizer.md"
+    "projects/fts5-tokenizer.md",
+    "projects/decoy-bm25-ranking.md"
    ],
    "scope": "all",
    "shown": 3,
@@ -4888,8 +4888,8 @@
    "refs": [
     "projects/prompt-cache.md",
     "projects/kv-cache.md",
-    "projects/decoy-prefix-cache-stability.md",
     "projects/prefix-cache-stability.md",
+    "projects/decoy-prefix-cache-stability.md",
     "projects/resident-context.md"
    ],
    "scope": "all",
@@ -4928,9 +4928,9 @@
    "ok": true,
    "query": "append only preserves reuse",
    "refs": [
-    "projects/decoy-append-only.md",
     "projects/append-only.md",
     "projects/prompt-cache.md",
+    "projects/decoy-append-only.md",
     "projects/decoy-temporal-supersession.md",
     "projects/kv-cache.md"
    ],
@@ -5050,11 +5050,11 @@
    "ok": true,
    "query": "system prompt changed",
    "refs": [
-    "projects/decoy-prefix-cache-stability.md",
     "projects/prefix-cache-stability.md",
-    "projects/decoy-scope-separation.md",
+    "projects/decoy-prefix-cache-stability.md",
+    "projects/prompt-cache.md",
     "projects/decoy-prompt-cache.md",
-    "projects/prompt-cache.md"
+    "projects/decoy-scope-separation.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -5092,8 +5092,8 @@
    "ok": true,
    "query": "multiplication on every invalidation",
    "refs": [
-    "projects/resident-context.md",
     "projects/prefix-cache-stability.md",
+    "projects/resident-context.md",
     "projects/decoy-prefix-cache-stability.md",
     "projects/acronyms.md",
     "projects/prompt-cache.md"
@@ -5135,8 +5135,8 @@
    "query": "400K prefix cold start",
    "refs": [
     "projects/resident-context.md",
-    "projects/decoy-prefix-cache-stability.md",
     "projects/prefix-cache-stability.md",
+    "projects/decoy-prefix-cache-stability.md",
     "projects/kv-cache.md",
     "projects/prompt-cache.md"
    ],
@@ -5218,7 +5218,7 @@
     "projects/decoy-incremental-index.md",
     "projects/decoy-document-frequency.md",
     "projects/bm25-ranking.md",
-    "projects/acronyms.md"
+    "projects/source-provenance.md"
    ],
    "scope": "all",
    "shown": 5,
@@ -5257,10 +5257,10 @@
    "query": "noise query alpha beta gamma",
    "refs": [
     "projects/decoy-retrieval-abstention.md",
+    "projects/temporal-supersession.md",
     "projects/scope-separation.md",
-    "projects/identifiers.md",
     "projects/determinism.md",
-    "projects/acronyms.md"
+    "projects/identifiers.md"
    ],
    "scope": "all",
    "shown": 5,
