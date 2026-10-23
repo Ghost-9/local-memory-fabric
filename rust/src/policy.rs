@@ -112,38 +112,74 @@ pub(crate) fn secret_signature(text: &str) -> Option<&'static str> {
 ///
 /// Tells the owner WHICH key to rotate without copying that key anywhere. Derived from the
 /// matched VALUE, so the same key in two notes produces one fingerprint (one problem to
-/// rotate) while two different keys never collide. Mirrors the Python engine exactly:
-/// `sha256(value)[:12]`, with the same placeholder suppression.
+/// rotate) while two different keys never collide. The fingerprint is
+/// `sha256(value)[:12]`, with placeholder suppression.
 pub(crate) fn secret_fingerprint(text: &str) -> Option<String> {
     let patterns: [(&str, &str); 11] = [
-        ("private_key", r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
+        (
+            "private_key",
+            r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
+        ),
         ("aws_access_key", r"\bAKIA[0-9A-Z]{16}\b"),
-        ("github_token", r"\b(?:gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{30,})\b"),
+        (
+            "github_token",
+            r"\b(?:gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{30,})\b",
+        ),
         ("slack_token", r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b"),
         ("stripe_live_key", r"\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b"),
         ("google_api_key", r"\bAIza[0-9A-Za-z_-]{30,}\b"),
-        ("openai_api_key", r"(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{20,}(?:$|[^A-Za-z0-9])"),
-        ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\b"),
-        ("bearer_credential", r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{24,}={0,2}"),
-        ("credential_assignment", r#"(?i)(?:^|[^A-Za-z0-9])([A-Za-z0-9_-]*(?:api[_-]?key|client[_-]?secret|service[_-]?role[_-]?key|access[_-]?key|private[_-]?key|secret|password|passwd|token)[A-Za-z0-9_-]*)\s*[:=]\s*['"]?([^\s'"]{12,})"#),
-        ("credential_url", r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@"),
+        (
+            "openai_api_key",
+            r"(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{20,}(?:$|[^A-Za-z0-9])",
+        ),
+        (
+            "jwt",
+            r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\b",
+        ),
+        (
+            "bearer_credential",
+            r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{24,}={0,2}",
+        ),
+        (
+            "credential_assignment",
+            r#"(?i)(?:^|[^A-Za-z0-9])([A-Za-z0-9_-]*(?:api[_-]?key|client[_-]?secret|service[_-]?role[_-]?key|access[_-]?key|private[_-]?key|secret|password|passwd|token)[A-Za-z0-9_-]*)\s*[:=]\s*['"]?([^\s'"]{12,})"#,
+        ),
+        (
+            "credential_url",
+            r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@",
+        ),
     ];
     let placeholders = [
-        "placeholder", "redacted", "example", "sample", "change-me", "changeme", "your_",
-        "your-", "insert_", "replace_", "not-a-real", "not_a_real", "dummy", "fake",
+        "placeholder",
+        "redacted",
+        "example",
+        "sample",
+        "change-me",
+        "changeme",
+        "your_",
+        "your-",
+        "insert_",
+        "replace_",
+        "not-a-real",
+        "not_a_real",
+        "dummy",
+        "fake",
     ];
     for (kind, pat) in patterns {
         let re = regex(pat);
-        let Some(caps) = re.captures(text) else { continue };
-        let value = caps.get(caps.len() - 1).map(|m| m.as_str()).unwrap_or("").to_string();
+        let Some(caps) = re.captures(text) else {
+            continue;
+        };
+        let value = caps
+            .get(caps.len() - 1)
+            .map(|m| m.as_str())
+            .unwrap_or("")
+            .to_string();
         if kind == "credential_assignment" {
             // Lowercase ONLY for the placeholder test, and hash the ORIGINAL value. Lowercasing
-            // before hashing would make the fingerprint case-insensitive and diverge from the
-            // Python engine, which hashes the value verbatim — two engines would then hand the
-            // owner two different ids for the same key.
-            let lowered = value
-                .trim_matches(['\'', '"', ' '])
-                .to_ascii_lowercase();
+            // before hashing would make the fingerprint case-insensitive and produce a different
+            // identifier for the same credential.
+            let lowered = value.trim_matches(['\'', '"', ' ']).to_ascii_lowercase();
             if placeholders.iter().any(|m| lowered.contains(m))
                 || regex(r"^<[^>]+>$").is_match(&lowered)
             {
@@ -160,16 +196,40 @@ pub(crate) fn secret_fingerprint(text: &str) -> Option<String> {
 pub(crate) fn sanitize_remote_excerpt(text: &str) -> String {
     let mut out = text.to_string();
     let redact_patterns: [(&str, &str); 10] = [
-        (r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----", "[REDACTED_PRIVATE_KEY]"),
+        (
+            r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
+            "[REDACTED_PRIVATE_KEY]",
+        ),
         (r"\bAKIA[0-9A-Z]{16}\b", "[REDACTED_AWS_KEY]"),
-        (r"\b(?:gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{30,})\b", "[REDACTED_GITHUB_TOKEN]"),
-        (r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b", "[REDACTED_SLACK_TOKEN]"),
-        (r"\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b", "[REDACTED_STRIPE_KEY]"),
+        (
+            r"\b(?:gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{30,})\b",
+            "[REDACTED_GITHUB_TOKEN]",
+        ),
+        (
+            r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b",
+            "[REDACTED_SLACK_TOKEN]",
+        ),
+        (
+            r"\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b",
+            "[REDACTED_STRIPE_KEY]",
+        ),
         (r"\bAIza[0-9A-Za-z_-]{30,}\b", "[REDACTED_GOOGLE_KEY]"),
-        (r"(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{20,}(?:$|[^A-Za-z0-9])", " [REDACTED_OPENAI_KEY] "),
-        (r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\b", "[REDACTED_JWT_TOKEN]"),
-        (r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{24,}={0,2}", "Bearer [REDACTED_BEARER_TOKEN]"),
-        (r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@", "protocol://[REDACTED_USER_PASS]@"),
+        (
+            r"(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{20,}(?:$|[^A-Za-z0-9])",
+            " [REDACTED_OPENAI_KEY] ",
+        ),
+        (
+            r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\b",
+            "[REDACTED_JWT_TOKEN]",
+        ),
+        (
+            r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{24,}={0,2}",
+            "Bearer [REDACTED_BEARER_TOKEN]",
+        ),
+        (
+            r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@",
+            "protocol://[REDACTED_USER_PASS]@",
+        ),
     ];
 
     for (pat, replacement) in redact_patterns {
@@ -178,8 +238,12 @@ pub(crate) fn sanitize_remote_excerpt(text: &str) -> String {
     }
 
     // Generic key assignments: KEY = "secret..."
-    let assign_re = regex(r#"(?i)([A-Za-z0-9_-]*(?:api[_-]?key|client[_-]?secret|service[_-]?role[_-]?key|access[_-]?key|private[_-]?key|secret|password|passwd|token)[A-Za-z0-9_-]*\s*[:=]\s*['"]?)[^\s'"]{12,}(['"]?)"#);
-    out = assign_re.replace_all(&out, "${1}[REDACTED_CREDENTIAL]${2}").to_string();
+    let assign_re = regex(
+        r#"(?i)([A-Za-z0-9_-]*(?:api[_-]?key|client[_-]?secret|service[_-]?role[_-]?key|access[_-]?key|private[_-]?key|secret|password|passwd|token)[A-Za-z0-9_-]*\s*[:=]\s*['"]?)[^\s'"]{12,}(['"]?)"#,
+    );
+    out = assign_re
+        .replace_all(&out, "${1}[REDACTED_CREDENTIAL]${2}")
+        .to_string();
 
     out
 }

@@ -3,7 +3,7 @@ use std::env;
 use std::fs::{self, OpenOptions};
 use std::path::{Component, Path, PathBuf};
 
-pub(crate) const VERSION: &str = "2.0.0";
+pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// C1/C4 - the index format version, separate from the engine version.
 ///
@@ -13,16 +13,11 @@ pub(crate) const VERSION: &str = "2.0.0";
 pub(crate) const SCHEMA_VERSION: &str = "4";
 pub(crate) const MAX_REQUEST_BYTES: usize = 131_072;
 pub(crate) const MAX_RESULT_CHARS_DEFAULT: usize = 6_000;
-/// Ceiling for one context packet. 6_000 tokens x 4 chars - the previous Python clamp, now
-/// applied to both engines so an omitted budget cannot mean unbounded.
+/// Ceiling for one context packet so an omitted token budget cannot mean unbounded output.
 pub(crate) const MAX_CONTEXT_CHARS_DEFAULT: usize = 24_000;
 
-/// UTC timestamp, byte-identical to the Python engine's `utc_now()`.
-///
-/// Python emits `isoformat(timespec="seconds")`, which renders the offset as `+00:00`;
-/// Rust's `to_rfc3339_opts` renders `Z`. Both are valid ISO 8601, but the two engines must
-/// agree byte-for-byte or every stored timestamp is a parity mismatch waiting to be found.
-/// Formatted manually rather than via `format!` gymnastics on a chrono type.
+/// Stable UTC timestamp representation for persisted records and deterministic responses.
+/// Formatted manually to keep the offset representation fixed at `+00:00`.
 pub(crate) fn now_utc() -> String {
     let now = Utc::now();
     format!(
@@ -65,10 +60,10 @@ pub(crate) fn set_mode(path: &Path, mode: u32) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = fs::symlink_metadata(path) {
-            if !meta.file_type().is_symlink() {
-                let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode));
-            }
+        if let Ok(meta) = fs::symlink_metadata(path)
+            && !meta.file_type().is_symlink()
+        {
+            let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode));
         }
     }
     #[cfg(not(unix))]

@@ -9,20 +9,19 @@ use std::sync::{Mutex, OnceLock};
 pub(crate) fn regex(pattern: &str) -> Regex {
     static CACHE: OnceLock<Mutex<HashMap<String, Regex>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Ok(guard) = cache.lock() {
-        if let Some(compiled) = guard.get(pattern) {
-            return compiled.clone();
-        }
+    if let Ok(guard) = cache.lock()
+        && let Some(compiled) = guard.get(pattern)
+    {
+        return compiled.clone();
     }
     let compiled = Regex::new(pattern).expect("regular expression must compile");
-    if pattern.len() <= 512 {
-        if let Ok(mut guard) = cache.lock() {
-            if guard.len() < 256 {
-                guard
-                    .entry(pattern.to_string())
-                    .or_insert_with(|| compiled.clone());
-            }
-        }
+    if pattern.len() <= 512
+        && let Ok(mut guard) = cache.lock()
+        && guard.len() < 256
+    {
+        guard
+            .entry(pattern.to_string())
+            .or_insert_with(|| compiled.clone());
     }
     compiled
 }
@@ -121,8 +120,7 @@ pub(crate) fn title_for(relpath: &str, text: &str) -> String {
         .file_stem()
         .unwrap_or_default()
         .to_string_lossy()
-        .replace('-', " ")
-        .replace('_', " ")
+        .replace(['-', '_'], " ")
 }
 
 pub(crate) fn headings_for(text: &str) -> String {
@@ -231,7 +229,11 @@ pub(crate) fn parse_sections(text: &str, title: &str) -> Vec<MarkdownSection> {
                 });
             }
             let hashes = caps.get(1).map(|m| m.as_str().len()).unwrap_or(1);
-            let h_text = caps.get(2).map(|m| m.as_str().trim()).unwrap_or("").to_string();
+            let h_text = caps
+                .get(2)
+                .map(|m| m.as_str().trim())
+                .unwrap_or("")
+                .to_string();
             current_heading = h_text.clone();
             current_level = hashes;
             current_anchor = h_text
@@ -272,11 +274,4 @@ pub(crate) fn parse_sections(text: &str, title: &str) -> Vec<MarkdownSection> {
     }
 
     sections
-}
-
-pub(crate) fn find_section_for_offset(sections: &[MarkdownSection], char_offset: usize) -> Option<&MarkdownSection> {
-    sections
-        .iter()
-        .rev()
-        .find(|s| char_offset >= s.char_start && char_offset < s.char_end)
 }

@@ -6,8 +6,8 @@ pub fn char_mask(s: &str) -> u64 {
     let mut mask: u64 = 0;
     for b in s.bytes() {
         let bit = match b.to_ascii_lowercase() {
-            c @ b'a'..=b'z' => c - b'a',               // bits 0..25
-            d @ b'0'..=b'9' => 26 + (d - b'0'),       // bits 26..35
+            c @ b'a'..=b'z' => c - b'a',        // bits 0..25
+            d @ b'0'..=b'9' => 26 + (d - b'0'), // bits 26..35
             b'_' => 36,
             b'-' => 37,
             b'.' => 38,
@@ -15,7 +15,7 @@ pub fn char_mask(s: &str) -> u64 {
             b':' => 40,
             b' ' => 41,
             b'#' => 42,
-            _ => 63,                                  // catch-all bit 63
+            _ => 63, // catch-all bit 63
         };
         mask |= 1u64 << bit;
     }
@@ -76,7 +76,7 @@ pub fn masked_fuzzy_score(pattern: &str, target: &str) -> Option<f64> {
             // Word boundary bonus
             if t_idx > 0 {
                 let prev_byte = t_bytes[t_idx - 1];
-                if [b'_', b'-', b'/', b'.', b' ', b':', b'#'].contains(&prev_byte)
+                if b"_-/. :#".contains(&prev_byte)
                     || (prev_byte.is_ascii_lowercase() && t_bytes[t_idx].is_ascii_uppercase())
                 {
                     score += 12.0;
@@ -118,7 +118,10 @@ pub fn bitset_intersects(query_tokens: &[&str], target_tokens: &[&str]) -> bool 
 }
 
 /// Filters and ranks AST sections using masked fuzzy scoring.
-pub fn fuzzy_filter_sections(pattern: &str, sections: &[MarkdownSection]) -> Vec<(MarkdownSection, f64)> {
+pub fn fuzzy_filter_sections(
+    pattern: &str,
+    sections: &[MarkdownSection],
+) -> Vec<(MarkdownSection, f64)> {
     let mut scored: Vec<(MarkdownSection, f64)> = Vec::new();
     let pat_clean = pattern.trim();
     if pat_clean.is_empty() {

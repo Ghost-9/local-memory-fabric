@@ -1,6 +1,5 @@
 /// Autonomous Background Knowledge Distillation & Invariant Compactor.
 /// Clusters redundant episodic notes into durable invariant cards with explicit `supersedes` links.
-
 use crate::MemoryFabric;
 use crate::paths::now_utc;
 use rusqlite::params;
@@ -24,22 +23,26 @@ impl MemoryFabric {
         let target_project = project.unwrap_or("atlas");
 
         // Find episodic or active notes belonging to this project
-        let mut stmt = con.prepare(
-            "SELECT relpath, title, body, source_status FROM documents \
+        let mut stmt = con
+            .prepare(
+                "SELECT relpath, title, body, source_status FROM documents \
              WHERE (scope='episodic' OR relpath LIKE ?1) \
              AND source_status != 'superseded' \
              ORDER BY mtime_ns DESC LIMIT 50",
-        ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
 
         let proj_pattern = format!("projects/{}%", target_project);
-        let rows = stmt.query_map(params![proj_pattern], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-            ))
-        }).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![proj_pattern], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
 
         let mut candidate_notes = Vec::new();
         for r in rows {
@@ -65,7 +68,7 @@ impl MemoryFabric {
             let first_meaningful_line = body
                 .lines()
                 .find(|l| !l.trim().is_empty() && !l.starts_with('#'))
-                .unwrap_or(&title);
+                .unwrap_or(title);
             distilled_points.push(format!("- **{}**: {}", title, first_meaningful_line.trim()));
         }
 
@@ -90,7 +93,9 @@ impl MemoryFabric {
             .ok()
             .and_then(|out| {
                 if out.status.success() {
-                    String::from_utf8(out.stdout).ok().map(|s| s.trim().to_string())
+                    String::from_utf8(out.stdout)
+                        .ok()
+                        .map(|s| s.trim().to_string())
                 } else {
                     None
                 }
