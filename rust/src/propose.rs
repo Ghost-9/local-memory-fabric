@@ -76,7 +76,7 @@ impl MemoryFabric {
         let start = lines.iter().position(|line| {
             regex(&format!(
                 r"(?i)^#{{1,6}}\s+{}\s*#*\s*$",
-                regex::escape(&section)
+                regex::escape(section)
             ))
             .is_match(line.trim())
         });
@@ -143,62 +143,134 @@ impl MemoryFabric {
         Ok(out)
     }
 
-    /// Store a large payload outside the canonical vault and return only a bounded head plus a
-/// handle, so raw bytes never enter the context window.
-///
-/// This is the piece worth borrowing from the context-window tooling: a 315 KB tool result
-/// costs the same tokens whether or not it is useful, and pushing it through the retriever is
-/// strictly better than pushing it through the prompt. Retrieval then uses the ordinary
-/// search/read path, so there is no second ranking policy to maintain.
-pub(crate) fn sandbox(
-    &self,
-    title: &str,
-    text: &str,
-    scope: &str,
-    provider: Option<&str>,
-    loopback: Option<bool>,
-) -> Result<Value, String> {
-    // `loopback` is accepted for symmetry with the other ops and echoed back, but it
-    // deliberately does not gate this payload: a sanitised copy goes to the caller either
-    // way, and the bytes here came from the agent's own tool output rather than the
-    // canonical memory, which is what export policy protects.
-    let _ = loopback;
-    if !self.is_local_provider(provider) {
-        return Ok(
-            json!({"ok":false,"blocked":"Memory content is available only to an explicitly allowed local model provider."}),
-        );
-    }
-    if text.trim().is_empty() {
-        return Ok(json_error("sandbox payload is required"));
-    }
-    if text.chars().count() > MAX_SANDBOX_CHARS {
-        return Ok(json_error(format!(
-            "sandbox payload exceeds {MAX_SANDBOX_CHARS} characters; store a slice instead"
-        )));
-    }
-    if let Some(kind) = secret_signature(text) {
-        // Local filter, before anything is written.
-        return Ok(json_error(format!(
-            "sandbox rejected by local secret filter ({kind}); no content was stored"
-        )));
-    }
-    let digest = sha256(text);
-    let rel = format!("{SANDBOX_PREFIX}{digest}.md");
-    let sandbox_path = self.home.join("sandbox");
-    fs::create_dir_all(&sandbox_path).map_err(|e| e.to_string())?;
-    let destination = sandbox_path.join(format!("{digest}.md"));
-    if !destination.exists() {
+    /// Create a review-only full-file proposal for project-card lifecycle operations.
+    pub(crate) fn propose_file(&self, req: &Value) -> Result<Value, String> {
+        let project = req["project"].as_str().unwrap_or("");
+        let target = req["target"].as_str().unwrap_or("");
+        let content = req["content"].as_str().unwrap_or("");
+        let provider = req["provider"].as_str();
+        if !self.is_read_provider(provider) {
+            return Ok(
+                json!({"ok":false,"blocked":"Project proposals are available only to an explicitly allowed provider."}),
+            );
+        }
+        if !regex(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$").is_match(project) {
+            return Ok(json_error("invalid project identifier"));
+        }
+        let rel = match safe_relpath(target) {
+            Ok(path) => path,
+            Err(e) => return Ok(json_error(e)),
+        };
+        if rel != format!("projects/{project}.md") {
+            return Ok(json_error(
+                "full-file project proposals must target projects/<project>.md",
+            ));
+        }
+        if content.trim().is_empty() || content.chars().count() > 20_000 {
+            return Ok(json_error(
+                "project proposal must contain 1 to 20,000 characters",
+            ));
+        }
+        if let Some(kind) = secret_signature(content) {
+            return Ok(json_error(format!(
+                "proposal rejected by local secret filter ({kind}); no content was stored"
+            )));
+        }
+        let target_path = self.vault.join(&rel);
+        if target_path.is_symlink() {
+            return Ok(json_error("proposal target must not be a symlink"));
+        }
+        let base = match fs::read_to_string(&target_path) {
+            Ok(base) => base,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Ok(json_error(format!("cannot read proposal target: {e}"))),
+        };
+        let base_hash = if base.is_empty() && !target_path.exists() {
+            String::new()
+        } else {
+            sha256(&base)
+        };
+        let diff = TextDiff::from_lines(&base, &content.to_string())
+            .unified_diff()
+            .header(&format!("a/{rel}"), &format!("proposal/{rel}"))
+            .to_string();
+        fs::create_dir_all(&self.proposals_path).map_err(|e| e.to_string())?;
+        if self.proposals_path.is_symlink() {
+            return Ok(json_error("proposal directory must not be a symlink"));
+        }
+        set_mode(&self.proposals_path, 0o700);
+        let id = Uuid::new_v4().simple().to_string()[..12].to_string();
+        let record = json!({"id":id,"created_at":now_utc(),"status":"proposed_review_required","classification":"local_only","provider_policy":"loopback_allowlist_only","export_policy":"deny_remote","project":project,"target":rel,"section":"full-file","source_refs":[],"proposal_text":content,"diff":diff,"full_file":true,"base_hash":base_hash});
+        let path = self.proposals_path.join(format!("{id}.json"));
         let mut opts = OpenOptions::new();
         opts.write(true).create_new(true);
         set_open_mode(&mut opts, 0o600);
-        let mut file = opts.open(&destination).map_err(|e| e.to_string())?;
-        file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
-        set_mode(&destination, 0o600);
+        let mut file = opts.open(path).map_err(|e| e.to_string())?;
+        serde_json::to_writer_pretty(&mut file, &record).map_err(|e| e.to_string())?;
+        file.write_all(b"\n").map_err(|e| e.to_string())?;
+        let mut out = json!({"ok":true,"proposal_id":id,"status":"proposed_review_required","writeback":"none; full-file proposal is stored outside the vault for human review"});
+        if self.is_local_provider(provider) {
+            out["diff"] = json!(diff);
+        }
+        Ok(out)
     }
-    let con = self.connect()?;
-    let now = now_utc();
-    let head: String = text.chars().take(SANDBOX_HEAD_CHARS).collect();
-    con.execute(
+
+    /// Store a large payload outside the canonical vault and return only a bounded head plus a
+    /// handle, so raw bytes never enter the context window.
+    ///
+    /// This is the piece worth borrowing from the context-window tooling: a 315 KB tool result
+    /// costs the same tokens whether or not it is useful, and pushing it through the retriever is
+    /// strictly better than pushing it through the prompt. Retrieval then uses the ordinary
+    /// search/read path, so there is no second ranking policy to maintain.
+    pub(crate) fn sandbox(
+        &self,
+        title: &str,
+        text: &str,
+        scope: &str,
+        provider: Option<&str>,
+        loopback: Option<bool>,
+    ) -> Result<Value, String> {
+        // `loopback` is accepted for symmetry with the other ops and echoed back, but it
+        // deliberately does not gate this payload: a sanitised copy goes to the caller either
+        // way, and the bytes here came from the agent's own tool output rather than the
+        // canonical memory, which is what export policy protects.
+        let _ = loopback;
+        if !self.is_read_provider(provider) {
+            return Ok(
+                json!({"ok":false,"blocked":"Memory content is available only to an explicitly allowed local model provider."}),
+            );
+        }
+        if text.trim().is_empty() {
+            return Ok(json_error("sandbox payload is required"));
+        }
+        if text.chars().count() > MAX_SANDBOX_CHARS {
+            return Ok(json_error(format!(
+                "sandbox payload exceeds {MAX_SANDBOX_CHARS} characters; store a slice instead"
+            )));
+        }
+        if let Some(kind) = secret_signature(text) {
+            // Local filter, before anything is written.
+            return Ok(json_error(format!(
+                "sandbox rejected by local secret filter ({kind}); no content was stored"
+            )));
+        }
+        let digest = sha256(text);
+        let rel = format!("{SANDBOX_PREFIX}{digest}.md");
+        let sandbox_path = self.home.join("sandbox");
+        fs::create_dir_all(&sandbox_path).map_err(|e| e.to_string())?;
+        let destination = sandbox_path.join(format!("{digest}.md"));
+        if !destination.exists() {
+            let mut opts = OpenOptions::new();
+            opts.write(true).create_new(true);
+            set_open_mode(&mut opts, 0o600);
+            let mut file = opts.open(&destination).map_err(|e| e.to_string())?;
+            file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+            set_mode(&destination, 0o600);
+        }
+        let con = self.connect()?;
+        let now = now_utc();
+        let head: String = text.chars().take(SANDBOX_HEAD_CHARS).collect();
+        con.execute(
         "INSERT INTO documents(relpath,title,scope,classification,source_status,valid_from,valid_to,superseded_by,provider_policy,export_policy,headings,body,content_hash,mtime_ns,indexed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'loopback_allowlist_only','deny_remote','',?9,?10,?11,?12) ON CONFLICT(relpath) DO UPDATE SET title=excluded.title,headings=excluded.headings,body=excluded.body,content_hash=excluded.content_hash,indexed_at=excluded.indexed_at",
         params![rel, if title.trim().is_empty() { "sandbox".to_string() } else { title.to_string() },
                 if scope.trim().is_empty() { "episodic".to_string() } else { scope.trim().to_string() },
@@ -206,24 +278,30 @@ pub(crate) fn sandbox(
                 text, &digest, now, now],
     )
     .map_err(|e| e.to_string())?;
-    con.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
-    con.execute("CREATE VIRTUAL TABLE temp._df_vocab USING fts5vocab(main, documents_fts, 'row')", [])
+        con.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
+        con.execute(
+            "CREATE VIRTUAL TABLE temp._df_vocab USING fts5vocab(main, documents_fts, 'row')",
+            [],
+        )
         .map_err(|e| e.to_string())?;
-    con.execute("DELETE FROM term_df", [])
+        con.execute("DELETE FROM term_df", [])
+            .map_err(|e| e.to_string())?;
+        con.execute(
+            "INSERT INTO term_df(term,df) SELECT term, doc FROM temp._df_vocab",
+            [],
+        )
         .map_err(|e| e.to_string())?;
-    con.execute("INSERT INTO term_df(term,df) SELECT term, doc FROM temp._df_vocab", [])
-        .map_err(|e| e.to_string())?;
-    con.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
-    Ok(
-        json!({"ok":true,"handle":rel,"title":if title.trim().is_empty() {"sandbox"} else {title},
+        con.execute("DROP TABLE IF EXISTS temp._df_vocab", []).ok();
+        Ok(
+            json!({"ok":true,"handle":rel,"title":if title.trim().is_empty() {"sandbox"} else {title},
                "scope":if scope.trim().is_empty() {"episodic"} else {scope.trim()},
                "chars":text.chars().count(),"head":head,
                "note":"Raw payload stored outside the canonical memory at mode 0600; retrieve deliberately with search or read rather than pasting it into context."}),
-    )
-}
+        )
+    }
 
-pub(crate) fn proposal_show(&self, id: &str, provider: Option<&str>) -> Result<Value, String> {
-        if !self.is_local_provider(provider) {
+    pub(crate) fn proposal_show(&self, id: &str, provider: Option<&str>) -> Result<Value, String> {
+        if !self.is_read_provider(provider) {
             return Ok(
                 json!({"ok":false,"blocked":"Proposal contents are available only to an explicitly allowed local model provider."}),
             );
@@ -282,7 +360,7 @@ pub(crate) fn proposal_show(&self, id: &str, provider: Option<&str>) -> Result<V
     }
 
     pub(crate) fn proposal_apply(&self, id: &str, provider: Option<&str>) -> Result<Value, String> {
-        if !self.is_local_provider(provider) {
+        if !self.is_write_provider(provider) {
             return Ok(
                 json!({"ok":false,"blocked":"Proposal apply is available only to an explicitly allowed local model provider."}),
             );
@@ -313,52 +391,117 @@ pub(crate) fn proposal_show(&self, id: &str, provider: Option<&str>) -> Result<V
         let target = record["target"].as_str().unwrap_or("").to_string();
         let section = record["section"].as_str().unwrap_or("").to_string();
         let text = record["proposal_text"].as_str().unwrap_or("").to_string();
-        let target_path = self.vault.join(&target);
-        if target_path.is_symlink() || !target_path.exists() {
-            return Ok(json_error("target note does not exist or is a symlink"));
-        }
-        let base = fs::read_to_string(&target_path).map_err(|e| e.to_string())?;
-        let lines: Vec<&str> = base.split_inclusive('\n').collect();
-        let start = lines.iter().position(|line| {
-            regex(&format!(
-                r"(?i)^#{{1,6}}\s+{}\s*#*\s*$",
-                regex::escape(&section)
-            ))
-            .is_match(line.trim())
-        });
-        let Some(start) = start else {
-            return Ok(json_error("proposal section heading must already exist"));
+        let safe_target = match safe_relpath(&target) {
+            Ok(v) => v,
+            Err(e) => return Ok(json_error(e)),
         };
-        let level = lines[start].chars().take_while(|c| *c == '#').count();
-        let mut end = lines.len();
-        for (i, line) in lines.iter().enumerate().skip(start + 1) {
-            let n = line.chars().take_while(|c| *c == '#').count();
-            if n > 0 && n <= level && line.chars().nth(n).map(char::is_whitespace).unwrap_or(false) {
-                end = i;
-                break;
+        if safe_target != target || !target.starts_with("projects/") {
+            return Ok(json_error(
+                "proposal target is outside the project memory boundary",
+            ));
+        }
+        let target_path = self.vault.join(&target);
+        if target_path.is_symlink() {
+            return Ok(json_error("target note is a symlink"));
+        }
+        let parent = target_path
+            .parent()
+            .ok_or_else(|| "proposal target has no parent".to_string())?;
+        let mut current = self.vault.clone();
+        for component in std::path::Path::new(&target)
+            .parent()
+            .into_iter()
+            .flat_map(|p| p.components())
+        {
+            if let std::path::Component::Normal(name) = component {
+                current.push(name);
+                if current.is_symlink() {
+                    return Ok(json_error("proposal target parent is a symlink"));
+                }
             }
         }
-        let mut insert_at = end;
-        while insert_at > start + 1 && lines[insert_at - 1].trim().is_empty() {
-            insert_at -= 1;
-        }
-        let mut updated = String::new();
-        for line in &lines[..insert_at] {
-            updated.push_str(line);
-        }
-        if insert_at > 0 && !lines[insert_at - 1].trim().is_empty() {
+        let full_file = record["full_file"].as_bool() == Some(true);
+        let base = if target_path.exists() {
+            fs::read_to_string(&target_path).map_err(|e| e.to_string())?
+        } else {
+            String::new()
+        };
+        let updated = if full_file {
+            let base_hash = record["base_hash"].as_str().unwrap_or("");
+            let actual_hash = if target_path.exists() {
+                sha256(&base)
+            } else {
+                String::new()
+            };
+            if base_hash != actual_hash {
+                return Ok(json_error(
+                    "project note changed after this proposal was created; create a fresh proposal",
+                ));
+            }
+            if let Some(kind) = secret_signature(&text) {
+                return Ok(json_error(format!(
+                    "proposal rejected by local secret filter ({kind}); no content was written"
+                )));
+            }
+            text.clone()
+        } else {
+            if !target_path.exists() {
+                return Ok(json_error("target note does not exist or is a symlink"));
+            }
+            let lines: Vec<&str> = base.split_inclusive('\n').collect();
+            let start = lines.iter().position(|line| {
+                regex(&format!(
+                    r"(?i)^#{{1,6}}\s+{}\s*#*\s*$",
+                    regex::escape(&section)
+                ))
+                .is_match(line.trim())
+            });
+            let Some(start) = start else {
+                return Ok(json_error("proposal section heading must already exist"));
+            };
+            let level = lines[start].chars().take_while(|c| *c == '#').count();
+            let mut end = lines.len();
+            for (i, line) in lines.iter().enumerate().skip(start + 1) {
+                let n = line.chars().take_while(|c| *c == '#').count();
+                if n > 0
+                    && n <= level
+                    && line
+                        .chars()
+                        .nth(n)
+                        .map(char::is_whitespace)
+                        .unwrap_or(false)
+                {
+                    end = i;
+                    break;
+                }
+            }
+            let mut insert_at = end;
+            while insert_at > start + 1 && lines[insert_at - 1].trim().is_empty() {
+                insert_at -= 1;
+            }
+            let mut updated = String::new();
+            for line in &lines[..insert_at] {
+                updated.push_str(line);
+            }
+            if insert_at > 0 && !lines[insert_at - 1].trim().is_empty() {
+                updated.push('\n');
+            }
+            updated.push_str(text.trim_end());
             updated.push('\n');
-        }
-        updated.push_str(text.trim_end());
-        updated.push('\n');
-        if end < lines.len() {
-            updated.push('\n');
-        }
-        for line in &lines[end..] {
-            updated.push_str(line);
-        }
-        let tmp_path = self.vault.join(format!("{}.tmp.{}", target.replace('/', "_"), id));
+            if end < lines.len() {
+                updated.push('\n');
+            }
+            for line in &lines[end..] {
+                updated.push_str(line);
+            }
+            updated
+        };
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        let tmp_path = self
+            .vault
+            .join(format!("{}.tmp.{}", target.replace('/', "_"), id));
         fs::write(&tmp_path, &updated).map_err(|e| e.to_string())?;
+        set_mode(&tmp_path, 0o600);
         fs::rename(&tmp_path, &target_path).map_err(|e| e.to_string())?;
 
         let mut git_commit: Option<String> = None;
@@ -368,12 +511,19 @@ pub(crate) fn proposal_show(&self, id: &str, provider: Option<&str>) -> Result<V
                 .output();
             let commit_msg = format!("memory: apply proposal {id} to {target}");
             if let Ok(c) = std::process::Command::new("git")
-                .args(["-C", self.vault.to_str().unwrap(), "commit", "-m", &commit_msg])
+                .args([
+                    "-C",
+                    self.vault.to_str().unwrap(),
+                    "commit",
+                    "-m",
+                    &commit_msg,
+                ])
                 .output()
+                && c.status.success()
             {
-                if c.status.success() {
-                    git_commit = String::from_utf8(c.stdout).ok().map(|s| s.lines().next().unwrap_or("").to_string());
-                }
+                git_commit = String::from_utf8(c.stdout)
+                    .ok()
+                    .map(|s| s.lines().next().unwrap_or("").to_string());
             }
         }
 
@@ -404,20 +554,18 @@ pub(crate) fn proposal_show(&self, id: &str, provider: Option<&str>) -> Result<V
         if let Ok(entries) = fs::read_dir(&self.proposals_path) {
             for entry in entries.filter_map(Result::ok) {
                 let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                    if let Ok(content) = fs::read_to_string(&path) {
-                        if let Ok(rec) = serde_json::from_str::<Value>(&content) {
-                            if rec["status"].as_str() == Some("applied") {
-                                items.push(json!({
-                                    "proposal_id": rec["id"],
-                                    "target": rec["target"],
-                                    "section": rec["section"],
-                                    "applied_at": rec["applied_at"],
-                                    "git_commit": rec["git_commit"]
-                                }));
-                            }
-                        }
-                    }
+                if path.extension().and_then(|e| e.to_str()) == Some("json")
+                    && let Ok(content) = fs::read_to_string(&path)
+                    && let Ok(rec) = serde_json::from_str::<Value>(&content)
+                    && rec["status"].as_str() == Some("applied")
+                {
+                    items.push(json!({
+                        "proposal_id": rec["id"],
+                        "target": rec["target"],
+                        "section": rec["section"],
+                        "applied_at": rec["applied_at"],
+                        "git_commit": rec["git_commit"]
+                    }));
                 }
             }
         }
@@ -425,9 +573,15 @@ pub(crate) fn proposal_show(&self, id: &str, provider: Option<&str>) -> Result<V
         Ok(json!({"ok": true, "history": items}))
     }
 
-    pub(crate) fn proposal_revert(&self, id: &str, provider: Option<&str>) -> Result<Value, String> {
-        if !self.is_local_provider(provider) {
-            return Ok(json!({"ok": false, "blocked": "Proposal revert is available only to an explicitly allowed local model provider."}));
+    pub(crate) fn proposal_revert(
+        &self,
+        id: &str,
+        provider: Option<&str>,
+    ) -> Result<Value, String> {
+        if !self.is_write_provider(provider) {
+            return Ok(
+                json!({"ok": false, "blocked": "Proposal revert is available only to an explicitly allowed local model provider."}),
+            );
         }
         if !regex(r"^[a-f0-9]{12}$").is_match(id) {
             return Ok(json_error("invalid proposal id"));
@@ -439,8 +593,9 @@ pub(crate) fn proposal_show(&self, id: &str, provider: Option<&str>) -> Result<V
         if !path.exists() {
             return Ok(json_error("proposal not found"));
         }
-        let mut rec: Value = serde_json::from_str(&fs::read_to_string(&path).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        let mut rec: Value =
+            serde_json::from_str(&fs::read_to_string(&path).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
         if rec["status"].as_str() != Some("applied") {
             return Ok(json_error("only applied proposals can be reverted"));
         }
@@ -448,16 +603,28 @@ pub(crate) fn proposal_show(&self, id: &str, provider: Option<&str>) -> Result<V
         let git_commit = rec["git_commit"].as_str();
 
         let mut reverted_commit = None;
-        if let Some(commit_sha) = git_commit {
-            if self.vault.join(".git").exists() {
-                let c = std::process::Command::new("git")
-                    .args(["-C", self.vault.to_str().unwrap(), "revert", "--no-edit", commit_sha])
-                    .output();
-                if let Ok(out) = c {
-                    if out.status.success() {
-                        reverted_commit = Some(String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or("").to_string());
-                    }
-                }
+        if let Some(commit_sha) = git_commit
+            && self.vault.join(".git").exists()
+        {
+            let c = std::process::Command::new("git")
+                .args([
+                    "-C",
+                    self.vault.to_str().unwrap(),
+                    "revert",
+                    "--no-edit",
+                    commit_sha,
+                ])
+                .output();
+            if let Ok(out) = c
+                && out.status.success()
+            {
+                reverted_commit = Some(
+                    String::from_utf8_lossy(&out.stdout)
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .to_string(),
+                );
             }
         }
 

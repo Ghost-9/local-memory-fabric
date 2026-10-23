@@ -15,18 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: "22" }
+        with: { node-version: "26" }
       - uses: dtolnay/rust-toolchain@stable
-      - name: Python + Rust engines present
-        run: |
-          python3 --version
-          cargo --version
-      - name: Build the Rust worker
-        run: ( cd rust && cargo build --release --locked )
-      - name: Dev toolchain for the type check
-        # The gate type-checks index.ts, remote-policy.ts and scrub.ts, and FAILS if the checker
-        # is missing (0.3.4). CI must therefore install it, or every run would be red for the
-        # wrong reason. Versions come from package.json devDependencies, not from these flags.
-        run: npm install
       - name: The gate (same one every lane runs)
         run: ./test.sh

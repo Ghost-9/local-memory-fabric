@@ -8,45 +8,32 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
-/// Discriminating-power limits for query terms; mirrors the Python engine exactly.
-/// See `MIN_USEFUL_DF` / `MAX_USEFUL_DF_FRACTION` there for the measurement behind them.
+/// Discriminating-power limits for query terms. Rust conformance tests pin their behavior.
 const MIN_USEFUL_DF: i64 = 4;
 const MAX_USEFUL_DF_FRACTION: f64 = 0.90;
 
 /// #100 - how much the best-section score contributes to the final order, against the
-/// note-level BM25 rank. Measured, not chosen: see the sweep recorded in bench/fixture_gate.py.
-/// 0.0 is the old whole-note behaviour; 1.0 is the section score alone, which measured WORSE than
-/// 0.0. The environment override exists only so the weight can be swept during measurement.
-/// Set to 0.0 on 2026-10-20 after a full sweep (0 / 0.15 / 0.3 / 0.5 / 0.75 / 1.0): the curve is
-/// monotonic DOWNWARD in this weight, and 0.0 was the best value measured - recall@1 0.5082 at 0.0
-/// against 0.4672 at 0.15, with recall@3 unchanged. Section scoring was not merely neutral, it was
-/// actively reordering the correct answer downward. 0.15 had been carried forward from the earlier
-/// blend because it beat 1.0, which it does; nobody had measured it against 0.0.
-///
-/// Caveat, recorded so it is not mistaken for a settled question: this says section granularity
-/// contributes nothing on THIS fixture. The fixture asks note-level questions against note-level
-/// decoys, so it cannot reward a section-level answer. The knob is kept at 0.0 rather than deleted
-/// because a section-scoped query is a real use case (plan item 50), and when that exists it should
-/// be measured again rather than assumed dead.
+/// note-level BM25 rank. Its retained fixture sweep is in bench/evidence/ordering_ab_results.json.
+/// The results are
+/// ranking-tuning evidence, not a general task-success claim. Keep the override available for
+/// future experiments that retain their inputs and outputs.
 const SECTION_WEIGHT_DEFAULT: f64 = 0.0;
 
 /// FTS5 column weights: (relpath UNINDEXED, title, headings, body).
 ///
 /// Swept, not chosen. The fixture's decoys take a target's own first eight words and repeat them
-/// twice in a sixteen-word note, so their term density is enormous while their length is tiny -
-/// and BM25 penalises long documents, which makes a short dense decoy win. The legitimate signal
-/// that separates them is the title: the target's title carries the query term, the decoy's says
-/// "Decoy". Environment overrides exist so the sweep can be re-run; the defaults are the measured
-/// winners and `bench/fixture_gate.py` records them.
+/// twice in a short note, so their term density is high while their length is small. The signal
+/// that separates them is the title. Environment overrides exist for future experiments; the
+/// retained results are in bench/evidence/ordering_ab_results.json.
 fn fts_title_weight() -> f64 {
     env_weight("MEMORY_FABRIC_TITLE_WEIGHT", FTS_TITLE_WEIGHT)
 }
-fn fts_heading_weight() -> f64 {
-    env_weight("MEMORY_FABRIC_HEADING_WEIGHT", FTS_HEADING_WEIGHT)
-}
 fn env_weight(name: &str, default: f64) -> f64 {
-    std::env::var(name).ok().and_then(|v| v.parse::<f64>().ok())
-        .filter(|v| (0.0..=50.0).contains(v)).unwrap_or(default)
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| (0.0..=50.0).contains(v))
+        .unwrap_or(default)
 }
 
 /// How much a note is penalised for repeating itself, and the shortest note worth measuring.
@@ -92,7 +79,8 @@ fn self_repetition_weight() -> f64 {
     // to the default for anything outside the range, so a sweep asking for 4.0 or 6.0 silently
     // measured 1.0 and reported it as a result - three rows of the sweep came back byte identical
     // before I noticed. Either way the effective value must not silently differ from the requested one.
-    match std::env::var("MEMORY_FABRIC_REPETITION_WEIGHT").ok()
+    match std::env::var("MEMORY_FABRIC_REPETITION_WEIGHT")
+        .ok()
         .and_then(|v| v.parse::<f64>().ok())
     {
         Some(v) if (0.0..=MAX_REPETITION_WEIGHT).contains(&v) => v,
@@ -144,7 +132,6 @@ fn self_repetition_ratio(text: &str) -> f64 {
 }
 
 const FTS_TITLE_WEIGHT: f64 = 6.0;
-const FTS_HEADING_WEIGHT: f64 = 1.5;
 
 fn section_weight() -> f64 {
     std::env::var("MEMORY_FABRIC_SECTION_WEIGHT")
@@ -176,7 +163,12 @@ impl MemoryFabric {
     ///
     /// Deliberately crude: term overlap with a length normalisation, no BM25, no stemming, no
     /// document-frequency weighting. It answers "is this here", not "what is most relevant".
-    fn degraded_search(&self, terms: &[String], limit: usize, scope: &str) -> Result<Value, String> {
+    fn degraded_search(
+        &self,
+        terms: &[String],
+        limit: usize,
+        scope: &str,
+    ) -> Result<Value, String> {
         // The index is also what carries each note's export policy, so enforcement cannot be
         // evaluated here. Refuse rather than leak: an unlisted caller gets nothing from the
         // degraded path, which is the safe direction to fail in.
@@ -231,7 +223,12 @@ impl MemoryFabric {
                     hits.insert(t.clone(), n);
                 }
             }
-            docs.push(Doc { rel, text, hay, hits });
+            docs.push(Doc {
+                rel,
+                text,
+                hay,
+                hits,
+            });
         }
         let n_docs = docs.len() as i64;
         let mut df: HashMap<&str, i64> = HashMap::new();
@@ -296,7 +293,12 @@ impl MemoryFabric {
                 .filter_map(|t| hay.find(t.as_str()))
                 .min()
                 .unwrap_or(0);
-            let snippet: String = d.text.chars().skip(at.saturating_sub(60)).take(240).collect();
+            let snippet: String = d
+                .text
+                .chars()
+                .skip(at.saturating_sub(60))
+                .take(240)
+                .collect();
             hits.push((score, d.rel.clone(), title, snippet.replace('\n', " ")));
         }
         hits.sort_by(|a, b| {
@@ -329,6 +331,7 @@ impl MemoryFabric {
     /// Added for O1: without it, any latency objective measured from outside includes process
     /// spawn (~10 ms of a ~12.5 ms shell measurement), which makes the number a statement about
     /// fork/exec rather than about retrieval.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn search(
         &self,
         query: &str,
@@ -340,7 +343,8 @@ impl MemoryFabric {
         token_budget: Option<usize>,
     ) -> Result<Value, String> {
         let started = std::time::Instant::now();
-        let mut value = self.search_inner(query, scope, limit, provider, as_of, loopback, token_budget)?;
+        let mut value =
+            self.search_inner(query, scope, limit, provider, as_of, loopback, token_budget)?;
         if let Some(obj) = value.as_object_mut() {
             obj.insert(
                 "elapsed_ms".into(),
@@ -350,6 +354,7 @@ impl MemoryFabric {
         Ok(value)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn search_inner(
         &self,
         query: &str,
@@ -360,7 +365,7 @@ impl MemoryFabric {
         loopback: Option<bool>,
         token_budget: Option<usize>,
     ) -> Result<Value, String> {
-        if !self.is_local_provider(provider) {
+        if !self.is_read_provider(provider) {
             return Ok(
                 json!({"ok":false,"blocked":"Memory content is available only to an explicitly allowed local model provider."}),
             );
@@ -391,7 +396,9 @@ impl MemoryFabric {
         };
         let n_docs: i64 = match con.query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0)) {
             Ok(n) => n,
-            Err(e) if is_corruption(&e.to_string()) => return self.degraded_search(&terms, limit, scope),
+            Err(e) if is_corruption(&e.to_string()) => {
+                return self.degraded_search(&terms, limit, scope);
+            }
             Err(e) => return Err(e.to_string()),
         };
         // Fetch document frequencies for this query's own tokens only. Reading the whole term_df
@@ -409,7 +416,7 @@ impl MemoryFabric {
         ordered.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
         let probe: Vec<&str> = ordered.into_iter().take(64).map(|t| t.as_str()).collect();
         let mut df: HashMap<String, i64> = HashMap::new();
-            let mut stem_of: HashMap<String, String> = HashMap::new();
+        let mut stem_of: HashMap<String, String> = HashMap::new();
         if !probe.is_empty() {
             con.execute_batch(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS temp._s USING fts5(t, tokenize='porter unicode61');                 CREATE VIRTUAL TABLE IF NOT EXISTS temp._sv USING fts5vocab(temp, _s, 'instance');                 DELETE FROM temp._s;",
@@ -455,7 +462,10 @@ impl MemoryFabric {
         // cutoff moves whenever a note is added, so adding three notes lifted it 28.5 -> 29.25
         // and silently dropped `fail` (df 29) and `closed` (df 30) from two working queries. A
         // term's usefulness is a property of the term, not of today's note count.
-        let max_df = std::cmp::max(MIN_USEFUL_DF, (n_docs as f64 * MAX_USEFUL_DF_FRACTION) as i64);
+        let max_df = std::cmp::max(
+            MIN_USEFUL_DF,
+            (n_docs as f64 * MAX_USEFUL_DF_FRACTION) as i64,
+        );
         let rank_key = |a: &String, b: &String| {
             df[a]
                 .cmp(&df[b])
@@ -483,13 +493,13 @@ impl MemoryFabric {
         // calibration raised the cutoff so aggressively that a word present in every note
         // stopped being usable and the engine went silent, which reads as "memory has nothing
         // on this". The contract is to answer over common terms and LABEL them; only genuinely
-        // unindexed terms abstain. Mirrors the Python engine.
+        // unindexed terms abstain.
         let best_df = indexed
             .iter()
             .map(|t| df.get(t).copied().unwrap_or(0))
             .max()
             .unwrap_or(0);
-        if best_df >= n_docs as i64 {
+        if best_df >= n_docs {
             low_discrimination = true;
         }
         // A second, distinct signal: the query is mostly made of words the corpus does not contain
@@ -507,8 +517,8 @@ impl MemoryFabric {
             .iter()
             .filter(|t| df.get(t.as_str()).copied().unwrap_or(0) == 0)
             .count();
-        let mostly_absent = query_tokens_total >= 3
-            && absent as f64 / query_tokens_total.max(1) as f64 >= 0.6;
+        let mostly_absent =
+            query_tokens_total >= 3 && absent as f64 / query_tokens_total.max(1) as f64 >= 0.6;
         if useful.is_empty() {
             if indexed.is_empty() {
                 return Ok(json!({
@@ -529,16 +539,11 @@ impl MemoryFabric {
         // NOTE: this block was briefly deleted by a bad revert that cut from `if mostly_absent` to
         // `let match_query`, silently removing the empty-`useful` fallback between them. The engine
         // then sent an empty MATCH expression and answered `ok: false` for every query whose terms
-        // are all absent - the exact no-hit case the fixture exercises. The parity contract caught
-        // it, which is why that check compares `ok` and not only `refs`.
+        // are all absent - the exact no-hit case the conformance suite exercises. The test also
+        // checks the response status, not only the returned references.
         if mostly_absent {
-            // LABEL, do not abstain. Both were measured:
-            //   abstaining  -> no-hit precision 1.0000, but recall@3 0.9344 -> 0.8279
-            //   labelling   -> no-hit precision 0.9286, recall@3 held at 0.9344
-            // Abstaining bought 0.0714 of precision for 0.1065 of recall, and the recall it cost
-            // was on answerable queries whose wording happens to be unlike the corpus. So the weak
-            // result is returned and marked, which is also what this file already promises:
-            // "answer over common terms and LABEL them".
+            // LABEL, do not abstain. Common terms may still be useful candidates; mark them so a
+            // caller can distinguish a weak match from a discriminative answer.
             low_discrimination = true;
         }
         let match_query = useful
@@ -555,7 +560,7 @@ impl MemoryFabric {
                 |r| r.get(0),
             )
             .map_err(|e| e.to_string())?;
-        let tw = fts_title_weight(); let hw = fts_heading_weight();
+        let tw = fts_title_weight();
         let mut stmt=con.prepare(&format!("SELECT d.relpath,d.title,d.scope,d.classification,d.source_status,d.valid_from,d.valid_to,d.superseded_by,d.provider_policy,d.export_policy,d.body,d.indexed_at,bm25(documents_fts,0.0,{tw},1.5,1.0) AS rank FROM documents_fts JOIN documents d ON d.relpath=documents_fts.relpath WHERE documents_fts MATCH ?1 AND (?2='all' OR ?2='' OR d.scope=?2) ORDER BY rank, documents_fts.relpath LIMIT ?3")).map_err(|e|e.to_string())?;
         let raw = stmt
             .query_map(
@@ -583,7 +588,9 @@ impl MemoryFabric {
                 .map(|i| format!("?{}", useful.len() + i))
                 .collect::<Vec<_>>()
                 .join(",");
-            let sql = format!("SELECT d.relpath,s.t FROM temp._sv q JOIN temp._s s ON s.rowid=q.doc JOIN temp._dv v ON v.term=q.term JOIN documents d ON d.id=v.doc WHERE s.t IN ({term_ph}) AND d.relpath IN ({rel_ph}) GROUP BY d.relpath,s.t");
+            let sql = format!(
+                "SELECT d.relpath,s.t FROM temp._sv q JOIN temp._s s ON s.rowid=q.doc JOIN temp._dv v ON v.term=q.term JOIN documents d ON d.id=v.doc WHERE s.t IN ({term_ph}) AND d.relpath IN ({rel_ph}) GROUP BY d.relpath,s.t"
+            );
             let mut q = con.prepare(&sql).map_err(|e| e.to_string())?;
             let mut params: Vec<&dyn rusqlite::ToSql> =
                 useful.iter().map(|t| t as &dyn rusqlite::ToSql).collect();
@@ -633,12 +640,11 @@ impl MemoryFabric {
             if as_of_date.is_none() && (valid_from.is_some() || valid_to.is_some()) {
                 temporal_without_as_of = true;
             }
-            if let Some(d) = as_of_date {
-                if valid_from.map(|v| d < v).unwrap_or(false)
-                    || valid_to.map(|v| d > v).unwrap_or(false)
-                {
-                    continue;
-                }
+            if let Some(d) = as_of_date
+                && (valid_from.map(|v| d < v).unwrap_or(false)
+                    || valid_to.map(|v| d > v).unwrap_or(false))
+            {
+                continue;
             }
             if ["superseded", "archived", "deprecated", "historical"].contains(&status.as_str())
                 && (as_of_date.is_none()
@@ -647,19 +653,26 @@ impl MemoryFabric {
             {
                 continue;
             }
-            let matched: Vec<String> = terms_by_relpath.get(&row.relpath)
-                .map(|set| useful.iter().filter(|t| set.contains(*t)).cloned().collect())
+            let matched: Vec<String> = terms_by_relpath
+                .get(&row.relpath)
+                .map(|set| {
+                    useful
+                        .iter()
+                        .filter(|t| set.contains(*t))
+                        .cloned()
+                        .collect()
+                })
                 .unwrap_or_default();
             let distinctive = matched
                 .iter()
                 .any(|t| t.len() >= 9 && df.get(t).copied() == Some(1));
-            // Mirrors the Python engine: a lone term is normally too weak to rank on, but any
+            // A lone term is normally too weak to rank on, but any
             // term that is rare relative to the corpus is enough on its own. The old rule
             // (`df == 1` only) meant a one-term query about a moderately common word returned
             // nothing even when one note was unmistakably about it.
             let rare_enough = matched
                 .iter()
-                .any(|t| df.get(t).copied().unwrap_or(0) <= std::cmp::max(1, (n_docs / 20) as i64));
+                .any(|t| df.get(t).copied().unwrap_or(0) <= std::cmp::max(1, n_docs / 20));
             // A single-term query is honoured even when its term is mid-frequency: `provenance`
             // (df 27) matches 41 documents and is exactly the concept word a person types, so
             // requiring two terms made the query return nothing. With several usable terms the
@@ -756,25 +769,41 @@ impl MemoryFabric {
                         }
                     }
                     let len_penalty = ((whole.chars().count() as f64).max(1.0)).sqrt();
-                    let score = weight * (1.0 + hits as f64 / useful.len().max(1) as f64) / len_penalty;
-                    (score, 0usize, whole.chars().count(), "overview".to_string(), row.title.clone(), hits)
+                    let score =
+                        weight * (1.0 + hits as f64 / useful.len().max(1) as f64) / len_penalty;
+                    (
+                        score,
+                        0usize,
+                        whole.chars().count(),
+                        "overview".to_string(),
+                        row.title.clone(),
+                        hits,
+                    )
                 }
             };
-            let (section_score, sec_start, sec_end, section_anchor, section_breadcrumb, _hits) = best;
+            let (section_score, sec_start, sec_end, section_anchor, section_breadcrumb, _hits) =
+                best;
             // The excerpt now comes from the winning section rather than from the first term
             // occurrence anywhere in the note - that offset was the reason a result could cite
             // `overview` while the matching text sat in section 9.
             let body_chars = row.body.chars().count();
             let start = sec_start.saturating_sub(120).min(body_chars);
             let end = sec_end.min(body_chars).max(start).min(start + 1000);
-            let mut excerpt: String = row.body.chars().skip(start).take(end - start).collect::<String>().trim().to_string();
+            let mut excerpt: String = row
+                .body
+                .chars()
+                .skip(start)
+                .take(end - start)
+                .collect::<String>()
+                .trim()
+                .to_string();
             if start > 0 {
                 excerpt = format!("…{excerpt}");
             }
             if end < body_chars {
                 excerpt.push('…');
             }
-            if loopback != Some(true) {
+            if loopback != Some(true) && crate::extension::remote_context_scrubbing_enabled() {
                 excerpt = crate::policy::sanitize_remote_excerpt(&excerpt);
             }
 
@@ -844,16 +873,19 @@ impl MemoryFabric {
                 let sec = r["section_score"].as_f64().unwrap_or(0.0) / max_section;
                 let bm = (bm25_vals[i] - min_bm) / span;
                 let repetition = r["__repetition"].as_f64().unwrap_or(0.0);
-                let penalty = (1.0 - self_repetition_weight() * repetition).max(MIN_REPETITION_PENALTY);
+                let penalty =
+                    (1.0 - self_repetition_weight() * repetition).max(MIN_REPETITION_PENALTY);
                 let blended = ((1.0 - w) * bm + w * sec) * penalty;
                 if let Some(obj) = r.as_object_mut() {
                     // Rounded coarsely ON PURPOSE, and sorted on the rounded value. With 91
                     // near-identical filler notes, the top of the list is full of ties, and
-                    // comparing raw floats let the two engines disagree about which tied note came
-                    // first - the parity contract caught exactly that once the fixture grew to a
-                    // realistic size. Rounding to 3 decimals makes the order stable whenever the
+                    // comparing raw floats made tie ordering dependent on floating-point noise.
+                    // Rounding to 3 decimals makes the order stable whenever the
                     // scores are within a thousandth, which is the honest resolution for a tie.
-                    obj.insert("rank_score".into(), json!((blended * 1000.0).round() / 1000.0));
+                    obj.insert(
+                        "rank_score".into(),
+                        json!((blended * 1000.0).round() / 1000.0),
+                    );
                 }
             }
             results.sort_by(|a, b| {
@@ -862,7 +894,10 @@ impl MemoryFabric {
                 sb.partial_cmp(&sa)
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then_with(|| {
-                        a["source_ref"].as_str().unwrap_or("").cmp(b["source_ref"].as_str().unwrap_or(""))
+                        a["source_ref"]
+                            .as_str()
+                            .unwrap_or("")
+                            .cmp(b["source_ref"].as_str().unwrap_or(""))
                     })
             });
         }
@@ -923,7 +958,9 @@ impl MemoryFabric {
         } else if total_matches == 0 {
             Some("no indexed source matches these terms")
         } else {
-            Some("matches exist but none passed the overlap or temporal gate; inspect total_matches and the date")
+            Some(
+                "matches exist but none passed the overlap or temporal gate; inspect total_matches and the date",
+            )
         };
         let mut ret_val = json!({"ok":true,"results":results,"shown":shown,"total_matches":total_matches,"low_discrimination":low_discrimination,"abstention":abstention,"temporal_warning":warning,"as_of":as_of,"withheld_export":withheld,"local_only":true,"note":"Lexical candidates are not verified facts; inspect cited source passages.","credential_alarm":self.secret_alert_reminder()?});
         if budget_truncated {
@@ -941,7 +978,7 @@ impl MemoryFabric {
         as_of: Option<&str>,
         loopback: Option<bool>,
     ) -> Result<Value, String> {
-        if !self.is_local_provider(provider) {
+        if !self.is_read_provider(provider) {
             return Ok(
                 json!({"ok":false,"blocked":"Memory content is available only to an explicitly allowed local model provider."}),
             );
@@ -949,10 +986,8 @@ impl MemoryFabric {
         let scope = project
             .map(|p| format!("project:{p}"))
             .unwrap_or_else(|| "all".into());
-        // A context packet must always be bounded. This used to be `if budget.is_none() { 50 }
-        // else { 10 }` with a `usize::MAX` char budget - so an omitted token_budget silently
-        // returned an unbounded packet (measured 24,149 chars vs Python's 4,803 on the same
-        // request). One ceiling, read from config, respected by both engines.
+        // A context packet must always be bounded. An omitted token budget cannot silently
+        // produce unbounded output; all context requests use one ceiling from config.
         let ceiling_tokens = (self.config.max_context_chars / 4).max(100);
         let effective_budget = budget.unwrap_or(1200).clamp(100, ceiling_tokens);
         let fetch_limit = 10;
@@ -1022,7 +1057,7 @@ impl MemoryFabric {
         heading: Option<&str>,
         loopback: Option<bool>,
     ) -> Result<Value, String> {
-        if !self.is_local_provider(provider) {
+        if !self.is_read_provider(provider) {
             return Ok(
                 json!({"ok":false,"blocked":"Memory content is available only to an explicitly allowed local model provider."}),
             );
@@ -1043,7 +1078,7 @@ impl MemoryFabric {
             );
         }
         let mut body = row["body"].as_str().unwrap_or("").to_string();
-        if loopback != Some(true) {
+        if loopback != Some(true) && crate::extension::remote_context_scrubbing_enabled() {
             body = crate::policy::sanitize_remote_excerpt(&body);
         }
         let body = body.as_str();
@@ -1061,11 +1096,8 @@ impl MemoryFabric {
         if let Some(wanted) = heading {
             let lines: Vec<&str> = body.lines().collect();
             let start = lines.iter().position(|line| {
-                regex(&format!(
-                    r"(?i)^#{{1,6}}\s+{}\s*#*$",
-                    regex::escape(wanted)
-                ))
-                .is_match(line.trim())
+                regex(&format!(r"(?i)^#{{1,6}}\s+{}\s*#*$", regex::escape(wanted)))
+                    .is_match(line.trim())
             });
             let Some(start) = start else {
                 return Ok(json_error("requested heading was not found"));
@@ -1099,17 +1131,28 @@ impl MemoryFabric {
     pub(crate) fn links(&self, source_ref: &str) -> Result<Value, String> {
         let con = self.connect()?;
         let safe_ref = safe_relpath(source_ref)?;
-        let mut stmt = con.prepare("SELECT target FROM note_links WHERE source = ?1 ORDER BY target")
+        let mut stmt = con
+            .prepare("SELECT target FROM note_links WHERE source = ?1 ORDER BY target")
             .map_err(|e| e.to_string())?;
-        let outlinks: Vec<String> = stmt.query_map([&safe_ref], |r| r.get(0))
+        let outlinks: Vec<String> = stmt
+            .query_map([&safe_ref], |r| r.get(0))
             .map_err(|e| e.to_string())?
-            .filter_map(Result::ok).collect();
-        let stem = std::path::Path::new(&safe_ref).file_stem().and_then(|s| s.to_str()).unwrap_or(&safe_ref);
-        let mut stmt = con.prepare("SELECT source FROM note_links WHERE target = ?1 OR target = ?2 ORDER BY source")
+            .filter_map(Result::ok)
+            .collect();
+        let stem = std::path::Path::new(&safe_ref)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&safe_ref);
+        let mut stmt = con
+            .prepare(
+                "SELECT source FROM note_links WHERE target = ?1 OR target = ?2 ORDER BY source",
+            )
             .map_err(|e| e.to_string())?;
-        let backlinks: Vec<String> = stmt.query_map([&safe_ref, stem], |r| r.get(0))
+        let backlinks: Vec<String> = stmt
+            .query_map([&safe_ref, stem], |r| r.get(0))
             .map_err(|e| e.to_string())?
-            .filter_map(Result::ok).collect();
+            .filter_map(Result::ok)
+            .collect();
         Ok(json!({
             "ok": true,
             "source_ref": safe_ref,
@@ -1124,7 +1167,7 @@ impl MemoryFabric {
         provider: Option<&str>,
         loopback: Option<bool>,
     ) -> Result<Value, String> {
-        if !self.is_local_provider(provider) {
+        if !self.is_read_provider(provider) {
             return Ok(
                 json!({"ok":false,"blocked":"Memory content is available only to an explicitly allowed local model provider."}),
             );
@@ -1154,7 +1197,7 @@ impl MemoryFabric {
             "section_count": parsed.len(),
             "sections": parsed,
         }))
-     }
+    }
     pub(crate) fn fuzzy_sections(
         &self,
         source_ref: &str,
@@ -1166,8 +1209,8 @@ impl MemoryFabric {
         if !sec_res["ok"].as_bool().unwrap_or(false) {
             return Ok(sec_res);
         }
-        let raw_sections: Vec<crate::text::MarkdownSection> = serde_json::from_value(sec_res["sections"].clone())
-            .unwrap_or_default();
+        let raw_sections: Vec<crate::text::MarkdownSection> =
+            serde_json::from_value(sec_res["sections"].clone()).unwrap_or_default();
         let filtered = crate::fuzzy::fuzzy_filter_sections(pattern, &raw_sections);
         let out_sections: Vec<Value> = filtered
             .into_iter()
@@ -1195,6 +1238,7 @@ impl MemoryFabric {
     }
 
     /// Milestone 27, 30, 33: Context generation with Domain Role Stacking, Subagent Sandboxing & Model Coercion.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn context_extended(
         &self,
         project: Option<&str>,
@@ -1215,7 +1259,14 @@ impl MemoryFabric {
             query.to_string()
         };
 
-        let mut res = self.context(effective_project, &effective_query, provider, effective_budget, as_of, loopback)?;
+        let mut res = self.context(
+            effective_project,
+            &effective_query,
+            provider,
+            effective_budget,
+            as_of,
+            loopback,
+        )?;
         if let Some(map) = res.as_object_mut() {
             if let Some(r) = role {
                 map.insert("domain_role".to_string(), json!(r));
@@ -1232,19 +1283,25 @@ impl MemoryFabric {
 /// Milestone 19: Ebbinghaus Temporal Half-Life Decay.
 /// Invariants and user notes have decay = 1.0 (eternal). Episodic/journal notes decay with half-life = 30 days.
 pub fn calculate_ebbinghaus_decay(scope: &str, relpath: &str, indexed_at: Option<&str>) -> f64 {
-    if scope == "invariants" || scope == "user" || relpath.starts_with("invariants/") || relpath.starts_with("user/") {
+    if scope == "invariants"
+        || scope == "user"
+        || relpath.starts_with("invariants/")
+        || relpath.starts_with("user/")
+    {
         return 1.0;
     }
-    if scope == "episodic" || scope == "daily" || relpath.starts_with("episodes/") || relpath.starts_with("journal/") {
-        if let Some(date_str) = indexed_at {
-            if let Ok(indexed_date) = chrono::DateTime::parse_from_rfc3339(date_str) {
-                let now = chrono::Utc::now();
-                let duration = now.signed_duration_since(indexed_date);
-                let days = duration.num_seconds() as f64 / 86400.0;
-                if days > 0.0 {
-                    return 2.0_f64.powf(-days / 30.0);
-                }
-            }
+    if (scope == "episodic"
+        || scope == "daily"
+        || relpath.starts_with("episodes/")
+        || relpath.starts_with("journal/"))
+        && let Some(date_str) = indexed_at
+        && let Ok(indexed_date) = chrono::DateTime::parse_from_rfc3339(date_str)
+    {
+        let now = chrono::Utc::now();
+        let duration = now.signed_duration_since(indexed_date);
+        let days = duration.num_seconds() as f64 / 86400.0;
+        if days > 0.0 {
+            return 2.0_f64.powf(-days / 30.0);
         }
     }
     1.0

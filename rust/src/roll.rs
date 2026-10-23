@@ -17,15 +17,21 @@ impl MemoryRoller {
     ) -> Result<Value, String> {
         let safe_rel = match crate::paths::safe_relpath(rel_target) {
             Ok(r) => r,
-            Err(e) => return Ok(crate::text::json_error(&format!("unsafe target path: {}", e))),
+            Err(e) => {
+                return Ok(crate::text::json_error(format!(
+                    "unsafe target path: {}",
+                    e
+                )));
+            }
         };
         let target_path = vault_path.join(&safe_rel);
-        if let Ok(canon_vault) = vault_path.canonicalize() {
-            if let Ok(canon_target) = target_path.canonicalize() {
-                if !canon_target.starts_with(&canon_vault) {
-                    return Ok(crate::text::json_error("target path escapes vault boundary"));
-                }
-            }
+        if let Ok(canon_vault) = vault_path.canonicalize()
+            && let Ok(canon_target) = target_path.canonicalize()
+            && !canon_target.starts_with(&canon_vault)
+        {
+            return Ok(crate::text::json_error(
+                "target path escapes vault boundary",
+            ));
         }
         if !target_path.exists() {
             return Ok(json!({
@@ -52,7 +58,10 @@ impl MemoryRoller {
 
         for line in &lines {
             let trimmed = line.trim();
-            if trimmed.starts_with("- [x]") || trimmed.starts_with("* [x]") || trimmed.contains("[DONE]") {
+            if trimmed.starts_with("- [x]")
+                || trimmed.starts_with("* [x]")
+                || trimmed.contains("[DONE]")
+            {
                 completed_items.push(*line);
             } else {
                 active_lines.push(*line);
@@ -88,8 +97,13 @@ impl MemoryRoller {
                 .open(&archive_path)
                 .map_err(|e| e.to_string())?;
 
-            writeln!(archive_file, "\n## Archived on {} from {}\n", now.to_rfc3339(), rel_target)
-                .map_err(|e| e.to_string())?;
+            writeln!(
+                archive_file,
+                "\n## Archived on {} from {}\n",
+                now.to_rfc3339(),
+                rel_target
+            )
+            .map_err(|e| e.to_string())?;
 
             for item in &completed_items {
                 writeln!(archive_file, "{}", item).map_err(|e| e.to_string())?;

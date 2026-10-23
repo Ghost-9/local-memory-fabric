@@ -50,7 +50,11 @@ impl AstBinaryIndex {
 
     /// Sub-microsecond lookup of heading line bounds from the pre-compiled binary AST.
     #[allow(dead_code)]
-    pub fn lookup(bin_path: &Path, target_relpath: &str, target_heading: &str) -> Option<(usize, usize)> {
+    pub fn lookup(
+        bin_path: &Path,
+        target_relpath: &str,
+        target_heading: &str,
+    ) -> Option<(usize, usize)> {
         let mut f = File::open(bin_path).ok()?;
         let mut magic = [0u8; 4];
         f.read_exact(&mut magic).ok()?;
@@ -71,11 +75,20 @@ impl AstBinaryIndex {
         f.read_exact(&mut payload).ok()?;
 
         let entries: Vec<BinaryAstEntry> = serde_json::from_slice(&payload).ok()?;
-        let target_heading_clean = target_heading.trim().trim_start_matches('#').trim().to_lowercase();
+        let target_heading_clean = target_heading
+            .trim()
+            .trim_start_matches('#')
+            .trim()
+            .to_lowercase();
 
         for e in entries {
             if e.relpath == target_relpath {
-                let h_clean = e.heading.trim().trim_start_matches('#').trim().to_lowercase();
+                let h_clean = e
+                    .heading
+                    .trim()
+                    .trim_start_matches('#')
+                    .trim()
+                    .to_lowercase();
                 if h_clean == target_heading_clean || h_clean.contains(&target_heading_clean) {
                     return Some((e.start_line, e.end_line));
                 }
@@ -84,26 +97,45 @@ impl AstBinaryIndex {
         None
     }
 
-    fn scan_and_parse(root: &Path, current: &Path, acc: &mut Vec<BinaryAstEntry>) -> Result<(), String> {
+    fn scan_and_parse(
+        root: &Path,
+        current: &Path,
+        acc: &mut Vec<BinaryAstEntry>,
+    ) -> Result<(), String> {
         if !current.exists() || !current.is_dir() {
             return Ok(());
         }
-        let excluded = ["apple-notes", "notes_export", "templates", "archive", ".git", ".trash"];
+        let excluded = [
+            "apple-notes",
+            "notes_export",
+            "templates",
+            "archive",
+            ".git",
+            ".trash",
+        ];
         let entries = fs::read_dir(current).map_err(|e| e.to_string())?;
         for entry in entries.flatten() {
             let path = entry.path();
-            if let Ok(meta) = fs::symlink_metadata(&path) {
-                if meta.file_type().is_symlink() {
-                    continue;
-                }
+            if let Ok(meta) = fs::symlink_metadata(&path)
+                && meta.file_type().is_symlink()
+            {
+                continue;
             }
             if path.is_dir() {
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
                 if !name.starts_with('.') && !excluded.contains(&name.as_str()) {
                     Self::scan_and_parse(root, &path, acc)?;
                 }
             } else if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("md") {
-                let relpath = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().to_string();
+                let relpath = path
+                    .strip_prefix(root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .to_string();
                 if let Ok(content) = fs::read_to_string(&path) {
                     let mut current_heading = "Overview".to_string();
                     let mut current_start = 1;

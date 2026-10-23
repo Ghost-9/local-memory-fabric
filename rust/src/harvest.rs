@@ -22,15 +22,16 @@ impl SessionHarvester {
         let mut processed_files = 0;
         let mut candidates_found = Vec::new();
 
-        if search_dir.exists() && search_dir.is_dir() {
-            if let Ok(entries) = fs::read_dir(search_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
-                        processed_files += 1;
-                        if let Ok(mut extracted) = Self::harvest_single_transcript(&path) {
-                            candidates_found.append(&mut extracted);
-                        }
+        if search_dir.exists()
+            && search_dir.is_dir()
+            && let Ok(entries) = fs::read_dir(search_dir)
+        {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
+                    processed_files += 1;
+                    if let Ok(mut extracted) = Self::harvest_single_transcript(&path) {
+                        candidates_found.append(&mut extracted);
                     }
                 }
             }
@@ -42,8 +43,18 @@ impl SessionHarvester {
         if !dry_run && !candidates_found.is_empty() {
             fs::create_dir_all(&drafts_dir).map_err(|e| e.to_string())?;
             for (idx, draft) in candidates_found.iter().enumerate() {
-                let filename = format!("draft-{}-{}.md", crate::paths::now_utc().replace([':', '-'], "").replace('T', "_"), idx + 1);
-                let combined = format!("{} {}", draft["context"].as_str().unwrap_or(""), draft["proposal"].as_str().unwrap_or(""));
+                let filename = format!(
+                    "draft-{}-{}.md",
+                    crate::paths::now_utc()
+                        .replace([':', '-'], "")
+                        .replace('T', "_"),
+                    idx + 1
+                );
+                let combined = format!(
+                    "{} {}",
+                    draft["context"].as_str().unwrap_or(""),
+                    draft["proposal"].as_str().unwrap_or("")
+                );
                 if crate::policy::secret_signature(&combined).is_some() {
                     continue; // Skip staging potential credentials
                 }
@@ -77,7 +88,11 @@ impl SessionHarvester {
         let file = File::open(path).map_err(|e| e.to_string())?;
         let reader = BufReader::new(file);
         let mut candidates = Vec::new();
-        let session_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("session").to_string();
+        let session_name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("session")
+            .to_string();
 
         let mut prev_user_msg = String::new();
 
@@ -90,7 +105,11 @@ impl SessionHarvester {
                 continue;
             }
             if let Ok(val) = serde_json::from_str::<Value>(&line) {
-                let role = val.get("role").or_else(|| val.get("source")).and_then(|v| v.as_str()).unwrap_or("");
+                let role = val
+                    .get("role")
+                    .or_else(|| val.get("source"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let content = val.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
                 if crate::policy::secret_signature(content).is_some() {
@@ -99,20 +118,27 @@ impl SessionHarvester {
                 if role == "user" || role == "USER_EXPLICIT" {
                     // Detect corrections
                     let lower = content.to_lowercase();
-                    if lower.contains("never") || lower.contains("do not") || lower.contains("always") || lower.contains("remember to") || lower.contains("prefer") {
-                        if content.len() > 15 && content.len() < 400 {
-                            candidates.push(json!({
-                                "title": format!("Correction from {}", session_name),
-                                "source_file": session_name,
-                                "context": format!("User correction detected: \"{}\"", content.trim()),
-                                "proposal": format!("Enforce constraint: {}", content.trim())
-                            }));
-                        }
+                    if (lower.contains("never")
+                        || lower.contains("do not")
+                        || lower.contains("always")
+                        || lower.contains("remember to")
+                        || lower.contains("prefer"))
+                        && content.len() > 15
+                        && content.len() < 400
+                    {
+                        candidates.push(json!({
+                            "title": format!("Correction from {}", session_name),
+                            "source_file": session_name,
+                            "context": format!("User correction detected: \"{}\"", content.trim()),
+                            "proposal": format!("Enforce constraint: {}", content.trim())
+                        }));
                     }
                     prev_user_msg = content.to_string();
                 } else if role == "tool" || val.get("tool_calls").is_some() {
                     // Check for command error output
-                    if content.contains("exited with code") && !content.contains("exited with code 0") {
+                    if content.contains("exited with code")
+                        && !content.contains("exited with code 0")
+                    {
                         candidates.push(json!({
                             "title": format!("Tool failure in {}", session_name),
                             "source_file": session_name,

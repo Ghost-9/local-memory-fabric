@@ -1,41 +1,19 @@
-# Pre-registered evidence
+# Recorded and unmeasured evidence
 
-The bar both competitors meet, and we did not.
+This directory distinguishes retained records from claims that do not have retained raw data.
 
-Context Mode publishes 17 paired A/B results with equal-task-success checks and pre-registers each
-run **before its first pair**. billion-context publishes 174,327 model calls over 4.5 months. We
-published "78x fewer tokens per turn" from a cost model with no task-success check at all. That
-number is arithmetic, not a result, and it should not have been stated as one.
+## Retrieval-ranking experiment
 
-## The rule
+bench/evidence/ordering_ab_results.json contains eight recorded comparisons of ranking weights. Each comparison reports five paired observations (the n field), arm metrics, and median deltas. These are tuning records for the ranking fixture, not evidence that memory improves coding-task success. The JSON file is the source of every figure from this experiment.
 
-**Write the task list, the pair count, and the analysis down before the first run.** Then run it,
-publish the outcome whatever it is, and never drop a pair.
+For example, the recorded comparison that changed section weight from 0.15 to 0.0 reports Recall@3 of 0.9344 for both arms, with a median Recall@3 delta of 0.0. The associated MRR@3 values are 0.7354 and 0.7617. Read the source file for the other comparisons and metrics.
 
-Rationale: the only thing that separates a measurement from a story is that the analysis was chosen
-before the data existed. Everything else — p-values, confidence intervals, "likely" ranges — is
-decoration on top of that one commitment.
+## Historical latency findings
 
-## What a result must carry
+bench/evidence/retired-latency-findings.md preserves previously published latency findings. The old harness did not retain its per-round raw data, and its Python implementation has been removed. Those figures are historical notes, not reproducible evidence or current performance claims.
 
-| field | why |
-|---|---|
-| task + success check | a cost saving with worse answers is a regression, and only a success check can tell you which you got |
-| pairs, and the order | alternated order cancels provider load and cache drift across the run |
-| per-arm token counts | from the provider's own usage, not the client's estimate |
-| the interval | a point estimate from 8 pairs is not a finding |
-| every valid pair | dropping the ones that "didn't work" is how a null result becomes a headline |
+## Injection task-success experiment: not run
 
-## Status: NOT RUN
+There is no retained paired task suite that measures task success with memory on and off. Therefore this repository does not claim that injection improves task success or saves tokens while preserving task quality.
 
-There is no task suite yet, so nothing here has produced a number. Saying so is the point — a
-directory named `evidence/` that quietly contains none is worse than not having it.
-
-The first thing worth pre-registering is the **memory-injection** question, because it is the claim
-this plugin actually rests on and it has never been tested:
-
-> Does injecting the memory block improve task success, and at what token cost?
-
-That requires a task suite where some tasks depend on prior knowledge held only in the vault. No
-such suite exists. It is the same missing guard as the real-corpus ranking fixture — the two are
-the same gap seen from different ends.
+Before such an experiment, register the task set, pair count, ordering, and success checks. Retain every valid pair and per-arm usage. Publish the result regardless of direction. A cost estimate without task-success checks is not a measured outcome.

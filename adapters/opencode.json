@@ -1,9 +1,8 @@
 {
   "name": "local-memory-fabric",
-  "version": "1.9.0",
   "description": "Deterministic local-first memory index for OpenCode & Codex IDE workflows",
-  "command": "python3",
-  "args": ["adapters/mcp.py"],
+  "command": "./rust/target/release/memory-fabric",
+  "args": ["--mcp"],
   "tools": [
     "memory_fabric_search",
     "memory_fabric_context",

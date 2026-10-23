@@ -1,5 +1,8 @@
 use crate::MemoryFabric;
-use crate::paths::{MAX_CONTEXT_CHARS_DEFAULT, MAX_RESULT_CHARS_DEFAULT, SCHEMA_VERSION, home_dir, safe_relpath, set_mode, set_open_mode};
+use crate::paths::{
+    MAX_CONTEXT_CHARS_DEFAULT, MAX_RESULT_CHARS_DEFAULT, SCHEMA_VERSION, home_dir, safe_relpath,
+    set_mode, set_open_mode,
+};
 use crate::policy::{
     DEFAULT_EXCLUDED_DIRS, DEFAULT_INCLUDE_DIRS, DEFAULT_INCLUDE_FILES, apple_path_re,
 };
@@ -29,7 +32,9 @@ pub(crate) fn busy_message(detail: &str, action: &str) -> String {
         || lowered.contains("malformed")
         || lowered.contains("corrupt")
     {
-        format!("local memory index is corrupt (during {action}); reindex with 'index --force' [{detail}]")
+        format!(
+            "local memory index is corrupt (during {action}); reindex with 'index --force' [{detail}]"
+        )
     } else if lowered.contains("database is locked")
         || lowered.contains("database is busy")
         || lowered.contains("locked")
@@ -193,7 +198,7 @@ impl MemoryFabric {
         connection
             .pragma_update(None, "foreign_keys", "ON")
             .map_err(|e| e.to_string())?;
-        // Additive-only forward migration for READ paths. Mirrors the Python engine exactly.
+        // Additive-only forward migration for READ paths.
         //
         // 0.3.6 added `secret_alarms` and left every pre-existing index without it, so search,
         // context, status and alarms all failed with "no such table" until a re-index. A read
@@ -220,6 +225,28 @@ impl MemoryFabric {
         Ok(connection)
     }
 
+    /// A read allowlist includes configured local providers and explicitly approved remote ones.
+    /// The request dispatcher separately verifies that a remote provider has a usable HTTP(S)
+    /// endpoint and applies the loopback/scrub/write decisions.
+    pub(crate) fn is_read_provider(&self, provider: Option<&str>) -> bool {
+        let Some(provider) = provider else {
+            return false;
+        };
+        let name = provider.trim().to_ascii_lowercase();
+        self.config.local_providers.contains(&name)
+            || crate::extension::remote_providers().contains(&name)
+    }
+
+    pub(crate) fn is_write_provider(&self, provider: Option<&str>) -> bool {
+        let Some(provider) = provider else {
+            return false;
+        };
+        let name = provider.trim().to_ascii_lowercase();
+        self.config.local_providers.contains(&name)
+            || (crate::extension::remote_full_access_enabled()
+                && crate::extension::remote_providers().contains(&name))
+    }
+
     /// Whether per-note export policy is enforced.
     ///
     /// Re-read on every call rather than served from the value cached at startup: a
@@ -232,7 +259,7 @@ impl MemoryFabric {
             Ok(raw) => serde_json::from_str::<Value>(&raw)
                 .ok()
                 .and_then(|v| v.get("enforce_export_policy").and_then(Value::as_bool))
-                .unwrap_or_else(|| self.config.enforce_export_policy),
+                .unwrap_or(self.config.enforce_export_policy),
             Err(_) => self.config.enforce_export_policy,
         }
     }
@@ -261,7 +288,7 @@ impl MemoryFabric {
             CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(relpath UNINDEXED,title,headings,body,tokenize='porter unicode61');
             CREATE TABLE IF NOT EXISTS term_df(term TEXT PRIMARY KEY,df INTEGER NOT NULL) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL) WITHOUT ROWID;
-            -- Credential exposure alarms: mirrors the Python engine. A note matching the secret
+            -- Credential exposure alarms. A note matching the secret
             -- filter is excluded from the index, which is safe but silent; this is how the owner
             -- finds out. Stores a FINGERPRINT, never the value: telling the user which key to
             -- rotate must not mean copying that key somewhere readable a second time.
@@ -311,7 +338,8 @@ impl MemoryFabric {
         // is intact".
         let counts = |c: &Connection| -> Result<i64, String> {
             let one = |sql: &str| -> Result<i64, String> {
-                c.query_row(sql, [], |r| r.get(0)).map_err(|e| e.to_string())
+                c.query_row(sql, [], |r| r.get(0))
+                    .map_err(|e| e.to_string())
             };
             one("SELECT COUNT(*) FROM documents")
         };
@@ -335,7 +363,9 @@ impl MemoryFabric {
                     &format!("ALTER TABLE documents ADD COLUMN {name} {declaration}"),
                     [],
                 )
-                .map_err(|e| format!("migration step {name} failed (schema left at {from_version}): {e}"))?;
+                .map_err(|e| {
+                    format!("migration step {name} failed (schema left at {from_version}): {e}")
+                })?;
                 steps.push(format!("add column documents.{name}"));
                 migrated = true;
             }
@@ -383,7 +413,11 @@ impl MemoryFabric {
         // and nothing reporting it. A migration that only fires on mismatch-detected-in-one-
         // direction cannot heal that.
         let actual_sql: Option<String> = con
-            .query_row("SELECT sql FROM sqlite_master WHERE name='documents_fts'", [], |r| r.get(0))
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE name='documents_fts'",
+                [],
+                |r| r.get(0),
+            )
             .optional()
             .unwrap_or(None);
         let mismatched = match &actual_sql {
@@ -403,23 +437,31 @@ impl MemoryFabric {
                      CREATE VIRTUAL TABLE documents_fts_v4 USING fts5(relpath UNINDEXED,title,headings,body,content='documents',content_rowid='id',tokenize='{EXPECTED_FTS_TOKENIZER}');
                      INSERT INTO documents_fts_v4(rowid,relpath,title,headings,body) SELECT id,relpath,title,headings,body FROM documents;"
                 )).map_err(|e| format!("could not build external-content FTS index: {e}"))?;
-                let rows = con.query_row("SELECT COUNT(*) FROM documents_fts_v4_docsize", [], |r| r.get::<_, i64>(0))
+                let rows = con
+                    .query_row("SELECT COUNT(*) FROM documents_fts_v4_docsize", [], |r| {
+                        r.get::<_, i64>(0)
+                    })
                     .map_err(|e| format!("could not reconcile external-content FTS index: {e}"))?;
                 if rows != before {
-                    return Err(format!("migration reconciliation failed: documents/FTS rows went {before} -> {rows}"));
+                    return Err(format!(
+                        "migration reconciliation failed: documents/FTS rows went {before} -> {rows}"
+                    ));
                 }
                 con.execute_batch("DROP TABLE documents_fts; ALTER TABLE documents_fts_v4 RENAME TO documents_fts;")
                     .map_err(|e| format!("could not install external-content FTS index: {e}"))?;
                 Ok(rows)
             })();
             if let Err(e) = rebuild {
-                con.execute_batch("ROLLBACK TO migration_fts_v4; RELEASE migration_fts_v4").ok();
+                con.execute_batch("ROLLBACK TO migration_fts_v4; RELEASE migration_fts_v4")
+                    .ok();
                 return Err(format!("{e}; schema version was not advanced"));
             }
             con.execute_batch("RELEASE migration_fts_v4")
                 .map_err(|e| format!("could not finish FTS migration: {e}"))?;
-            migrated = true;   // forces a full re-read so the table is refilled
-            steps.push(format!("rebuild documents_fts as external content to tokenize='{EXPECTED_FTS_TOKENIZER}'"));
+            migrated = true; // forces a full re-read so the table is refilled
+            steps.push(format!(
+                "rebuild documents_fts as external content to tokenize='{EXPECTED_FTS_TOKENIZER}'"
+            ));
         }
 
         // Trigger maintenance protects every documents write path, including edits and deletes.
@@ -481,8 +523,8 @@ impl MemoryFabric {
 
     /// C4 - the index format, stated as data rather than as a comment.
     ///
-    /// The contract is what other things depend on: the recorded retrieval fixture, the Python
-    /// oracle's parity check, and any future reader. If it drifts silently, a fixture captured
+    /// The contract is what other things depend on: the recorded retrieval fixture, protocol
+    /// clients, and any future reader. If it drifts silently, a fixture captured
     /// against the old shape keeps passing while measuring something that no longer exists.
     /// `bench/golden/format.json` records this and the gate fails when it changes unrecorded.
     pub(crate) fn schema_contract(&self) -> Result<Value, String> {
@@ -513,19 +555,27 @@ impl MemoryFabric {
             }
         }
         let recorded: Option<String> = con
-            .query_row("SELECT value FROM metadata WHERE key='schema_version'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT value FROM metadata WHERE key='schema_version'",
+                [],
+                |r| r.get(0),
+            )
             .optional()
             .unwrap_or(None);
         let last_migration: Option<String> = con
-            .query_row("SELECT value FROM metadata WHERE key='last_migration'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT value FROM metadata WHERE key='last_migration'",
+                [],
+                |r| r.get(0),
+            )
             .optional()
             .unwrap_or(None);
-        let documents: i64 = con.query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0)).map_err(|e| e.to_string())?;
-        let index_bytes = std::fs::metadata(&self.db_path).map(|m| m.len()).unwrap_or(0);
+        let documents: i64 = con
+            .query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        let index_bytes = std::fs::metadata(&self.db_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
         Ok(json!({
             "ok": true,
             "schema_version": recorded,

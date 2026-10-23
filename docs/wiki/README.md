@@ -1,31 +1,14 @@
 # Wiki content
 
-These pages are the **source of truth for the wiki**, kept in the main repository because
-GitHub's wiki cannot be written over the API: the wiki git remote is only created once a page is
-made through the web UI, so an agent can never initialise or update it.
+These pages are maintained in docs/wiki. README.md is the product and setup reference, ROADMAP.md tracks current work, CHANGELOG.md records changes, and docs/RUST-OPS.md documents the Rust operation contract.
 
-**To enable the wiki:** visit https://github.com/Ghost-9/local-memory-fabric/wiki and create the
-first page (any title, e.g. `Home`). That creates the `.wiki.git` remote. From then on, one
-command syncs this directory into it:
-
-```sh
-git clone https://github.com/Ghost-9/local-memory-fabric.wiki.git /tmp/wiki-clone
-cp docs/wiki/*.md /tmp/wiki-clone/
-cd /tmp/wiki-clone && git add -A && git commit -m "sync wiki from docs/wiki" && git push
-```
-
-Later, that can be a scheduled job; for now it is a documented one-liner rather than a broken
-link.
-
-## What the pages cover
-
-| File | Page |
+| Page | Purpose |
 |---|---|
-| `01-home.md` | onboarding, the five rules, where things live |
-| `02-access-gates.md` | the three gates, why they are three, the loopback rule |
-| `03-cache-stability.md` | how not to break the KV / prefix cache, and what is *not* measured |
-| `04-roadmap-index.md` | points at the canonical `ROADMAP.md` and issue #14 |
-| `05-measurements.md` | every number this repo claims, plus the findings rejected on evidence |
+| 01-home.md | Architecture and repository map |
+| 02-access-gates.md | Provider, transcript, and write policy |
+| 03-cache-stability.md | Deterministic response contract and measurement limits |
+| 04-project-memory-lifecycle.md | Project notes, proposals, and handoffs |
+| 04-roadmap-index.md | Link to current roadmap |
+| 05-measurements.md | Retained and unmeasured evidence |
 
-The rules of precedence: the gate (`./test.sh`) decides, then `remote-policy.test.ts` for the
-access table, then these pages. If a page disagrees with a test, the test is right.
+The authoritative behavior checks are Rust unit and integration tests run by ./test.sh. If a wiki page disagrees with Rust behavior and its tests, update the page.

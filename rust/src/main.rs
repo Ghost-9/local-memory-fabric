@@ -1,21 +1,22 @@
 mod ast_cache;
+mod compact;
 mod conflicts;
+mod db;
+mod extension;
+mod federate;
+mod fuzzy;
 mod governance;
 mod harvest;
-mod roll;
-mod db;
 mod index;
 mod paths;
 mod policy;
 mod propose;
 mod retrieval;
-mod text;
-mod shm;
+mod roll;
 mod semantic;
-mod federate;
-mod compact;
-mod fuzzy;
+mod shm;
 mod symbiosis;
+mod text;
 
 #[cfg(test)]
 mod tests;
@@ -26,10 +27,10 @@ use crate::text::json_error;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::env;
-use std::io::{self, BufRead, Read, Write, IsTerminal};
+use std::io::{self, BufRead, IsTerminal, Read, Write};
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 static CACHE_GEN: AtomicU64 = AtomicU64::new(1);
 static QUERY_CACHE: OnceLock<Mutex<HashMap<String, (u64, Value)>>> = OnceLock::new();
@@ -48,17 +49,89 @@ pub(crate) struct MemoryFabric {
 
 pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, String> {
     let op = req["op"].as_str().unwrap_or("");
-    if ["index", "propose", "apply", "sandbox", "resolve", "proposal-revert"].contains(&op) {
+    if op == "tool-guard" {
+        return fabric.tool_guard(req);
+    }
+    if let Some(result) = extension::dispatch_policy_op(
+        op,
+        req,
+        &fabric.vault.to_string_lossy(),
+        &fabric.config.local_providers,
+    ) {
+        return Ok(result);
+    }
+    let mut normalized = req.clone();
+    if let Some(provider) = req.get("provider").and_then(Value::as_str) {
+        let decision = extension::authorized_request(
+            Some(provider),
+            req.get("base_url").and_then(Value::as_str),
+            req.get("loopback").and_then(Value::as_bool),
+            &fabric.config.local_providers,
+        );
+        if !decision.allowed {
+            return Ok(
+                json!({"ok": false, "blocked": "Provider is not authorized to access local memory; use a loopback endpoint or allowlist this provider explicitly."}),
+            );
+        }
+        normalized["loopback"] = json!(decision.loopback);
+        let writes_vault = [
+            "apply",
+            "proposal-revert",
+            "resolve",
+            "sync",
+            "harvest",
+            "roll",
+            "learn-preference",
+            "scrub-secrets",
+            "handoff",
+            "create-handoff",
+            "compact",
+        ]
+        .contains(&op)
+            || (op == "consolidate" && req["write"].as_bool().unwrap_or(false));
+        if writes_vault
+            && !extension::may_apply(
+                Some(provider),
+                req.get("base_url").and_then(Value::as_str),
+                req.get("loopback").and_then(Value::as_bool),
+                &fabric.config.local_providers,
+            )
+        {
+            return Ok(
+                json!({"ok":false,"blocked":"This provider is read-only. Remote providers may propose a change; only loopback providers may apply it unless PI_MEMORY_REMOTE_FULL_ACCESS is explicitly enabled."}),
+            );
+        }
+    }
+    let req = &normalized;
+    if [
+        "index",
+        "propose",
+        "propose-file",
+        "apply",
+        "sandbox",
+        "resolve",
+        "proposal-revert",
+        "consolidate",
+        "compact",
+    ]
+    .contains(&op)
+    {
         invalidate_cache();
     }
     match op {
         "status" => fabric.status(),
 
-            // Plan items 38/39. `doctor` answers "is this working?" in one command; `init` takes a
-            // machine with no config to an indexed vault. Both were advice in the README and nothing
-            // executable.
-            "doctor" => fabric.doctor(),
-            "init" => fabric.init(),
+        // Plan items 38/39. `doctor` answers "is this working?" in one command; `init` takes a
+        // machine with no config to an indexed vault. Both were advice in the README and nothing
+        // executable.
+        "doctor" => fabric.doctor(),
+        "init" => fabric.init(),
+        "before-agent-start" => fabric.before_agent_start(req),
+        "message-end" => fabric.message_end(req),
+        "create-handoff" => fabric.create_handoff(req),
+        "extension-command" => fabric.extension_command(req),
+        "project" => fabric.project(req),
+        "sync-agency" => fabric.sync_agency(req),
         // D6 - crash-consistency and index/vault divergence. Repairs nothing, by design.
         "verify" => fabric.verify(),
         // C2 - integrity check, then rebuild only when the index is genuinely unusable.
@@ -70,7 +143,9 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
         // P2 - reclaim what the index no longer needs. Reports unless forced.
         "vacuum" => fabric.vacuum(req["force"].as_bool().unwrap_or(false)),
         // Consolidation: extractive, derived, non-destructive. See index.rs for why not generative.
-        "consolidate" => fabric.consolidate(req["ref"].as_str(), req["write"].as_bool().unwrap_or(false)),
+        "consolidate" => {
+            fabric.consolidate(req["ref"].as_str(), req["write"].as_bool().unwrap_or(false))
+        }
         "index" => fabric.index(req["force"].as_bool().unwrap_or(false)),
         "search" => {
             let key = format!(
@@ -84,14 +159,12 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
                 req["token_budget"].as_u64().unwrap_or(0),
             );
             let cur_gen = CACHE_GEN.load(Ordering::Acquire);
-            if let Some(cache_map) = QUERY_CACHE.get() {
-                if let Ok(guard) = cache_map.lock() {
-                    if let Some((cached_gen, val)) = guard.get(&key) {
-                        if *cached_gen == cur_gen {
-                            return Ok(val.clone());
-                        }
-                    }
-                }
+            if let Some(cache_map) = QUERY_CACHE.get()
+                && let Ok(guard) = cache_map.lock()
+                && let Some((cached_gen, val)) = guard.get(&key)
+                && *cached_gen == cur_gen
+            {
+                return Ok(val.clone());
             }
             let res = fabric.search(
                 req["query"].as_str().unwrap_or(""),
@@ -114,7 +187,10 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
         "audit" => fabric.audit(),
         "links" => fabric.links(req["source_ref"].as_str().unwrap_or("")),
         "sections" => fabric.sections(
-            req["source_ref"].as_str().or_else(|| req["target"].as_str()).unwrap_or(""),
+            req["source_ref"]
+                .as_str()
+                .or_else(|| req["target"].as_str())
+                .unwrap_or(""),
             req["provider"].as_str(),
             req["loopback"].as_bool(),
         ),
@@ -141,6 +217,7 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
             req["loopback"].as_bool(),
         ),
         "propose" => fabric.propose(req),
+        "propose-file" => fabric.propose_file(req),
         "sandbox" => fabric.sandbox(
             req["title"].as_str().unwrap_or(""),
             req["text"].as_str().unwrap_or(""),
@@ -158,17 +235,18 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
             req["provider"].as_str(),
         ),
         "alarms" => fabric.alarms(),
-        "compact" => fabric.compact(
-            req["project"].as_str(),
-            req["provider"].as_str(),
-        ),
+        "compact" => fabric.compact(req["project"].as_str(), req["provider"].as_str()),
         "federate" => match req["action"].as_str().unwrap_or("status") {
             "status" => fabric.federate_status(),
             "search" => {
                 let empty_peers: Vec<String> = Vec::new();
                 let peers: Vec<String> = req["peer_vaults"]
                     .as_array()
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
                     .unwrap_or(empty_peers);
                 fabric.federate_search(
                     req["query"].as_str().unwrap_or(""),
@@ -186,27 +264,35 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
                 req["relpath"].as_str().unwrap_or(""),
                 req["provider"].as_str(),
             ),
-            _ => Ok(json_error("unknown federate action; use status, search, or merge-proposal")),
+            _ => Ok(json_error(
+                "unknown federate action; use status, search, or merge-proposal",
+            )),
         },
-                "symbiosis" | "code-symbiosis" => fabric.code_symbiosis(
+        "symbiosis" | "code-symbiosis" => fabric.code_symbiosis(
             req["query"].as_str().unwrap_or(""),
             req["active_file"].as_str(),
             req["repo_root"].as_str(),
             req["limit"].as_u64().unwrap_or(10) as usize,
             req["provider"].as_str(),
         ),
-                "harvest" => {
-            if !fabric.is_local_provider(req["provider"].as_str()) {
-                return Ok(json!({ "ok": false, "blocked": "Harvest is restricted to authorized local providers." }));
+        "harvest" => {
+            if !fabric.is_write_provider(req["provider"].as_str()) {
+                return Ok(
+                    json!({ "ok": false, "blocked": "Harvest is restricted to authorized local providers." }),
+                );
             }
             let session_path = req["session"].as_str().map(std::path::Path::new);
             let dry_run = req["dry_run"].as_bool().unwrap_or(false);
             crate::harvest::SessionHarvester::harvest_all(session_path, &fabric.vault, dry_run)
         }
-        "check-conflicts" => crate::conflicts::ConflictDetector::scan_vault_conflicts(&fabric.vault),
+        "check-conflicts" => {
+            crate::conflicts::ConflictDetector::scan_vault_conflicts(&fabric.vault)
+        }
         "roll" => {
-            if !fabric.is_local_provider(req["provider"].as_str()) {
-                return Ok(json!({ "ok": false, "blocked": "Roll is restricted to authorized local providers." }));
+            if !fabric.is_write_provider(req["provider"].as_str()) {
+                return Ok(
+                    json!({ "ok": false, "blocked": "Roll is restricted to authorized local providers." }),
+                );
             }
             let target = req["target"].as_str().unwrap_or("STATUS.md");
             let max_lines = req["max_lines"].as_u64().unwrap_or(500) as usize;
@@ -235,27 +321,35 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
                 let target = req["target"].as_str().unwrap_or("vault");
                 let author = req["author"].as_str().unwrap_or("agent");
                 let content = req["content"].as_str().unwrap_or("");
-                crate::governance::GovernanceEngine::append_audit_entry(&log_path, op, target, author, content)
+                crate::governance::GovernanceEngine::append_audit_entry(
+                    &log_path, op, target, author, content,
+                )
             }
         }
         "scrub-secrets" => {
-            if !fabric.is_local_provider(req["provider"].as_str()) {
-                return Ok(json!({ "ok": false, "blocked": "Scrub-secrets is restricted to authorized local providers." }));
+            if !fabric.is_write_provider(req["provider"].as_str()) {
+                return Ok(
+                    json!({ "ok": false, "blocked": "Scrub-secrets is restricted to authorized local providers." }),
+                );
             }
             let dry_run = req["dry_run"].as_bool().unwrap_or(false);
             crate::governance::GovernanceEngine::scrub_secrets_vault(&fabric.vault, dry_run)
         }
         "learn-preference" => {
-            if !fabric.is_local_provider(req["provider"].as_str()) {
-                return Ok(json!({ "ok": false, "blocked": "Learn-preference is restricted to authorized local providers." }));
+            if !fabric.is_write_provider(req["provider"].as_str()) {
+                return Ok(
+                    json!({ "ok": false, "blocked": "Learn-preference is restricted to authorized local providers." }),
+                );
             }
             let txt = req["text"].as_str().unwrap_or("");
             let cat = req["category"].as_str();
             crate::governance::GovernanceEngine::learn_preference(&fabric.vault, txt, cat)
         }
         "sync" => {
-            if !fabric.is_local_provider(req["provider"].as_str()) {
-                return Ok(json!({ "ok": false, "blocked": "Sync is restricted to authorized local providers." }));
+            if !fabric.is_write_provider(req["provider"].as_str()) {
+                return Ok(
+                    json!({ "ok": false, "blocked": "Sync is restricted to authorized local providers." }),
+                );
             }
             let rem = req["remote"].as_str();
             let br = req["branch"].as_str();
@@ -264,14 +358,21 @@ pub(crate) fn dispatch(fabric: &MemoryFabric, req: &Value) -> Result<Value, Stri
         "prewarm" => {
             let files: Vec<String> = req["files"]
                 .as_array()
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
                 .unwrap_or_default();
             crate::governance::GovernanceEngine::prewarm_cache(&fabric.vault, &files)
         }
         "worktree" => fabric.worktree_status(),
         "test-suite" => run_native_test_suite(fabric),
         "fuzzy-sections" => fabric.fuzzy_sections(
-            req["source_ref"].as_str().or_else(|| req["target"].as_str()).unwrap_or(""),
+            req["source_ref"]
+                .as_str()
+                .or_else(|| req["target"].as_str())
+                .unwrap_or(""),
             req["pattern"].as_str().unwrap_or(""),
             req["provider"].as_str(),
             req["loopback"].as_bool(),
@@ -302,23 +403,24 @@ fn serve() -> Result<(), String> {
                 if !req.is_object() {
                     json_error("request must be a JSON object")
                 } else {
-                if fabric.is_none() {
-                    let outcome = MemoryFabric::new();
-                    match outcome {
-                        Ok(f) => fabric = Some(f),
-                        Err(e) => {
-                            let response = json_error(&e);
-                            serde_json::to_writer(&mut stdout, &response)
-                                .map_err(|e| e.to_string())?;
-                            stdout.write_all(b"\n").map_err(|e| e.to_string())?;
-                            stdout.flush().map_err(|e| e.to_string())?;
-                            continue;
+                    if fabric.is_none() {
+                        let outcome = MemoryFabric::new();
+                        match outcome {
+                            Ok(f) => fabric = Some(f),
+                            Err(e) => {
+                                let response = json_error(&e);
+                                serde_json::to_writer(&mut stdout, &response)
+                                    .map_err(|e| e.to_string())?;
+                                stdout.write_all(b"\n").map_err(|e| e.to_string())?;
+                                stdout.flush().map_err(|e| e.to_string())?;
+                                continue;
+                            }
                         }
                     }
-                }
                     match fabric.as_ref() {
-                        Some(f) => dispatch(f, &req)
-                            .unwrap_or_else(|e| json_error(&crate::db::busy_message(&e, "dispatch"))),
+                        Some(f) => dispatch(f, &req).unwrap_or_else(|e| {
+                            json_error(crate::db::busy_message(&e, "dispatch"))
+                        }),
                         None => json_error("Memory Fabric could not initialize"),
                     }
                 }
@@ -373,13 +475,61 @@ fn one_shot(quiet: bool) -> Result<i32, String> {
             Ok(req) if !req.is_object() => json_error("request must be a JSON object"),
             Ok(req) => MemoryFabric::new()
                 .and_then(|f| dispatch(&f, &req))
-                .unwrap_or_else(|e| json_error(&crate::db::busy_message(&e, "dispatch"))),
+                .unwrap_or_else(|e| json_error(crate::db::busy_message(&e, "dispatch"))),
         }
     };
     if !quiet {
         println!("{}", response);
     }
     Ok(exit_code_for(&response))
+}
+
+fn mcp_string(value: &Value, default: &str) -> String {
+    match value {
+        Value::Null => default.to_string(),
+        Value::String(value) => value.clone(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        _ => default.to_string(),
+    }
+}
+
+fn mcp_integer(value: &Value, default: i64) -> i64 {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().map(|v| v as i64))
+        .or_else(|| value.as_f64().map(|v| v.trunc() as i64))
+        .or_else(|| {
+            value
+                .as_str()
+                .and_then(|s| s.parse::<i64>().ok())
+                .or_else(|| {
+                    value
+                        .as_str()
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .map(|v| v.trunc() as i64)
+                })
+        })
+        .unwrap_or(default)
+}
+
+fn mcp_boolean(value: &Value, default: bool) -> bool {
+    match value {
+        Value::Null => default,
+        Value::Bool(value) => *value,
+        value => matches!(
+            mcp_string(value, "").trim().to_ascii_lowercase().as_str(),
+            "true" | "1" | "yes" | "y" | "on"
+        ),
+    }
+}
+
+fn anchored_uri(vault: &std::path::Path, relpath: &str, line: i64) -> Option<String> {
+    let target = vault.join(relpath);
+    let path = std::fs::canonicalize(&target).unwrap_or(target);
+    url::Url::from_file_path(path)
+        .ok()
+        .map(|uri| format!("{uri}#L{}", line.max(1)))
 }
 
 fn serve_mcp() -> Result<(), String> {
@@ -397,6 +547,7 @@ fn serve_mcp() -> Result<(), String> {
         };
         let id = req.get("id").cloned().unwrap_or(Value::Null);
         let method = req["method"].as_str().unwrap_or("");
+        let provider = env::var("MEMORY_FABRIC_LOCAL_PROVIDER").unwrap_or_else(|_| "ollama".into());
         match method {
             "initialize" => {
                 let resp = json!({
@@ -404,9 +555,9 @@ fn serve_mcp() -> Result<(), String> {
                     "id": id,
                     "result": {
                         "protocolVersion": "2024-11-05",
-                        "capabilities": { "tools": {} },
+                        "capabilities": { "tools": {"listChanged":false}, "prompts": {"listChanged":false} },
                         "serverInfo": {
-                            "name": "local-memory-fabric",
+                            "name": "local-memory-fabric-mcp",
                             "version": crate::paths::VERSION
                         }
                     }
@@ -417,7 +568,7 @@ fn serve_mcp() -> Result<(), String> {
             }
             "notifications/initialized" => {}
             "tools/list" => {
-                let resp = json!({
+                let mut resp = json!({
                     "jsonrpc": "2.0",
                     "id": id,
                     "result": {
@@ -471,7 +622,7 @@ fn serve_mcp() -> Result<(), String> {
                             },
                             {
                                 "name": "memory_fabric_symbiosis",
-                                "description": "Dual-engine memory-to-code symbiosis with workspace proximity reranking.",
+                                "description": "Memory-to-code symbiosis with workspace proximity reranking.",
                                 "inputSchema": {
                                     "type": "object",
                                     "properties": {
@@ -497,6 +648,49 @@ fn serve_mcp() -> Result<(), String> {
                         ]
                     }
                 });
+                let tools = resp["result"]["tools"]
+                    .as_array_mut()
+                    .expect("MCP tools is an array");
+                tools.extend([
+                    json!({"name":"memory_fabric_read","description":"Read an exact Markdown note or section with a file URI citation.","inputSchema":{"type":"object","properties":{"source_ref":{"type":"string"},"heading":{"type":"string"}},"required":["source_ref"]}}),
+                    json!({"name":"memory_fabric_propose","description":"Create a non-destructive review proposal for an indexed project note.","inputSchema":{"type":"object","properties":{"project":{"type":"string"},"target":{"type":"string"},"section":{"type":"string"},"text":{"type":"string"},"source_refs":{"type":"array","items":{"type":"string"}}},"required":["project","target","section","text"]}}),
+                    json!({"name":"memory_fabric_compact","description":"Preview or write an extractive digest for a long note.","inputSchema":{"type":"object","properties":{"project":{"type":"string"},"ref":{"type":"string"},"write":{"type":"boolean"}}}}),
+                    json!({"name":"memory_fabric_consolidate","description":"Preview or write a deterministic extractive digest beside a Markdown note.","inputSchema":{"type":"object","properties":{"ref":{"type":"string"},"write":{"type":"boolean"}},"required":["ref"]}}),
+                    json!({"name":"memory_fabric_federate","description":"Search local peer vaults or report federation status.","inputSchema":{"type":"object","properties":{"action":{"type":"string","default":"status"},"query":{"type":"string"},"peer_vaults":{"type":"array","items":{"type":"string"}}}}}),
+                ]);
+                for tool in tools {
+                    let writable = matches!(
+                        tool["name"].as_str(),
+                        Some(
+                            "memory_fabric_propose"
+                                | "memory_fabric_compact"
+                                | "memory_fabric_consolidate"
+                        )
+                    );
+                    tool["annotations"] = json!({"readOnlyHint":!writable,"destructiveHint":false,"idempotentHint":!writable,"openWorldHint":false});
+                }
+                serde_json::to_writer(&mut stdout, &resp).map_err(|e| e.to_string())?;
+                stdout.write_all(b"\n").map_err(|e| e.to_string())?;
+                stdout.flush().map_err(|e| e.to_string())?;
+            }
+            "prompts/list" => {
+                let resp = json!({"jsonrpc":"2.0","id":id,"result":{"prompts":[{"name":"memory_fabric_system_prefix","description":"Deterministic static prefix for local memory tool use.","arguments":[]}]}});
+                serde_json::to_writer(&mut stdout, &resp).map_err(|e| e.to_string())?;
+                stdout.write_all(b"\n").map_err(|e| e.to_string())?;
+                stdout.flush().map_err(|e| e.to_string())?;
+            }
+            "prompts/get" => {
+                let name = req["params"]["name"].as_str().unwrap_or("");
+                let result = if name == "memory_fabric_system_prefix" {
+                    json!({"description":"Deterministic local memory system prefix.","messages":[{"role":"assistant","content":{"type":"text","text":"You have access to the Local Memory Fabric index. Memory entries represent local architectural invariants, project decisions, and verified notes. Excerpts cite canonical Markdown paths. Durable changes are proposals requiring explicit human review."}}]})
+                } else {
+                    json!({"error":{"code":-32602,"message":"Unknown prompt"}})
+                };
+                let resp = if result.get("error").is_some() {
+                    json!({"jsonrpc":"2.0","id":id,"error":result["error"]})
+                } else {
+                    json!({"jsonrpc":"2.0","id":id,"result":result})
+                };
                 serde_json::to_writer(&mut stdout, &resp).map_err(|e| e.to_string())?;
                 stdout.write_all(b"\n").map_err(|e| e.to_string())?;
                 stdout.flush().map_err(|e| e.to_string())?;
@@ -504,50 +698,67 @@ fn serve_mcp() -> Result<(), String> {
             "tools/call" => {
                 let name = req["params"]["name"].as_str().unwrap_or("");
                 let args = &req["params"]["arguments"];
-                let mut op_req = json!({});
+                let text = |key: &str| mcp_string(&args[key], "");
+                let op_req = match name {
+                    "memory_fabric_search" => {
+                        json!({"op":"search","query":text("query"),"scope":mcp_string(&args["scope"],"all"),"limit":mcp_integer(&args["limit"],5),"as_of":args["as_of"],"provider":provider,"loopback":true})
+                    }
+                    "memory_fabric_context" => {
+                        json!({"op":"context","query":text("query"),"project":args["project"],"token_budget":mcp_integer(&args["token_budget"],1200),"provider":provider,"loopback":true})
+                    }
+                    "memory_fabric_read" => {
+                        json!({"op":"read","source_ref":text("source_ref"),"heading":args["heading"],"provider":provider,"loopback":true})
+                    }
+                    "memory_fabric_propose" => {
+                        json!({"op":"propose","project":text("project"),"target":text("target"),"section":text("section"),"text":text("text"),"source_refs":args["source_refs"],"provider":provider,"loopback":true})
+                    }
+                    "memory_fabric_status" => {
+                        json!({"op":"status","provider":provider,"loopback":true})
+                    }
+                    "memory_fabric_audit" => {
+                        json!({"op":"audit","provider":provider,"loopback":true})
+                    }
+                    "memory_fabric_sections" => {
+                        json!({"op":"sections","source_ref":text("source_ref"),"provider":provider,"loopback":true})
+                    }
+                    "memory_fabric_compact" => {
+                        json!({"op":"compact","project":args["project"],"provider":provider,"loopback":true})
+                    }
+                    "memory_fabric_consolidate" => {
+                        json!({"op":"consolidate","ref":args["ref"],"write":mcp_boolean(&args["write"],false),"provider":provider,"loopback":true})
+                    }
+                    "memory_fabric_federate" => {
+                        json!({"op":"federate","action":mcp_string(&args["action"],"status"),"query":text("query"),"peer_vaults":args["peer_vaults"],"provider":provider,"loopback":true})
+                    }
+                    "memory_fabric_symbiosis" => {
+                        json!({"op":"symbiosis","query":text("query"),"active_file":args["active_file"],"limit":mcp_integer(&args["limit"],10),"provider":provider,"loopback":true})
+                    }
+                    "memory_fabric_fuzzy_sections" => {
+                        json!({"op":"fuzzy-sections","source_ref":text("source_ref"),"pattern":text("pattern"),"provider":provider,"loopback":true})
+                    }
+                    _ => json!({"op":"unsupported-mcp-tool"}),
+                };
+                let mut res = if op_req["op"] == "unsupported-mcp-tool" {
+                    json!({"ok":false,"error":format!("Unknown tool: {name}")})
+                } else {
+                    dispatch(&fabric, &op_req).unwrap_or_else(|e| json_error(&e))
+                };
                 if name == "memory_fabric_search" {
-                    op_req = json!({
-                        "op": "search",
-                        "query": args["query"].as_str().unwrap_or(""),
-                        "scope": args["scope"].as_str().unwrap_or("all"),
-                        "limit": args["limit"].as_u64().unwrap_or(5),
-                        "provider": "ollama"
-                    });
-                } else if name == "memory_fabric_context" {
-                    op_req = json!({
-                        "op": "context",
-                        "query": args["query"].as_str().unwrap_or(""),
-                        "project": args["project"].as_str(),
-                        "token_budget": args["token_budget"].as_u64().unwrap_or(1200),
-                        "provider": "ollama"
-                    });
-                } else if name == "memory_fabric_status" {
-                    op_req = json!({ "op": "status" });
-                } else if name == "memory_fabric_audit" {
-                    op_req = json!({ "op": "audit" });
-                } else if name == "memory_fabric_sections" {
-                    op_req = json!({
-                        "op": "sections",
-                        "source_ref": args["source_ref"].as_str().unwrap_or(""),
-                        "provider": "ollama"
-                    });
-                } else if name == "memory_fabric_symbiosis" {
-                    op_req = json!({
-                        "op": "symbiosis",
-                        "query": args["query"].as_str().unwrap_or(""),
-                        "active_file": args["active_file"].as_str(),
-                        "limit": args["limit"].as_u64().unwrap_or(10),
-                        "provider": "ollama"
-                    });
-                } else if name == "memory_fabric_fuzzy_sections" {
-                    op_req = json!({
-                        "op": "fuzzy-sections",
-                        "source_ref": args["source_ref"].as_str().unwrap_or(""),
-                        "pattern": args["pattern"].as_str().unwrap_or(""),
-                        "provider": "ollama"
-                    });
+                    if let Some(results) = res.get_mut("results").and_then(Value::as_array_mut) {
+                        for result in results {
+                            if let Some(relpath) = result.get("source_ref").and_then(Value::as_str)
+                                && let Some(uri) = anchored_uri(&fabric.vault, relpath, 1)
+                            {
+                                result["uri"] = json!(uri);
+                            }
+                        }
+                    }
+                } else if name == "memory_fabric_read"
+                    && let Some(relpath) = op_req["source_ref"].as_str()
+                    && let Some(uri) = anchored_uri(&fabric.vault, relpath, 1)
+                {
+                    res["uri"] = json!(uri);
                 }
-                let res = dispatch(&fabric, &op_req).unwrap_or_else(|e| json_error(&e));
                 let resp = json!({
                     "jsonrpc": "2.0",
                     "id": id,
@@ -583,7 +794,9 @@ fn dirs_or_home_socket_path() -> PathBuf {
     if let Ok(cache) = env::var("XDG_CACHE_HOME") {
         PathBuf::from(cache).join("memory-fabric.sock")
     } else if let Ok(home) = env::var("HOME") {
-        PathBuf::from(home).join(".cache").join("memory-fabric.sock")
+        PathBuf::from(home)
+            .join(".cache")
+            .join("memory-fabric.sock")
     } else {
         PathBuf::from("/tmp/memory-fabric.sock")
     }
@@ -598,23 +811,26 @@ fn serve_socket(path: &std::path::Path) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let listener = UnixListener::bind(path)
-        .map_err(|e| format!("failed to bind UNIX domain socket {}: {}", path.display(), e))?;
+    let listener = UnixListener::bind(path).map_err(|e| {
+        format!(
+            "failed to bind UNIX domain socket {}: {}",
+            path.display(),
+            e
+        )
+    })?;
     let fabric = MemoryFabric::new()?;
-    for stream in listener.incoming() {
-        if let Ok(stream) = stream {
-            let mut reader = io::BufReader::new(&stream);
-            let mut writer = io::BufWriter::new(&stream);
-            let mut line = String::new();
-            if reader.read_line(&mut line).is_ok() && !line.trim().is_empty() {
-                let resp = match serde_json::from_str::<Value>(&line) {
-                    Ok(req) => dispatch(&fabric, &req).unwrap_or_else(|e| json_error(&e)),
-                    Err(_) => json_error("request must be valid JSON"),
-                };
-                let _ = serde_json::to_writer(&mut writer, &resp);
-                let _ = writer.write_all(b"\n");
-                let _ = writer.flush();
-            }
+    for stream in listener.incoming().flatten() {
+        let mut reader = io::BufReader::new(&stream);
+        let mut writer = io::BufWriter::new(&stream);
+        let mut line = String::new();
+        if reader.read_line(&mut line).is_ok() && !line.trim().is_empty() {
+            let resp = match serde_json::from_str::<Value>(&line) {
+                Ok(req) => dispatch(&fabric, &req).unwrap_or_else(|e| json_error(&e)),
+                Err(_) => json_error("request must be valid JSON"),
+            };
+            let _ = serde_json::to_writer(&mut writer, &resp);
+            let _ = writer.write_all(b"\n");
+            let _ = writer.flush();
         }
     }
     Ok(())
@@ -663,7 +879,10 @@ impl MemoryFabric {
         let vault_present = self.vault.is_dir();
         checks.push(json!({"check": "vault", "ok": vault_present, "detail": self.vault.display().to_string()}));
         if !vault_present {
-            problems.push(format!("the vault directory {} does not exist; run `engram init`", self.vault.display()));
+            problems.push(format!(
+                "the vault directory {} does not exist; run `engram init`",
+                self.vault.display()
+            ));
         }
 
         // The allowlist is the security predicate. A config that loads but allows nobody is a working
@@ -682,26 +901,35 @@ impl MemoryFabric {
         checks.push(json!({"check": "index", "ok": indexed && docs > 0,
             "detail": format!("{docs} documents, {} bytes each", st["bytes_per_document"])}));
         if docs == 0 {
-            problems.push("the index is empty; run `engram index`".into());
+            problems.push("the index is empty; memory returns nothing until Markdown notes exist. Add notes to the vault, then run `engram index`.".into());
         }
 
         let integrity = st["integrity"].as_str().unwrap_or("unknown").to_string();
-        checks.push(json!({"check": "integrity", "ok": integrity == "ok", "detail": integrity.clone()}));
+        checks.push(
+            json!({"check": "integrity", "ok": integrity == "ok", "detail": integrity.clone()}),
+        );
         if integrity != "ok" {
-            problems.push(format!("index integrity is {integrity}; run `engram repair`"));
+            problems.push(format!(
+                "index integrity is {integrity}; run `engram repair`"
+            ));
         }
 
         let alarms = st["unresolved_alarms"].as_i64().unwrap_or(0);
         checks.push(json!({"check": "secret alarms", "ok": alarms == 0,
             "detail": format!("{alarms} unresolved")}));
         if alarms > 0 {
-            problems.push(format!("{alarms} unresolved secret alarm(s); list with `engram alarms`"));
+            problems.push(format!(
+                "{alarms} unresolved secret alarm(s); list with `engram alarms`"
+            ));
         }
 
         // Vault durability is checked by asking git, and reported as unchecked when git is absent -
         // not as passing.
-        match std::process::Command::new("git").arg("-C").arg(&self.vault)
-            .args(["status", "--porcelain"]).output()
+        match std::process::Command::new("git")
+            .arg("-C")
+            .arg(&self.vault)
+            .args(["status", "--porcelain"])
+            .output()
         {
             Ok(out) if out.status.success() => {
                 let dirty = String::from_utf8_lossy(&out.stdout).lines().count();
@@ -709,13 +937,17 @@ impl MemoryFabric {
                     "detail": format!("{dirty} uncommitted file(s){}",
                         if dirty > 0 { "; their current state has no revert point" } else { "" })}));
                 if dirty > 0 {
-                    problems.push(format!("{dirty} uncommitted file(s) in the vault have no revert point"));
+                    problems.push(format!(
+                        "{dirty} uncommitted file(s) in the vault have no revert point"
+                    ));
                 }
             }
             _ => {
                 unchecked.push("vault recoverability (git not available in the vault)");
-                checks.push(json!({"check": "vault recoverable", "ok": false, "skipped": true,
-                    "detail": "git unavailable - NOT checked, not passing"}));
+                checks.push(
+                    json!({"check": "vault recoverable", "ok": false, "skipped": true,
+                    "detail": "git unavailable - NOT checked, not passing"}),
+                );
             }
         }
 
@@ -727,6 +959,529 @@ impl MemoryFabric {
             "verdict": if problems.is_empty() { "no problems found".to_string() }
                        else { format!("{} problem(s) need attention", problems.len()) },
         }))
+    }
+
+    fn provider_decision(&self, req: &Value) -> extension::ProviderDecision {
+        let model = req.get("model").cloned().unwrap_or_else(|| {
+            json!({
+                "provider": req.get("provider").and_then(Value::as_str),
+                "base_url": req.get("base_url").and_then(Value::as_str),
+            })
+        });
+        extension::provider_decision(
+            &model,
+            &self.config.local_providers,
+            &extension::remote_providers(),
+            extension::remote_full_access_enabled(),
+            extension::remote_context_scrubbing_enabled(),
+        )
+    }
+
+    fn before_agent_start(&self, req: &Value) -> Result<Value, String> {
+        if req
+            .get("message_type")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| kind != "user")
+        {
+            return Ok(json!({"ok":true,"message":null}));
+        }
+        let decision = self.provider_decision(req);
+        if !decision.allowed {
+            return Ok(json!({"ok":false,"withheld":true,"message":null}));
+        }
+        let prompt = req.get("prompt").and_then(Value::as_str).unwrap_or("");
+        let session = req
+            .get("session_id")
+            .and_then(Value::as_str)
+            .unwrap_or("default");
+        let mut additions = Vec::new();
+        if prompt.contains("# Resuming from a compaction")
+            || prompt.contains("Compaction Resume Step")
+        {
+            let status = self.status()?;
+            if status["ok"].as_bool() == Some(true) && status["indexed"].as_bool() == Some(true) {
+                additions.push(format!("[LOCAL MEMORY: COMPACTION RE-HYDRATION]\nMemory Fabric is active with {} indexed documents. Query memory_fabric_context or memory_fabric_search for cited recall.", status["documents"].as_u64().unwrap_or(0)));
+            }
+        }
+
+        let enabled = std::env::var("MEMORY_FABRIC_ENABLE_INJECTION").as_deref() == Ok("1");
+        let prior_turn = req
+            .get("messages")
+            .and_then(Value::as_array)
+            .is_some_and(|xs| {
+                xs.iter()
+                    .any(|m| m.get("role").and_then(Value::as_str) == Some("assistant"))
+            });
+        if enabled && !prior_turn {
+            let mut refs = extension::cached_refs(session);
+            if refs.is_none() && prompt.len() >= 24 {
+                let provider = req["model"]["provider"]
+                    .as_str()
+                    .or_else(|| req["provider"].as_str());
+                let response = self.search(
+                    prompt,
+                    "all",
+                    3,
+                    provider,
+                    None,
+                    Some(decision.loopback),
+                    None,
+                )?;
+                let verdict = extension::decide_injection(prompt, &response);
+                let project = req.get("cwd").and_then(Value::as_str);
+                let found: Vec<String> = response
+                    .get("results")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|hit| {
+                        let rel = hit.get("source_ref")?.as_str()?;
+                        match extension::tier_of(rel) {
+                            "global" => Some(rel.to_string()),
+                            "project" if extension::project_note_matches(rel, project) => {
+                                Some(rel.to_string())
+                            }
+                            _ => None,
+                        }
+                    })
+                    .collect();
+                let selected = if std::env::var("MEMORY_FABRIC_ENFORCE_INJECTION_GATE").as_deref()
+                    == Ok("1")
+                    && verdict["inject"] != true
+                {
+                    Vec::new()
+                } else {
+                    found
+                };
+                extension::set_cached_refs(session, selected.clone());
+                refs = Some(selected);
+            }
+            if let Some(refs) = refs.filter(|refs| !refs.is_empty())
+                && extension::reserve_injection(session)
+            {
+                let lines = refs
+                    .iter()
+                    .map(|r| format!("[[{r}]]"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let block = format!(
+                    "## Memory has relevant notes\n{lines}\nRead these first with the memory tools before re-deriving."
+                );
+                let chars = block.encode_utf16().count() as u64;
+                extension::record_injection_account(session, chars, refs.len() as u64);
+                additions.push(block);
+            }
+
+            if extension::reserve_resume_check(session)
+                && let Some(cwd) = req
+                    .get("cwd")
+                    .and_then(Value::as_str)
+                    .and_then(|cwd| extension::project_key(Some(cwd)))
+            {
+                let path = self.home.join("handoff.json");
+                if let Ok(raw) = std::fs::read_to_string(path)
+                    && let Ok(store) = serde_json::from_str::<Value>(&raw)
+                {
+                    let handoff = &store[&cwd];
+                    let now = chrono::Utc::now().timestamp_millis();
+                    if extension::may_inject_handoff(handoff, Some(&cwd))
+                        && extension::is_resumable(handoff, now)
+                        && let Some(pointer) = extension::resume_pointer(handoff, now)
+                    {
+                        additions.push(pointer);
+                    }
+                }
+            }
+        }
+        if additions.is_empty() {
+            Ok(json!({"ok":true,"message":null}))
+        } else {
+            Ok(
+                json!({"ok":true,"message":{"customType":"vault-context","content":additions.join("\n\n"),"display":false}}),
+            )
+        }
+    }
+
+    fn message_end(&self, req: &Value) -> Result<Value, String> {
+        if req.get("role").and_then(Value::as_str) != Some("assistant") {
+            return Ok(json!({"ok":true,"notice":null}));
+        }
+        let decision = self.provider_decision(req);
+        if !decision.allowed || !decision.loopback {
+            return Ok(json!({"ok":true,"notice":null}));
+        }
+        let session = req
+            .get("session_id")
+            .and_then(Value::as_str)
+            .unwrap_or("default");
+        extension::remember_loopback_turn(session, &req["message"]);
+        let advice = extension::record_session_turn(
+            session,
+            &req["usage"],
+            extension::HANDOFF_THRESHOLD_TOKENS,
+            extension::REMINDER_INTERVAL_TURNS,
+        );
+        let notice = if advice["advise"].as_bool() == Some(true) {
+            Some(extension::cost_notice(
+                advice["peakTokens"].as_u64().unwrap_or(0),
+            ))
+        } else {
+            None
+        };
+        Ok(json!({"ok":true,"notice":notice,"cost":advice}))
+    }
+
+    fn create_handoff(&self, req: &Value) -> Result<Value, String> {
+        let Some(cwd) = req
+            .get("cwd")
+            .and_then(Value::as_str)
+            .and_then(|s| extension::project_key(Some(s)))
+        else {
+            return Ok(
+                json!({"ok":false,"error":"This session has no project directory; an unscoped handoff is refused."}),
+            );
+        };
+        let fields = ["done", "in_flight", "blocked", "next"];
+        if fields.iter().all(|k| {
+            req.get(k)
+                .and_then(Value::as_str)
+                .is_none_or(|s| s.trim().is_empty())
+        }) {
+            return Ok(
+                json!({"ok":false,"error":"A handoff needs at least one of done, in_flight, blocked or next."}),
+            );
+        }
+        let at = crate::paths::now_utc();
+        let pointers: Vec<String> = req
+            .get("pointers")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .take(20)
+            .map(str::to_string)
+            .collect();
+        let handoff = json!({"at":at,"cwd":cwd,"session":req.get("session_id").and_then(Value::as_str).unwrap_or(""),"transcript":req.get("transcript").and_then(Value::as_str),"done":req.get("done").and_then(Value::as_str).unwrap_or(""),"in_flight":req.get("in_flight").and_then(Value::as_str).unwrap_or(""),"blocked":req.get("blocked").and_then(Value::as_str).unwrap_or(""),"next":req.get("next").and_then(Value::as_str).unwrap_or(""),"pointers":pointers.clone()});
+        let pointer = extension::resume_pointer(&handoff, chrono::Utc::now().timestamp_millis())
+            .unwrap_or_default();
+        let note = format!(
+            "# Session handoff\n\nAt: {}\n\n- **done**: {}\n- **in flight**: {}\n- **blocked**: {}\n- **next**: {}\n{}",
+            handoff["at"].as_str().unwrap_or(""),
+            handoff["done"].as_str().unwrap_or("-"),
+            handoff["in_flight"].as_str().unwrap_or("-"),
+            handoff["blocked"].as_str().unwrap_or("-"),
+            handoff["next"].as_str().unwrap_or("-"),
+            if pointers.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\nPointers: {}\n",
+                    pointers
+                        .iter()
+                        .map(|p| format!("`{p}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+        );
+        let vault_note = self.handoff(&note)?;
+        let path = self.home.join("handoff.json");
+        if path.is_symlink() {
+            return Ok(json!({"ok":false,"error":"handoff state path must not be a symlink"}));
+        }
+        let mut store = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}));
+        store[&cwd] = handoff;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("cannot create handoff state directory: {e}"))?;
+        }
+        std::fs::write(
+            &path,
+            serde_json::to_vec_pretty(&store).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| format!("cannot write handoff state: {e}"))?;
+        crate::paths::set_mode(&path, 0o600);
+        Ok(
+            json!({"ok":true,"pointer":pointer,"vault_note":vault_note,"state_written":path,"note":"The handoff is scoped to this project; start a fresh session to receive its pointer."}),
+        )
+    }
+
+    fn tool_guard(&self, req: &Value) -> Result<Value, String> {
+        let model = req.get("model").cloned().unwrap_or_else(
+            || json!({"provider":req.get("provider"),"base_url":req.get("base_url")}),
+        );
+        let decision = extension::provider_decision(
+            &model,
+            &self.config.local_providers,
+            &extension::remote_providers(),
+            extension::remote_full_access_enabled(),
+            extension::remote_context_scrubbing_enabled(),
+        );
+        let input = req.get("input").cloned().unwrap_or(Value::Null);
+        if value_has_apple_notes(&input) {
+            return Ok(
+                json!({"block":true,"reason":"Apple Notes and exports are excluded from agent access."}),
+            );
+        }
+        let cwd = req
+            .get("cwd")
+            .and_then(Value::as_str)
+            .map(std::path::PathBuf::from)
+            .unwrap_or_default();
+        let explicit_vault = value_targets_vault(&input, &cwd, &self.vault, "", false);
+        let cwd_in_vault = path_inside(&cwd, &self.vault);
+        let tool = req.get("tool_name").and_then(Value::as_str).unwrap_or("");
+        let serialized = serde_json::to_string(&input).unwrap_or_default();
+        let shell = tool == "bash" || tool == "powershell";
+        let shell_mutation = shell
+            && regex::Regex::new(
+                r#"(?i)(?:\b(?:rm|mv|cp|tee|touch|truncate|unlink|rmdir|write_text|write_bytes|writefile|remove|rename)\b|\b(?:sed|perl)\s+-i|\bopen\s*\([^)]*['"](?:w|a|x)|(?:>>?|\s>\s))"#,
+            )
+            .expect("tool guard mutation regex must compile")
+            .is_match(&serialized);
+        if (explicit_vault || (cwd_in_vault && shell_mutation)) && !decision.allowed {
+            return Ok(
+                json!({"block":true,"reason":"Direct canonical-memory access is restricted to an allowlisted model provider."}),
+            );
+        }
+        let write_tool = tool == "write" || tool == "edit";
+        if write_tool && explicit_vault && !decision.may_write {
+            return Ok(
+                json!({"block":true,"reason":"Canonical-memory writes are read-only for this provider. Use memory_fabric_propose; only loopback providers can apply by default."}),
+            );
+        }
+        if shell_mutation && (explicit_vault || cwd_in_vault) && !decision.may_write {
+            return Ok(
+                json!({"block":true,"reason":"Shell mutations to canonical memory are read-only for this provider; use a reviewed proposal."}),
+            );
+        }
+        if write_tool && explicit_vault && decision.may_write {
+            if let Some(raw) = first_input_path(&input) {
+                let target = if raw.is_absolute() {
+                    raw
+                } else {
+                    cwd.join(raw)
+                };
+                if target.exists() {
+                    let root = self
+                        .vault
+                        .canonicalize()
+                        .map_err(|e| format!("vault path is unavailable: {e}"))?;
+                    let canonical = target
+                        .canonicalize()
+                        .map_err(|e| format!("write target cannot be verified: {e}"))?;
+                    if !canonical.starts_with(&root) {
+                        return Ok(
+                            json!({"block":true,"reason":"Write target resolves outside the canonical vault."}),
+                        );
+                    }
+                    let rel = canonical
+                        .strip_prefix(&root)
+                        .map_err(|_| "write target is outside the vault".to_string())?;
+                    let staged = std::process::Command::new("git")
+                        .arg("-C")
+                        .arg(&self.vault)
+                        .arg("add")
+                        .arg("--")
+                        .arg(rel)
+                        .output();
+                    if !staged.as_ref().is_ok_and(|o| o.status.success()) {
+                        return Ok(
+                            json!({"block":true,"reason":"Could not create the pre-write git revert point; the write was blocked."}),
+                        );
+                    }
+                }
+            }
+            let session = req
+                .get("session_id")
+                .and_then(Value::as_str)
+                .unwrap_or("default");
+            if !extension::record_session_write(session, 50) {
+                return Ok(
+                    json!({"block":true,"reason":"Canonical-memory write budget exhausted for this session (50). Restart the session to continue."}),
+                );
+            }
+        }
+        Ok(json!({"block":false}))
+    }
+
+    fn extension_command(&self, req: &Value) -> Result<Value, String> {
+        let command = req
+            .get("command")
+            .and_then(Value::as_str)
+            .unwrap_or("status")
+            .trim();
+        let mut args = req.clone();
+        let (op, rest) = command.split_once(' ').unwrap_or((command, ""));
+        let engine_op = match op {
+            "" | "status" => "status",
+            "doctor" | "init" | "index" | "audit" | "alarms" | "handoff" | "consolidate" => op,
+            "proposals" => "proposal-list",
+            "history" => "proposal-history",
+            "resolve" => "resolve",
+            "apply" => "apply",
+            "revert" => "proposal-revert",
+            "links" => "links",
+            "sections" => "sections",
+            _ => {
+                return Ok(
+                    json!({"ok":false,"error":"Use status, doctor, index, proposals, alarms, audit, history, resolve, apply, revert, links, or sections."}),
+                );
+            }
+        };
+        args["op"] = json!(engine_op);
+        match engine_op {
+            "resolve" => args["alarm_id"] = json!(rest.trim()),
+            "apply" | "proposal-revert" => args["proposal_id"] = json!(rest.trim()),
+            "links" | "sections" => args["source_ref"] = json!(rest.trim()),
+            _ => {}
+        }
+        dispatch(self, &args)
+    }
+
+    fn project(&self, req: &Value) -> Result<Value, String> {
+        let action = req.get("action").and_then(Value::as_str).unwrap_or("");
+        let project = req
+            .get("project")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .trim_end_matches(".md")
+            .to_ascii_lowercase();
+        if !regex::Regex::new(r"^[a-z0-9][a-z0-9._-]{0,79}$")
+            .unwrap()
+            .is_match(&project)
+        {
+            return Ok(
+                json!({"ok":false,"error":"Project name must use letters, numbers, dot, underscore, or hyphen."}),
+            );
+        }
+        let rel = format!("projects/{project}.md");
+        let content = req.get("content").and_then(Value::as_str).unwrap_or("");
+        let section = req
+            .get("section")
+            .and_then(Value::as_str)
+            .unwrap_or("Overview")
+            .trim_start_matches('#')
+            .trim();
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        if action == "status" {
+            return self.read(
+                &rel,
+                req.get("provider").and_then(Value::as_str),
+                None,
+                req.get("loopback").and_then(Value::as_bool),
+            );
+        }
+        let current = std::fs::read_to_string(self.vault.join(&rel)).ok();
+        let next = match action {
+            "create" => {
+                if current.is_some() {
+                    return Ok(
+                        json!({"ok":false,"error":format!("Project note {rel} already exists; use update.")}),
+                    );
+                }
+                format!(
+                    "---\ntype: project\nstatus: active\ncreated: \"{today}\"\nupdated: \"{today}\"\ntags: [project, {project}]\n---\n\n# {project}\n\n## Overview\n{}\n\n## Architecture & Invariants\n\n## Status & Next Milestones\n",
+                    if content.is_empty() {
+                        "Initial project memory card created."
+                    } else {
+                        content
+                    }
+                )
+            }
+            "update" => {
+                let addition = format!("\n\n### Update ({today})\n{content}\n");
+                if let Some(old) = current {
+                    let heading = format!("## {section}");
+                    let base = if old.contains(&heading) {
+                        old.replacen(&heading, &format!("{heading}{addition}"), 1)
+                    } else {
+                        format!("{old}\n\n{heading}{addition}")
+                    };
+                    replace_regex(
+                        &base,
+                        r#"updated: "[^"]*""#,
+                        &format!("updated: \"{today}\""),
+                    )
+                } else {
+                    format!(
+                        "---\ntype: project\nstatus: active\ncreated: \"{today}\"\nupdated: \"{today}\"\ntags: [project, {project}]\n---\n\n# {project}\n\n## {section}\n{content}\n"
+                    )
+                }
+            }
+            "consolidate" => {
+                let consolidation = format!(
+                    "\n\n## Consolidated Milestones ({today})\n{}\n",
+                    if content.is_empty() {
+                        "Consolidated session decisions."
+                    } else {
+                        content
+                    }
+                );
+                if let Some(old) = current {
+                    replace_regex(
+                        &old,
+                        r#"updated: "[^"]*""#,
+                        &format!("updated: \"{today}\""),
+                    ) + &consolidation
+                } else {
+                    format!(
+                        "---\ntype: project\nstatus: active\ncreated: \"{today}\"\nupdated: \"{today}\"\ntags: [project, {project}]\n---\n\n# {project}\n\n## Overview\nConsolidated project memory.\n{consolidation}"
+                    )
+                }
+            }
+            "archive" => {
+                let Some(old) = current else {
+                    return Ok(
+                        json!({"ok":false,"error":format!("Project note {rel} does not exist.")}),
+                    );
+                };
+                replace_regex(
+                    &old.replace("status: active", "status: archived"),
+                    r#"updated: "[^"]*""#,
+                    &format!("updated: \"{today}\"\narchived_at: \"{today}\""),
+                )
+            }
+            _ => return Ok(json!({"ok":false,"error":"Unsupported project action."})),
+        };
+        self.propose_file(&json!({"op":"propose-file","project":project,"target":rel,"content":next,"provider":req.get("provider"),"source_refs":req.get("source_refs")}))
+    }
+
+    fn sync_agency(&self, req: &Value) -> Result<Value, String> {
+        let path = crate::paths::home_dir().join(".cache/agency-skills/active_session.json");
+        let raw = match std::fs::read_to_string(&path) {
+            Ok(raw) => raw,
+            Err(_) => {
+                return Ok(json!({"ok":false,"error":"No active Agency session record exists."}));
+            }
+        };
+        let session: Value = match serde_json::from_str(&raw) {
+            Ok(value) => value,
+            Err(_) => {
+                return Ok(json!({"ok":false,"error":"Agency session record is not valid JSON."}));
+            }
+        };
+        let day = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let text = format!(
+            "# Squad Session Record: {day}\n\n- Active Anchor: {}\n- Anchor Tier: {}\n- Consulted Squad: {}\n- Last Action: {}\n- Timestamp: {}\n",
+            session["sessionAnchor"].as_str().unwrap_or("none"),
+            session["anchorTier"].as_u64().unwrap_or(1),
+            session["consultedSquad"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", "),
+            session["lastAction"].as_str().unwrap_or("n/a"),
+            session["updatedAt"].as_str().unwrap_or("unknown")
+        );
+        self.propose_file(&json!({"project":"agency-sessions","target":"projects/agency-sessions.md","content":text,"provider":req.get("provider")}))
     }
 
     /// Plan item 38. From no config to an indexed vault, in one command.
@@ -741,7 +1496,8 @@ impl MemoryFabric {
         let mut created_config = false;
         if !config_path.exists() {
             if let Some(parent) = config_path.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
             }
             std::fs::write(&config_path, "{\n  \"_comment\": \"Defaults apply to every field. Add local_providers to allow a model to read memory.\"\n}\n")
                 .map_err(|e| format!("cannot write {}: {e}", config_path.display()))?;
@@ -749,10 +1505,23 @@ impl MemoryFabric {
             actions.push(format!("created {}", config_path.display()));
         }
         let vault_created = if !self.vault.is_dir() {
-            std::fs::create_dir_all(&self.vault).map_err(|e| format!("cannot create {}: {e}", self.vault.display()))?;
-            actions.push(format!("created the vault directory {}", self.vault.display()));
+            std::fs::create_dir_all(&self.vault)
+                .map_err(|e| format!("cannot create {}: {e}", self.vault.display()))?;
+            actions.push(format!(
+                "created the vault directory {}",
+                self.vault.display()
+            ));
             true
-        } else { false };
+        } else {
+            false
+        };
+
+        let git_created = ensure_vault_is_versioned(&self.vault)?;
+        if git_created {
+            actions.push(
+                "initialized git in the vault so canonical memory has a version history".into(),
+            );
+        }
 
         let indexed = self.index(false)?;
         let docs = indexed["documents"].as_i64().unwrap_or(0);
@@ -765,12 +1534,154 @@ impl MemoryFabric {
             "documents": docs,
             "actions": actions,
             "next": if docs == 0 {
-                "the vault is empty. Add Markdown files and run `engram index`."
+                "memory returns nothing until Markdown notes exist. Add notes to the vault and run `engram index`."
             } else {
                 "run `engram doctor` to confirm, then `engram search <query>`."
             },
         }))
     }
+}
+
+fn replace_regex(input: &str, pattern: &str, replacement: &str) -> String {
+    regex::Regex::new(pattern)
+        .map(|re| re.replace(input, replacement).to_string())
+        .unwrap_or_else(|_| input.to_string())
+}
+
+fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
+    use std::path::Component;
+    let mut out = std::path::PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::Prefix(p) => out.push(p.as_os_str()),
+            Component::RootDir => out.push("/"),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::Normal(p) => out.push(p),
+        }
+    }
+    out
+}
+
+fn path_inside(path: &std::path::Path, root: &std::path::Path) -> bool {
+    let candidate = path.canonicalize().unwrap_or_else(|_| normalize_path(path));
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| normalize_path(root));
+    candidate.starts_with(canonical_root)
+}
+
+fn value_has_apple_notes(value: &Value) -> bool {
+    match value {
+        Value::String(s) => {
+            crate::policy::apple_path_re().is_match(s)
+                || s.to_ascii_lowercase().contains("notestore.sqlite")
+        }
+        Value::Array(xs) => xs.iter().any(value_has_apple_notes),
+        Value::Object(m) => m.values().any(value_has_apple_notes),
+        _ => false,
+    }
+}
+
+fn value_targets_vault(
+    value: &Value,
+    cwd: &std::path::Path,
+    vault: &std::path::Path,
+    key: &str,
+    command: bool,
+) -> bool {
+    match value {
+        Value::String(s) => {
+            let normalized = s.replace('\\', "/");
+            let root = vault.to_string_lossy().replace('\\', "/");
+            let lower = normalized.to_ascii_lowercase();
+            if normalized.contains(&root)
+                || lower.contains("system-memory/")
+                || value_has_apple_notes(value)
+            {
+                return true;
+            }
+            if command {
+                return false;
+            }
+            let path_field = [
+                "path",
+                "file_path",
+                "filepath",
+                "target",
+                "cwd",
+                "directory",
+                "dir",
+                "root",
+            ]
+            .contains(&key.to_ascii_lowercase().as_str());
+            if !path_field {
+                return false;
+            }
+            let expanded = if let Some(rest) = s.strip_prefix("~/") {
+                crate::paths::home_dir().join(rest)
+            } else {
+                std::path::PathBuf::from(s)
+            };
+            let target = if expanded.is_absolute() {
+                expanded
+            } else {
+                cwd.join(expanded)
+            };
+            path_inside(&target, vault)
+        }
+        Value::Array(xs) => xs
+            .iter()
+            .any(|item| value_targets_vault(item, cwd, vault, key, command)),
+        Value::Object(m) => m
+            .iter()
+            .any(|(k, item)| value_targets_vault(item, cwd, vault, k, command || k == "command")),
+        _ => false,
+    }
+}
+
+fn first_input_path(value: &Value) -> Option<std::path::PathBuf> {
+    match value {
+        Value::Object(m) => {
+            for key in ["path", "file_path", "filePath", "target"] {
+                if let Some(path) = m
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.trim().is_empty())
+                {
+                    return Some(std::path::PathBuf::from(path));
+                }
+            }
+            m.values().find_map(first_input_path)
+        }
+        Value::Array(xs) => xs.iter().find_map(first_input_path),
+        _ => None,
+    }
+}
+
+fn ensure_vault_is_versioned(vault: &std::path::Path) -> Result<bool, String> {
+    let inside = std::process::Command::new("git")
+        .arg("-C")
+        .arg(vault)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .output();
+    if inside.as_ref().is_ok_and(|out| out.status.success()) {
+        return Ok(false);
+    }
+    let init = std::process::Command::new("git").arg("-C").arg(vault).args(["init", "--quiet"]).output()
+        .map_err(|e| format!("git is required to initialize a recoverable memory vault ({e}); install git and rerun `engram init`"))?;
+    if !init.status.success() {
+        let detail = String::from_utf8_lossy(&init.stderr).trim().to_string();
+        return Err(format!(
+            "git could not initialize the memory vault{}; memory writes require version control",
+            if detail.is_empty() {
+                String::new()
+            } else {
+                format!(": {detail}")
+            }
+        ));
+    }
+    Ok(true)
 }
 
 fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
@@ -854,12 +1765,24 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
                 "provider": "lmstudio",
                 "loopback": true
             });
-            if let Some(p) = project { obj["project"] = json!(p); }
-            if let Some(tb) = token_budget { obj["token_budget"] = json!(tb); }
-            if let Some(a) = as_of { obj["as_of"] = json!(a); }
-            if let Some(r) = role { obj["role"] = json!(r); }
-            if let Some(s) = sandbox { obj["sandbox"] = json!(s); }
-            if let Some(m) = model { obj["model"] = json!(m); }
+            if let Some(p) = project {
+                obj["project"] = json!(p);
+            }
+            if let Some(tb) = token_budget {
+                obj["token_budget"] = json!(tb);
+            }
+            if let Some(a) = as_of {
+                obj["as_of"] = json!(a);
+            }
+            if let Some(r) = role {
+                obj["role"] = json!(r);
+            }
+            if let Some(s) = sandbox {
+                obj["sandbox"] = json!(s);
+            }
+            if let Some(m) = model {
+                obj["model"] = json!(m);
+            }
             Some(obj)
         }
         "read" => {
@@ -958,7 +1881,9 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
                 }
             }
             let mut obj = json!({ "op": "harvest", "dry_run": dry_run, "provider": "lmstudio", "loopback": true });
-            if let Some(s) = session { obj["session"] = json!(s); }
+            if let Some(s) = session {
+                obj["session"] = json!(s);
+            }
             Some(obj)
         }
         "check-conflicts" => Some(json!({ "op": "check-conflicts" })),
@@ -981,7 +1906,9 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
                     i += 1;
                 }
             }
-            Some(json!({ "op": "roll", "target": target, "max_lines": max_lines, "dry_run": dry_run, "provider": "lmstudio", "loopback": true }))
+            Some(
+                json!({ "op": "roll", "target": target, "max_lines": max_lines, "dry_run": dry_run, "provider": "lmstudio", "loopback": true }),
+            )
         }
         "compile-ast" => Some(json!({ "op": "compile-ast" })),
         "sync-anchors" => {
@@ -1017,15 +1944,25 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
                 }
             }
             let mut obj = json!({ "op": "audit-log", "verify": verify });
-            if let Some(o) = operation { obj["operation"] = json!(o); }
-            if let Some(t) = target_val { obj["target"] = json!(t); }
-            if let Some(a) = author { obj["author"] = json!(a); }
-            if let Some(c) = content { obj["content"] = json!(c); }
+            if let Some(o) = operation {
+                obj["operation"] = json!(o);
+            }
+            if let Some(t) = target_val {
+                obj["target"] = json!(t);
+            }
+            if let Some(a) = author {
+                obj["author"] = json!(a);
+            }
+            if let Some(c) = content {
+                obj["content"] = json!(c);
+            }
             Some(obj)
         }
         "scrub-secrets" => {
             let dry_run = args.iter().any(|a| a == "--dry-run");
-            Some(json!({ "op": "scrub-secrets", "dry_run": dry_run, "provider": "lmstudio", "loopback": true }))
+            Some(
+                json!({ "op": "scrub-secrets", "dry_run": dry_run, "provider": "lmstudio", "loopback": true }),
+            )
         }
         "learn-preference" => {
             let text_val = args.get(1)?.clone();
@@ -1040,7 +1977,9 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
                 }
             }
             let mut obj = json!({ "op": "learn-preference", "text": text_val, "provider": "lmstudio", "loopback": true });
-            if let Some(c) = category { obj["category"] = json!(c); }
+            if let Some(c) = category {
+                obj["category"] = json!(c);
+            }
             Some(obj)
         }
         "sync" => {
@@ -1059,8 +1998,12 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
                 }
             }
             let mut obj = json!({ "op": "sync", "provider": "lmstudio", "loopback": true });
-            if let Some(r) = remote { obj["remote"] = json!(r); }
-            if let Some(b) = branch { obj["branch"] = json!(b); }
+            if let Some(r) = remote {
+                obj["remote"] = json!(r);
+            }
+            if let Some(b) = branch {
+                obj["branch"] = json!(b);
+            }
             Some(obj)
         }
         "prewarm" => {
@@ -1068,7 +2011,11 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
             let mut i = 1;
             while i < args.len() {
                 if args[i] == "--files" && i + 1 < args.len() {
-                    files = args[i + 1].split(",").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                    files = args[i + 1]
+                        .split(",")
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
                     i += 2;
                 } else {
                     i += 1;
@@ -1082,29 +2029,54 @@ fn parse_cli_subcommand(args: &[String]) -> Option<Value> {
     }
 }
 
-
 fn launch_tui() -> Result<i32, String> {
     let fabric = MemoryFabric::new()?;
     let status = fabric.status()?;
     let audit = fabric.audit()?;
-    let doc_count = status.get("documents").and_then(|v| v.as_u64()).unwrap_or(0);
-    let alarms = status.get("secret_alarms").and_then(|v| v.as_u64()).unwrap_or(0);
-    let indexed_at = status.get("last_indexed_at").and_then(|v| v.as_str()).unwrap_or("never");
-    let stale = audit.get("stale_count").and_then(|v| v.as_u64()).unwrap_or(0);
-    let broken = audit.get("broken_link_count").and_then(|v| v.as_u64()).unwrap_or(0);
+    let doc_count = status
+        .get("documents")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let alarms = status
+        .get("secret_alarms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let indexed_at = status
+        .get("last_indexed_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or("never");
+    let stale = audit
+        .get("stale_count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let broken = audit
+        .get("broken_link_count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
 
     // ANSI sequences
-    println!("\x1b[2J\x1b[H\x1b[1m=== ENGRAM LOCAL MEMORY FABRIC TELEMETRY & TUI (v{}) ===\x1b[0m", crate::paths::VERSION);
+    println!(
+        "\x1b[2J\x1b[H\x1b[1m=== ENGRAM LOCAL MEMORY FABRIC TELEMETRY & TUI (v{}) ===\x1b[0m",
+        crate::paths::VERSION
+    );
     println!("Vault Root: \x1b[36m{}\x1b[0m", fabric.vault.display());
-    println!("Index File: \x1b[36m{}\x1b[0m (SQLite FTS5 WAL)", fabric.db_path.display());
+    println!(
+        "Index File: \x1b[36m{}\x1b[0m (SQLite FTS5 WAL)",
+        fabric.db_path.display()
+    );
     println!();
     println!("\x1b[1;32m[SYSTEM METRICS & TOKEN EFFICIENCY]\x1b[0m");
-    println!("  Active Memory Documents : \x1b[1m{}\x1b[0m notes", doc_count);
+    println!(
+        "  Active Memory Documents : \x1b[1m{}\x1b[0m notes",
+        doc_count
+    );
     println!("  Secret Alarms Open      : \x1b[1;31m{}\x1b[0m", alarms);
     println!("  Last Indexing Cycle     : {}", indexed_at);
     println!("  Retrieval Engine        : Dual BM25 + 128-d Vector Cosine + RRF-60");
     println!("  Search Latency (p50)    : \x1b[1;32m0.92 ms\x1b[0m (Rust Native Zero-Copy)");
-    println!("  Avg Prompt Token Cap    : \x1b[1;33m1,200 tokens\x1b[0m (Bounded Context Envelope)");
+    println!(
+        "  Avg Prompt Token Cap    : \x1b[1;33m1,200 tokens\x1b[0m (Bounded Context Envelope)"
+    );
     println!("  Legacy Hermes Baseline  : ~23,000 tokens (Unbounded JSON dumps)");
     println!("  Measured Token Savings  : \x1b[1;32m~94.8% per agent turn\x1b[0m");
     println!("  Prompt Prefix Cache Hit : \x1b[1;32m>98.2%\x1b[0m (Deterministic Static Hashing)");
@@ -1115,19 +2087,26 @@ fn launch_tui() -> Result<i32, String> {
     println!("  Memory Federation Peers : 1 (Active repo worktree auto-scoping)");
     println!();
     println!("\x1b[1;35m[TOP MEMORY CATEGORIES & TOKEN BREAKDOWN]\x1b[0m");
-    
+
     if let Ok(con) = fabric.connect() {
         let mut stmt = con.prepare("SELECT scope, count(*), sum(length(body)) FROM documents GROUP BY scope ORDER BY count(*) DESC LIMIT 8").map_err(|e| e.to_string())?;
-        let rows = stmt.query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
-        }).map_err(|e| e.to_string())?;
-        println!("  {:<26} {:<10} {:<14} {:<12}", "Scope Domain", "Docs", "Chars", "Est Tokens");
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        println!(
+            "  {:<26} {:<10} {:<14} {:<12}",
+            "Scope Domain", "Docs", "Chars", "Est Tokens"
+        );
         println!("  {}", "-".repeat(64));
-        for r in rows {
-            if let Ok((sc, cnt, chars)) = r {
-                let est_tokens = chars / 4;
-                println!("  {:<26} {:<10} {:<14} {:<12}", sc, cnt, chars, est_tokens);
-            }
+        for (sc, cnt, chars) in rows.flatten() {
+            let est_tokens = chars / 4;
+            println!("  {:<26} {:<10} {:<14} {:<12}", sc, cnt, chars, est_tokens);
         }
     }
     println!();
@@ -1136,7 +2115,8 @@ fn launch_tui() -> Result<i32, String> {
 }
 
 fn print_help() {
-    println!(r#"Engram / Local Memory Fabric CLI (v{})
+    println!(
+        r#"Engram / Local Memory Fabric CLI (v{})
 Universal, zero-dependency, ultra-fast local memory engine.
 
 USAGE:
@@ -1173,7 +2153,9 @@ DAEMON / PROTOCOL MODES:
 
 GLOBAL FLAGS:
     -h, --help                      Show this help message
-"#, crate::paths::VERSION);
+"#,
+        crate::paths::VERSION
+    );
 }
 
 fn main() {
@@ -1181,10 +2163,17 @@ fn main() {
     if args.iter().any(|a| a == "--version" || a == "-V") {
         // Was unreachable: the flag fell through to the JSON reader and answered
         // "request must be valid JSON", which is a confusing reply to `--version`.
-        println!("Engram / Local Memory Fabric {} (schema {})", env!("CARGO_PKG_VERSION"), crate::paths::SCHEMA_VERSION);
+        println!(
+            "Engram / Local Memory Fabric {} (schema {})",
+            env!("CARGO_PKG_VERSION"),
+            crate::paths::SCHEMA_VERSION
+        );
         return;
     }
-    if args.iter().any(|a| a == "--help" || a == "-h" || a == "help") {
+    if args
+        .iter()
+        .any(|a| a == "--help" || a == "-h" || a == "help")
+    {
         print_help();
         return;
     }
@@ -1192,32 +2181,41 @@ fn main() {
         serve_mcp().map(|_| 0)
     } else if args.iter().any(|a| a == "--serve") {
         serve().map(|_| 0)
-    } else if args.first().map(|s| s.as_str()) == Some("tui") || args.first().map(|s| s.as_str()) == Some("dashboard") {
+    } else if args.first().map(|s| s.as_str()) == Some("tui")
+        || args.first().map(|s| s.as_str()) == Some("dashboard")
+    {
         launch_tui()
     } else if let Some(req) = parse_cli_subcommand(&args) {
         (|| -> Result<i32, String> {
             let fabric = MemoryFabric::new()?;
             let response = dispatch(&fabric, &req)
-                .unwrap_or_else(|e| json_error(&crate::db::busy_message(&e, "dispatch")));
-            println!("{}", serde_json::to_string_pretty(&response).unwrap_or_default());
+                .unwrap_or_else(|e| json_error(crate::db::busy_message(&e, "dispatch")));
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response).unwrap_or_default()
+            );
             Ok(exit_code_for(&response))
         })()
     } else if let Some(shm_idx) = args.iter().position(|a| a == "--shm") {
         let default_shm = PathBuf::from("/tmp/memory-fabric.shm");
-        let path = args.get(shm_idx + 1)
+        let path = args
+            .get(shm_idx + 1)
             .filter(|p| !p.starts_with("--"))
             .map(PathBuf::from)
             .unwrap_or(default_shm);
         shm::serve_shm(&path).map(|_| 0)
     } else if let Some(call_idx) = args.iter().position(|a| a == "--shm-call") {
         let default_shm = PathBuf::from("/tmp/memory-fabric.shm");
-        let path = args.get(call_idx + 1)
+        let path = args
+            .get(call_idx + 1)
             .filter(|p| !p.starts_with("--"))
             .map(PathBuf::from)
             .unwrap_or(default_shm);
         (|| -> Result<i32, String> {
             let mut input = Vec::new();
-            io::stdin().read_to_end(&mut input).map_err(|e| e.to_string())?;
+            io::stdin()
+                .read_to_end(&mut input)
+                .map_err(|e| e.to_string())?;
             let resp = shm::client_shm_call(&path, &input)?;
             io::stdout().write_all(&resp).map_err(|e| e.to_string())?;
             io::stdout().write_all(b"\n").map_err(|e| e.to_string())?;
@@ -1225,7 +2223,8 @@ fn main() {
         })()
     } else if let Some(sock_idx) = args.iter().position(|a| a == "--socket") {
         let default_sock = dirs_or_home_socket_path();
-        let path = args.get(sock_idx + 1)
+        let path = args
+            .get(sock_idx + 1)
             .filter(|p| !p.starts_with("--"))
             .map(PathBuf::from)
             .unwrap_or(default_sock);
@@ -1253,72 +2252,118 @@ fn run_native_test_suite(fabric: &MemoryFabric) -> Result<Value, String> {
     let mut checks = Vec::new();
 
     let con = fabric.connect()?;
-    let doc_count: i64 = con.query_row("SELECT count(*) FROM documents", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+    let doc_count: i64 = con
+        .query_row("SELECT count(*) FROM documents", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
     checks.push(format!("FTS5 documents indexed: {}", doc_count));
     passed += 1;
 
     let candidate = "CANDIDATEXXXXXXXXXXXXXXXXXXXXXXXX";
-    let filter_res = crate::policy::secret_signature(&format!("SUPABASE_SERVICE_ROLE_KEY={}", candidate)).is_some();
-    if !filter_res { return Err("Secret filter failed".into()); }
+    let filter_res =
+        crate::policy::secret_signature(&format!("SUPABASE_SERVICE_ROLE_KEY={}", candidate))
+            .is_some();
+    if !filter_res {
+        return Err("Secret filter failed".into());
+    }
     checks.push("Secret redaction security contract verified".to_string());
     passed += 1;
 
     let v1 = [10i8; 128];
     let v2 = [10i8; 128];
     let sim = crate::semantic::cosine_similarity(&v1, &v2);
-    if (sim - 1.0).abs() >= 1e-4 { return Err("SIMD cosine mismatch".into()); }
+    if (sim - 1.0).abs() >= 1e-4 {
+        return Err("SIMD cosine mismatch".into());
+    }
     checks.push("ARM NEON 128-d SIMD dot product verified".to_string());
     passed += 1;
 
     let terms = crate::text::tokenize("CliffCompaction");
-    if !terms.contains(&"cliff".to_string()) || !terms.contains(&"compaction".to_string()) {
+    if !terms.contains("cliff") || !terms.contains("compaction") {
         return Err("CamelCase tokenization failed".into());
     }
-    checks.push("CamelCase tokenization parity verified".to_string());
+    checks.push("CamelCase tokenization contract verified".to_string());
     passed += 1;
 
     let sample = "# Header\n\nContent\n\n## Subheader\n\nSubcontent\n";
     let secs = crate::text::parse_sections(sample, "Test");
-    if secs.len() < 2 { return Err("Section parsing failed".into()); }
+    if secs.len() < 2 {
+        return Err("Section parsing failed".into());
+    }
     checks.push("Markdown outline AST parsing verified".to_string());
     passed += 1;
 
-    let inv_decay = crate::retrieval::calculate_ebbinghaus_decay("invariants", "invariants/test.md", None);
-    if inv_decay != 1.0 { return Err("Invariants decay must be 1.0".into()); }
+    let inv_decay =
+        crate::retrieval::calculate_ebbinghaus_decay("invariants", "invariants/test.md", None);
+    if inv_decay != 1.0 {
+        return Err("Invariants decay must be 1.0".into());
+    }
     checks.push("Ebbinghaus temporal half-life decay verified".to_string());
     passed += 1;
 
     let wt = fabric.worktree_status()?;
-    if !wt["ok"].as_bool().unwrap_or(false) { return Err("Worktree check failed".into()); }
+    if !wt["ok"].as_bool().unwrap_or(false) {
+        return Err("Worktree check failed".into());
+    }
     checks.push("Git worktree overlay resolution verified".to_string());
     passed += 1;
 
     let test_log = fabric.home.join("audit.log");
-    let log_entry = crate::governance::GovernanceEngine::append_audit_entry(&test_log, "test_check", "vault", "rust_test", "content_payload")?;
-    if log_entry["hash"].as_str().is_none() { return Err("Audit log append failed".into()); }
+    let log_entry = crate::governance::GovernanceEngine::append_audit_entry(
+        &test_log,
+        "test_check",
+        "vault",
+        "rust_test",
+        "content_payload",
+    )?;
+    if log_entry["hash"].as_str().is_none() {
+        return Err("Audit log append failed".into());
+    }
     let audit_verify = crate::governance::GovernanceEngine::verify_audit_log(&test_log)?;
-    if !audit_verify["ok"].as_bool().unwrap_or(false) { return Err("Audit verify failed".into()); }
+    if !audit_verify["ok"].as_bool().unwrap_or(false) {
+        return Err("Audit verify failed".into());
+    }
     checks.push("Tamper-evident SHA-256 Merkle audit ledger verified".to_string());
     passed += 1;
 
     let conflicts = crate::conflicts::ConflictDetector::scan_vault_conflicts(&fabric.vault)?;
-    if !conflicts["ok"].as_bool().unwrap_or(false) { return Err("Conflicts scan failed".into()); }
+    if !conflicts["ok"].as_bool().unwrap_or(false) {
+        return Err("Conflicts scan failed".into());
+    }
     checks.push("Semantic contradiction detector verified".to_string());
     passed += 1;
 
     let bin_path = fabric.home.join("index.bin");
     let bin_ast = crate::ast_cache::AstBinaryIndex::compile(&fabric.vault, &bin_path)?;
-    if !bin_ast["ok"].as_bool().unwrap_or(false) { return Err("Binary AST failed".into()); }
+    if !bin_ast["ok"].as_bool().unwrap_or(false) {
+        return Err("Binary AST failed".into());
+    }
     checks.push("Memory-mapped AST binary index (<100ns) verified".to_string());
     passed += 1;
 
-    let prewarm = crate::governance::GovernanceEngine::prewarm_cache(&fabric.vault, &["src/main.rs".to_string(), "package.json".to_string()])?;
-    if !prewarm["ok"].as_bool().unwrap_or(false) { return Err("Prewarm failed".into()); }
+    let prewarm = crate::governance::GovernanceEngine::prewarm_cache(
+        &fabric.vault,
+        &["src/main.rs".to_string(), "package.json".to_string()],
+    )?;
+    if !prewarm["ok"].as_bool().unwrap_or(false) {
+        return Err("Prewarm failed".into());
+    }
     checks.push("Predictive invariant cache prewarming verified".to_string());
     passed += 1;
 
-    let ctx = fabric.context_extended(None, "retrieval", Some("lmstudio"), None, None, Some(true), None, None, None)?;
-    if ctx["unlimited_context"].as_bool() != Some(true) { return Err("Default unlimited context failed".into()); }
+    let ctx = fabric.context_extended(
+        None,
+        "retrieval",
+        Some("lmstudio"),
+        None,
+        None,
+        Some(true),
+        None,
+        None,
+        None,
+    )?;
+    if ctx["unlimited_context"].as_bool() != Some(true) {
+        return Err("Default unlimited context failed".into());
+    }
     checks.push("Default unbounded context for 1M+ model window verified".to_string());
     passed += 1;
 

@@ -1,6 +1,5 @@
 /// Federated Cross-Worktree Multi-Vault Synchronization.
 /// Provides git worktree origin discovery, multi-vault federated search, and 3-way merge proposals.
-
 use crate::MemoryFabric;
 use crate::text::json_error;
 use serde_json::{Value, json};
@@ -28,7 +27,9 @@ impl MemoryFabric {
             .ok()
             .and_then(|out| {
                 if out.status.success() {
-                    String::from_utf8(out.stdout).ok().map(|s| s.trim().to_string())
+                    String::from_utf8(out.stdout)
+                        .ok()
+                        .map(|s| s.trim().to_string())
                 } else {
                     None
                 }
@@ -42,7 +43,9 @@ impl MemoryFabric {
             .ok()
             .and_then(|out| {
                 if out.status.success() {
-                    String::from_utf8(out.stdout).ok().map(|s| s.trim().to_string())
+                    String::from_utf8(out.stdout)
+                        .ok()
+                        .map(|s| s.trim().to_string())
                 } else {
                     None
                 }
@@ -69,15 +72,14 @@ impl MemoryFabric {
             .arg(vault_path)
             .args(["worktree", "list", "--porcelain"])
             .output()
+            && out.status.success()
         {
-            if out.status.success() {
-                let text = String::from_utf8_lossy(&out.stdout);
-                for line in text.lines() {
-                    if let Some(path) = line.strip_prefix("worktree ") {
-                        let trimmed = path.trim().to_string();
-                        if !trimmed.is_empty() && !worktrees.contains(&trimmed) {
-                            worktrees.push(trimmed);
-                        }
+            let text = String::from_utf8_lossy(&out.stdout);
+            for line in text.lines() {
+                if let Some(path) = line.strip_prefix("worktree ") {
+                    let trimmed = path.trim().to_string();
+                    if !trimmed.is_empty() && !worktrees.contains(&trimmed) {
+                        worktrees.push(trimmed);
                     }
                 }
             }
@@ -98,7 +100,10 @@ impl MemoryFabric {
         let global_system_mem = PathBuf::from(&home_env).join("system-memory");
         let mut discovered_peers = Vec::new();
 
-        if global_system_mem.exists() && global_system_mem.is_dir() && global_system_mem != self.vault {
+        if global_system_mem.exists()
+            && global_system_mem.is_dir()
+            && global_system_mem != self.vault
+        {
             discovered_peers.push(global_system_mem.to_string_lossy().to_string());
         }
 
@@ -112,7 +117,11 @@ impl MemoryFabric {
         if let Ok(extra) = std::env::var("MEMORY_FABRIC_PEER_VAULTS") {
             for part in extra.split(':').map(|s| s.trim()).filter(|s| !s.is_empty()) {
                 let pb = PathBuf::from(part);
-                if pb.exists() && pb.is_dir() && pb != self.vault && !discovered_peers.contains(&part.to_string()) {
+                if pb.exists()
+                    && pb.is_dir()
+                    && pb != self.vault
+                    && !discovered_peers.contains(&part.to_string())
+                {
                     discovered_peers.push(part.to_string());
                 }
             }
@@ -131,6 +140,7 @@ impl MemoryFabric {
     }
 
     /// Performs federated search across primary and peer vaults
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn federate_search(
         &self,
         query: &str,
@@ -142,7 +152,15 @@ impl MemoryFabric {
         loopback: Option<bool>,
         token_budget: Option<usize>,
     ) -> Result<Value, String> {
-        let mut primary_res = self.search(query, scope, limit * 2, provider, as_of, loopback, token_budget)?;
+        let mut primary_res = self.search(
+            query,
+            scope,
+            limit * 2,
+            provider,
+            as_of,
+            loopback,
+            token_budget,
+        )?;
         if primary_res.get("ok").and_then(Value::as_bool) != Some(true) {
             return Ok(primary_res);
         }
@@ -154,7 +172,11 @@ impl MemoryFabric {
             for item in arr.drain(..) {
                 let mut obj = item;
                 if let Some(map) = obj.as_object_mut() {
-                    let s_ref = map.get("source_ref").and_then(Value::as_str).unwrap_or("").to_string();
+                    let s_ref = map
+                        .get("source_ref")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
                     seen_refs.insert(s_ref);
                     map.insert("vault_origin".to_string(), json!("primary"));
                 }
@@ -170,23 +192,28 @@ impl MemoryFabric {
             }
             peers_queried += 1;
             // Create temporary peer fabric
-            let peer_home = std::env::temp_dir().join(format!("mf-peer-{}", crate::text::sha256(peer)[..8].to_string()));
+            let peer_home =
+                std::env::temp_dir().join(format!("mf-peer-{}", &crate::text::sha256(peer)[..8]));
             let peer_fabric = match MemoryFabric::with_paths(peer_home, p_path.to_path_buf()) {
-                Ok(f) => { let _ = f.index(false); f },
+                Ok(f) => {
+                    let _ = f.index(false);
+                    f
+                }
                 Err(_) => continue,
             };
-            if let Ok(p_res) = peer_fabric.search(query, scope, limit, provider, as_of, loopback, token_budget) {
-                if let Some(p_arr) = p_res.get("results").and_then(Value::as_array) {
-                    for item in p_arr {
-                        let s_ref = item.get("source_ref").and_then(Value::as_str).unwrap_or("");
-                        let unique_key = format!("{}:{}", peer, s_ref);
-                        if seen_refs.insert(unique_key) {
-                            let mut cloned = item.clone();
-                            if let Some(map) = cloned.as_object_mut() {
-                                map.insert("vault_origin".to_string(), json!(peer));
-                            }
-                            all_results.push(cloned);
+            if let Ok(p_res) =
+                peer_fabric.search(query, scope, limit, provider, as_of, loopback, token_budget)
+                && let Some(p_arr) = p_res.get("results").and_then(Value::as_array)
+            {
+                for item in p_arr {
+                    let s_ref = item.get("source_ref").and_then(Value::as_str).unwrap_or("");
+                    let unique_key = format!("{}:{}", peer, s_ref);
+                    if seen_refs.insert(unique_key) {
+                        let mut cloned = item.clone();
+                        if let Some(map) = cloned.as_object_mut() {
+                            map.insert("vault_origin".to_string(), json!(peer));
                         }
+                        all_results.push(cloned);
                     }
                 }
             }
@@ -196,11 +223,15 @@ impl MemoryFabric {
         all_results.sort_by(|a, b| {
             let rrf_a = a.get("rrf_score").and_then(Value::as_f64).unwrap_or(0.0);
             let rrf_b = b.get("rrf_score").and_then(Value::as_f64).unwrap_or(0.0);
-            rrf_b.partial_cmp(&rrf_a).unwrap_or(std::cmp::Ordering::Equal)
+            rrf_b
+                .partial_cmp(&rrf_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| {
                     let rank_a = a.get("bm25_rank").and_then(Value::as_f64).unwrap_or(0.0);
                     let rank_b = b.get("bm25_rank").and_then(Value::as_f64).unwrap_or(0.0);
-                    rank_a.partial_cmp(&rank_b).unwrap_or(std::cmp::Ordering::Equal)
+                    rank_a
+                        .partial_cmp(&rank_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .then_with(|| {
                     let ref_a = a.get("source_ref").and_then(Value::as_str).unwrap_or("");
@@ -237,22 +268,23 @@ impl MemoryFabric {
 
         let safe_rel = match crate::paths::safe_relpath(relpath) {
             Ok(r) => r,
-            Err(e) => return Ok(json_error(&format!("unsafe relpath: {e}"))),
+            Err(e) => return Ok(json_error(format!("unsafe relpath: {e}"))),
         };
         let local_file = self.vault.join(&safe_rel);
         let peer_file = Path::new(peer_vault).join(&safe_rel);
-        if let Ok(canon_vault) = self.vault.canonicalize() {
-            if local_file.exists() {
-                if let Ok(canon_local) = local_file.canonicalize() {
-                    if !canon_local.starts_with(&canon_vault) {
-                        return Ok(json_error("local target escapes vault boundary"));
-                    }
-                }
-            }
+        if let Ok(canon_vault) = self.vault.canonicalize()
+            && local_file.exists()
+            && let Ok(canon_local) = local_file.canonicalize()
+            && !canon_local.starts_with(&canon_vault)
+        {
+            return Ok(json_error("local target escapes vault boundary"));
         }
 
         if !peer_file.exists() {
-            return Ok(json_error(&format!("peer file does not exist: {}", peer_file.display())));
+            return Ok(json_error(format!(
+                "peer file does not exist: {}",
+                peer_file.display()
+            )));
         }
 
         let peer_content = std::fs::read_to_string(&peer_file)
@@ -324,17 +356,21 @@ impl MemoryFabric {
         let git_file = cwd.join(".git");
         let mut is_worktree = false;
         let mut main_git_dir = None;
-        let mut slug = cwd.file_name().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
+        let mut slug = cwd
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
 
         if git_file.exists() && git_file.is_file() {
             is_worktree = true;
-            if let Ok(content) = std::fs::read_to_string(&git_file) {
-                if let Some(gitdir) = content.strip_prefix("gitdir:") {
-                    let gd_trimmed = gitdir.trim();
-                    main_git_dir = Some(gd_trimmed.to_string());
-                    if let Some(pos) = gd_trimmed.rfind("/worktrees/") {
-                        slug = gd_trimmed[pos + "/worktrees/".len()..].to_string();
-                    }
+            if let Ok(content) = std::fs::read_to_string(&git_file)
+                && let Some(gitdir) = content.strip_prefix("gitdir:")
+            {
+                let gd_trimmed = gitdir.trim();
+                main_git_dir = Some(gd_trimmed.to_string());
+                if let Some(pos) = gd_trimmed.rfind("/worktrees/") {
+                    slug = gd_trimmed[pos + "/worktrees/".len()..].to_string();
                 }
             }
         }
@@ -352,5 +388,4 @@ impl MemoryFabric {
             "worktree_overlay_active": is_worktree
         }))
     }
-
 }

@@ -24,8 +24,19 @@ impl MemoryFabric {
         limit: usize,
         provider: Option<&str>,
     ) -> Result<Value, String> {
-        let base_search = self.search(query, "all", RERANK_CANDIDATE_LIMIT, provider, None, Some(true), None)?;
-        let results_arr = base_search["results"].as_array().cloned().unwrap_or_default();
+        let base_search = self.search(
+            query,
+            "all",
+            RERANK_CANDIDATE_LIMIT,
+            provider,
+            None,
+            Some(true),
+            None,
+        )?;
+        let results_arr = base_search["results"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
 
         let mut enriched_results = Vec::new();
 
@@ -40,8 +51,8 @@ impl MemoryFabric {
 
             for sym in &extracted_symbols {
                 // If it looks like a path or symbol, check proximity to active_file
-                let (resolved_path, resolved_line) = resolve_with_fsearch(sym, repo_root)
-                    .unwrap_or_else(|| (sym.clone(), None));
+                let (resolved_path, resolved_line) =
+                    resolve_with_fsearch(sym, repo_root).unwrap_or_else(|| (sym.clone(), None));
 
                 let prox = calculate_path_proximity(active_file, &resolved_path);
                 anchors.push(CodeAnchor {
@@ -126,7 +137,13 @@ pub fn extract_symbols(text: &str) -> Vec<String> {
         b_rest = &b_rest[start + 1..];
         if let Some(end) = b_rest.find('`') {
             let sym = &b_rest[..end].trim();
-            if sym.len() >= 3 && !sym.contains(' ') && (sym.contains('_') || sym.contains('.') || sym.contains('/') || sym.contains("::")) {
+            if sym.len() >= 3
+                && !sym.contains(' ')
+                && (sym.contains('_')
+                    || sym.contains('.')
+                    || sym.contains('/')
+                    || sym.contains("::"))
+            {
                 symbols.insert(sym.to_string());
             }
             b_rest = &b_rest[end + 1..];
@@ -175,16 +192,16 @@ pub fn calculate_path_proximity(active: Option<&str>, candidate: &str) -> f64 {
 }
 
 /// Invokes fsearch daemon CLI if present on system to resolve symbol to exact file and line.
-pub fn resolve_with_fsearch(symbol: &str, repo_root: Option<&str>) -> Option<(String, Option<usize>)> {
+pub fn resolve_with_fsearch(
+    symbol: &str,
+    repo_root: Option<&str>,
+) -> Option<(String, Option<usize>)> {
     if symbol.trim().is_empty() {
         return None;
     }
 
     // 1. Try fsearch CLI at ~/.local/bin/fsearch or in PATH
-    let fsearch_paths = [
-        "/Users/batra/.local/bin/fsearch",
-        "fsearch",
-    ];
+    let fsearch_paths = ["/Users/batra/.local/bin/fsearch", "fsearch"];
 
     for bin in &fsearch_paths {
         let mut cmd = Command::new(bin);
@@ -193,17 +210,17 @@ pub fn resolve_with_fsearch(symbol: &str, repo_root: Option<&str>) -> Option<(St
             cmd.current_dir(root);
         }
 
-        if let Ok(output) = cmd.output() {
-            if output.status.success() {
-                if let Ok(val) = serde_json::from_slice::<Value>(&output.stdout) {
-                    if let Some(first_match) = val.as_array().and_then(|arr| arr.first()) {
-                        let path = first_match["path"].as_str().or_else(|| first_match.as_str());
-                        if let Some(p) = path {
-                            let line = first_match["line"].as_u64().map(|l| l as usize);
-                            return Some((p.to_string(), line));
-                        }
-                    }
-                }
+        if let Ok(output) = cmd.output()
+            && output.status.success()
+            && let Ok(val) = serde_json::from_slice::<Value>(&output.stdout)
+            && let Some(first_match) = val.as_array().and_then(|arr| arr.first())
+        {
+            let path = first_match["path"]
+                .as_str()
+                .or_else(|| first_match.as_str());
+            if let Some(p) = path {
+                let line = first_match["line"].as_u64().map(|l| l as usize);
+                return Some((p.to_string(), line));
             }
         }
     }

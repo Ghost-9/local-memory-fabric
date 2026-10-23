@@ -18,7 +18,8 @@ impl GovernanceEngine {
         let mut broken_anchors = Vec::new();
         let mut valid_anchors = 0;
 
-        let anchor_regex = Regex::new(r"file://([^#\s]+)#L(\d+)(?:-L(\d+))?").map_err(|e| e.to_string())?;
+        let anchor_regex =
+            Regex::new(r"file://([^#\s]+)#L(\d+)(?:-L(\d+))?").map_err(|e| e.to_string())?;
 
         let mut md_files = Vec::new();
         Self::collect_md_files(vault_path, &mut md_files);
@@ -31,8 +32,14 @@ impl GovernanceEngine {
             for cap in anchor_regex.captures_iter(&content) {
                 total_anchors += 1;
                 let target_file = cap.get(1).map(|m| m.as_str()).unwrap_or("");
-                let start_line: usize = cap.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-                let end_line: usize = cap.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(start_line);
+                let start_line: usize = cap
+                    .get(2)
+                    .and_then(|m| m.as_str().parse().ok())
+                    .unwrap_or(0);
+                let end_line: usize = cap
+                    .get(3)
+                    .and_then(|m| m.as_str().parse().ok())
+                    .unwrap_or(start_line);
 
                 let target_path = Path::new(target_file);
                 if !target_path.exists() {
@@ -90,10 +97,18 @@ impl GovernanceEngine {
         for line in stdout.lines() {
             let path = line.get(3..).unwrap_or("").trim();
             modified_files.push(path.to_string());
-            if path.ends_with(".rs") || path.ends_with(".ts") || path.ends_with(".py") || path.ends_with(".go") {
+            if path.ends_with(".rs")
+                || path.ends_with(".ts")
+                || path.ends_with(".py")
+                || path.ends_with(".go")
+            {
                 code_changed = true;
             }
-            if path.contains("system-memory") || path.ends_with("STATUS.md") || path.ends_with("README.md") || path.ends_with("SKILL.md") {
+            if path.contains("system-memory")
+                || path.ends_with("STATUS.md")
+                || path.ends_with("README.md")
+                || path.ends_with("SKILL.md")
+            {
                 memory_or_doc_changed = true;
             }
         }
@@ -113,7 +128,9 @@ impl GovernanceEngine {
     }
 
     pub fn hook_install(repo_root: Option<&Path>) -> Result<Value, String> {
-        let root = repo_root.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        let root = repo_root
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
         let hooks_dir = root.join(".git").join("hooks");
         if !hooks_dir.exists() {
             return Ok(json!({ "ok": false, "error": ".git/hooks directory not found" }));
@@ -134,7 +151,8 @@ exit 0
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&hook_file, fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+            fs::set_permissions(&hook_file, fs::Permissions::from_mode(0o755))
+                .map_err(|e| e.to_string())?;
         }
 
         Ok(json!({
@@ -157,9 +175,10 @@ exit 0
         let (prev_hash, index) = if log_path.exists() {
             let file = File::open(log_path).map_err(|e| e.to_string())?;
             let reader = BufReader::new(file);
-            let mut last_hash = "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+            let mut last_hash =
+                "0000000000000000000000000000000000000000000000000000000000000000".to_string();
             let mut count = 0u64;
-            for line in reader.lines().flatten() {
+            for line in reader.lines().map_while(Result::ok) {
                 if let Ok(v) = serde_json::from_str::<Value>(&line) {
                     if let Some(h) = v.get("hash").and_then(|s| s.as_str()) {
                         last_hash = h.to_string();
@@ -169,13 +188,19 @@ exit 0
             }
             (last_hash, count)
         } else {
-            ("0000000000000000000000000000000000000000000000000000000000000000".to_string(), 0)
+            (
+                "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+                0,
+            )
         };
 
         let now = crate::paths::now_utc();
         let content_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
 
-        let entry_payload = format!("{}:{}:{}:{}:{}:{}:{}", index, now, op, target, author, prev_hash, content_hash);
+        let entry_payload = format!(
+            "{}:{}:{}:{}:{}:{}:{}",
+            index, now, op, target, author, prev_hash, content_hash
+        );
         let entry_hash = format!("{:x}", Sha256::digest(entry_payload.as_bytes()));
 
         let record = json!({
@@ -203,24 +228,31 @@ exit 0
         }
         let mut file = opts.open(log_path).map_err(|e| e.to_string())?;
 
-        writeln!(file, "{}", serde_json::to_string(&record).unwrap_or_default())
-            .map_err(|e| e.to_string())?;
+        writeln!(
+            file,
+            "{}",
+            serde_json::to_string(&record).unwrap_or_default()
+        )
+        .map_err(|e| e.to_string())?;
 
         Ok(record)
     }
 
     pub fn verify_audit_log(log_path: &Path) -> Result<Value, String> {
         if !log_path.exists() {
-            return Ok(json!({ "ok": true, "entries": 0, "verified": true, "message": "Log file empty" }));
+            return Ok(
+                json!({ "ok": true, "entries": 0, "verified": true, "message": "Log file empty" }),
+            );
         }
 
         let file = File::open(log_path).map_err(|e| e.to_string())?;
         let reader = BufReader::new(file);
 
-        let mut expected_prev = "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+        let mut expected_prev =
+            "0000000000000000000000000000000000000000000000000000000000000000".to_string();
         let mut verified_count = 0u64;
 
-        for (idx, line) in reader.lines().flatten().enumerate() {
+        for (idx, line) in reader.lines().map_while(Result::ok).enumerate() {
             if line.trim().is_empty() {
                 continue;
             }
@@ -233,9 +265,15 @@ exit 0
             let op = val.get("op").and_then(|s| s.as_str()).unwrap_or("");
             let target = val.get("target").and_then(|s| s.as_str()).unwrap_or("");
             let author = val.get("author").and_then(|s| s.as_str()).unwrap_or("");
-            let content_hash = val.get("content_hash").and_then(|s| s.as_str()).unwrap_or("");
+            let content_hash = val
+                .get("content_hash")
+                .and_then(|s| s.as_str())
+                .unwrap_or("");
 
-            let entry_payload = format!("{}:{}:{}:{}:{}:{}:{}", index, now, op, target, author, prev, content_hash);
+            let entry_payload = format!(
+                "{}:{}:{}:{}:{}:{}:{}",
+                index, now, op, target, author, prev, content_hash
+            );
             let computed_hash = format!("{:x}", Sha256::digest(entry_payload.as_bytes()));
 
             if prev != expected_prev || index != (idx as u64) || computed_hash != current {
@@ -273,9 +311,21 @@ exit 0
             (Regex::new(r"sk-[A-Za-z0-9]{20,}").unwrap(), "OPENAI_KEY"),
             (Regex::new(r"ghp_[A-Za-z0-9]{36}").unwrap(), "GITHUB_PAT"),
             (Regex::new(r"gho_[A-Za-z0-9]{36}").unwrap(), "GITHUB_OAUTH"),
-            (Regex::new(r"AIza[0-9A-Za-z\\-_]{35}").unwrap(), "GOOGLE_API_KEY"),
-            (Regex::new(r"xox[baprs]-[0-9a-zA-Z]{10,48}").unwrap(), "SLACK_TOKEN"),
-            (Regex::new(r"eyJ[A-Za-z0-9-_=]{20,}\.eyJ[A-Za-z0-9-_=]{20,}\.[A-Za-z0-9-_.+/=]{20,}").unwrap(), "JWT_TOKEN"),
+            (
+                Regex::new(r"AIza[0-9A-Za-z\\-_]{35}").unwrap(),
+                "GOOGLE_API_KEY",
+            ),
+            (
+                Regex::new(r"xox[baprs]-[0-9a-zA-Z]{10,48}").unwrap(),
+                "SLACK_TOKEN",
+            ),
+            (
+                Regex::new(
+                    r"eyJ[A-Za-z0-9-_=]{20,}\.eyJ[A-Za-z0-9-_=]{20,}\.[A-Za-z0-9-_.+/=]{20,}",
+                )
+                .unwrap(),
+                "JWT_TOKEN",
+            ),
         ];
 
         let mut redacted_occurrences = 0;
@@ -340,7 +390,10 @@ exit 0
         let mut content = if prefs_file.exists() {
             fs::read_to_string(&prefs_file).map_err(|e| e.to_string())?
         } else {
-            format!("---\ntitle: \"User Cognitive Preferences\"\nscope: user\n---\n\n# User Preferences\n\n## {}\n\n", cat)
+            format!(
+                "---\ntitle: \"User Cognitive Preferences\"\nscope: user\n---\n\n# User Preferences\n\n## {}\n\n",
+                cat
+            )
         };
 
         let cat_header = format!("## {}", cat);
@@ -363,7 +416,11 @@ exit 0
     // ==========================================
     // Milestone 32: P2P Multi-Machine Vault Sync
     // ==========================================
-    pub fn vault_sync(vault_path: &Path, remote: Option<&str>, branch: Option<&str>) -> Result<Value, String> {
+    pub fn vault_sync(
+        vault_path: &Path,
+        remote: Option<&str>,
+        branch: Option<&str>,
+    ) -> Result<Value, String> {
         let rem = remote.unwrap_or("origin");
         let br = branch.unwrap_or("main");
 
@@ -397,7 +454,10 @@ exit 0
             .args(["add", "."])
             .output();
 
-        let commit_msg = format!("sync(memory): automated p2p vault checkpoint at {}", crate::paths::now_utc());
+        let commit_msg = format!(
+            "sync(memory): automated p2p vault checkpoint at {}",
+            crate::paths::now_utc()
+        );
         let _ = Command::new("git")
             .arg("-C")
             .arg(vault_path)
@@ -426,14 +486,14 @@ exit 0
     // ==========================================
     // Milestone 34: Predictive Invariant Cache Pre-Warming
     // ==========================================
-    pub fn prewarm_cache(
-        vault_path: &Path,
-        files_list: &[String],
-    ) -> Result<Value, String> {
+    pub fn prewarm_cache(vault_path: &Path, files_list: &[String]) -> Result<Value, String> {
         let mut prewarmed_tags = Vec::new();
 
         for file in files_list {
-            let ext = Path::new(file).extension().and_then(|s| s.to_str()).unwrap_or("");
+            let ext = Path::new(file)
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
             let matched_tag = match ext {
                 "rs" => "rust",
                 "ts" | "tsx" | "js" | "jsx" => "typescript",
@@ -452,16 +512,21 @@ exit 0
         let inv_dir = vault_path.join("invariants");
         let mut prewarmed_cards = Vec::new();
 
-        if inv_dir.exists() && inv_dir.is_dir() {
-            if let Ok(entries) = fs::read_dir(inv_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
-                    for tag in &prewarmed_tags {
-                        if name.contains(tag) {
-                            prewarmed_cards.push(path.to_string_lossy().to_string());
-                            break;
-                        }
+        if inv_dir.exists()
+            && inv_dir.is_dir()
+            && let Ok(entries) = fs::read_dir(inv_dir)
+        {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                for tag in &prewarmed_tags {
+                    if name.contains(tag) {
+                        prewarmed_cards.push(path.to_string_lossy().to_string());
+                        break;
                     }
                 }
             }
@@ -480,21 +545,33 @@ exit 0
         if !dir.exists() || !dir.is_dir() {
             return;
         }
-        let excluded = ["apple-notes", "notes_export", "templates", "archive", ".git", ".trash"];
+        let excluded = [
+            "apple-notes",
+            "notes_export",
+            "templates",
+            "archive",
+            ".git",
+            ".trash",
+        ];
         if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if let Ok(meta) = fs::symlink_metadata(&path) {
-                    if meta.file_type().is_symlink() {
-                        continue;
-                    }
+                if let Ok(meta) = fs::symlink_metadata(&path)
+                    && meta.file_type().is_symlink()
+                {
+                    continue;
                 }
                 if path.is_dir() {
-                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+                    let name = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
                     if !name.starts_with('.') && !excluded.contains(&name.as_str()) {
                         Self::collect_md_files(&path, acc);
                     }
-                } else if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
+                } else if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md")
+                {
                     acc.push(path);
                 }
             }

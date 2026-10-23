@@ -13,7 +13,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, UNIX_EPOCH};
 
-
 /// Whether the knowledge base is under version control, and how stale its baseline is.
 ///
 /// Read-only: shells out to `git` in the vault and mutates nothing. Used by `status` so that
@@ -22,15 +21,20 @@ use std::time::{Instant, UNIX_EPOCH};
 fn vault_history(vault: &std::path::Path) -> serde_json::Value {
     use std::process::Command;
     let run = |args: &[&str]| -> Option<String> {
-        let out = Command::new("git").arg("-C").arg(vault).args(args).output().ok()?;
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(vault)
+            .args(args)
+            .output()
+            .ok()?;
         if !out.status.success() {
             return None;
         }
         Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
     };
     let head = run(&["log", "-1", "--format=%H %cI"]);
-    let dirty = run(&["status", "--porcelain"])
-        .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count());
+    let dirty =
+        run(&["status", "--porcelain"]).map(|s| s.lines().filter(|l| !l.trim().is_empty()).count());
     json!({
         "under_version_control": head.is_some(),
         "head": head.as_ref().and_then(|h| h.split_whitespace().next())
@@ -181,13 +185,14 @@ impl MemoryFabric {
                 .unwrap_or(0);
 
             // Fast incremental skip: if mtime_ns is identical and not forced/migrated, skip reading disk!
-            if !force && !migrated && mtime_ns > 0 {
-                if let Some((_, prev_mtime)) = existing.get(&rel) {
-                    if *prev_mtime == mtime_ns {
-                        unchanged += 1;
-                        continue;
-                    }
-                }
+            if !force
+                && !migrated
+                && mtime_ns > 0
+                && let Some((_, prev_mtime)) = existing.get(&rel)
+                && *prev_mtime == mtime_ns
+            {
+                unchanged += 1;
+                continue;
             }
 
             let Ok(text) = fs::read_to_string(&path) else {
@@ -222,7 +227,13 @@ impl MemoryFabric {
                 continue;
             }
             let digest = sha256(&text);
-            if !force && !migrated && existing.get(&rel).map(|(h, _)| h == &digest).unwrap_or(false) {
+            if !force
+                && !migrated
+                && existing
+                    .get(&rel)
+                    .map(|(h, _)| h == &digest)
+                    .unwrap_or(false)
+            {
                 unchanged += 1;
                 continue;
             }
@@ -242,7 +253,7 @@ impl MemoryFabric {
             } else {
                 added += 1;
             }
-            let slug_clean = rel.trim_end_matches(".md").replace('/', " ").replace('-', " ").replace('_', " ");
+            let slug_clean = rel.trim_end_matches(".md").replace(['/', '-', '_'], " ");
             let full_headings = format!("{headings}\n{slug_clean}");
             tx.execute("INSERT INTO documents(relpath,title,scope,classification,source_status,valid_from,valid_to,superseded_by,provider_policy,export_policy,headings,body,content_hash,mtime_ns,indexed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'loopback_allowlist_only','deny_remote',?9,?10,?11,?12,?13) ON CONFLICT(relpath) DO UPDATE SET title=excluded.title,scope=excluded.scope,classification=excluded.classification,source_status=excluded.source_status,valid_from=excluded.valid_from,valid_to=excluded.valid_to,superseded_by=excluded.superseded_by,provider_policy=excluded.provider_policy,export_policy=excluded.export_policy,headings=excluded.headings,body=excluded.body,content_hash=excluded.content_hash,mtime_ns=excluded.mtime_ns,indexed_at=excluded.indexed_at",
                 params![rel,title,scope,classification,status,valid_from,valid_to,superseded_by,full_headings,text,digest,mtime_ns,now_utc()]).map_err(|e| e.to_string())?;
@@ -300,7 +311,7 @@ impl MemoryFabric {
         )
     }
 
-    // --- credential exposure alarms (mirrors the Python engine) ------------------------
+    // --- credential exposure alarms ----------------------------------------------------
     // The secret filter excludes a note silently. That is safe but leaves the owner unaware,
     // and only they can rotate a key. Detect -> remind on every fetch -> resolve on their word.
 
@@ -404,7 +415,9 @@ impl MemoryFabric {
             .optional()
             .map_err(|e| e.to_string())?;
         let Some((aid, relpath, resolved_at)) = existing else {
-            return Ok(json!({"ok": false, "error": "no such alarm; run 'memory-fabric alarms' to list them"}));
+            return Ok(
+                json!({"ok": false, "error": "no such alarm; run 'memory-fabric alarms' to list them"}),
+            );
         };
         let already = resolved_at.is_some();
         if !already {
@@ -415,7 +428,9 @@ impl MemoryFabric {
             .map_err(|e| e.to_string())?;
         }
         let remaining = self.unresolved_alarms()?.len();
-        Ok(json!({"ok": true, "alarm_id": aid, "relpath": relpath, "already_resolved": already, "unresolved_remaining": remaining}))
+        Ok(
+            json!({"ok": true, "alarm_id": aid, "relpath": relpath, "already_resolved": already, "unresolved_remaining": remaining}),
+        )
     }
 
     /// D6 - crash-consistency and index/vault divergence scan.
@@ -437,7 +452,9 @@ impl MemoryFabric {
         let mut on_disk: HashSet<String> = HashSet::new();
         // Reuse the index's own walker so both sides see the same file universe.
         for path in self.sources()? {
-            let Ok(rel) = path.strip_prefix(&self.vault).map(|p| p.to_string_lossy().to_string())
+            let Ok(rel) = path
+                .strip_prefix(&self.vault)
+                .map(|p| p.to_string_lossy().to_string())
             else {
                 continue;
             };
@@ -490,10 +507,12 @@ impl MemoryFabric {
                     missing_on_disk.push(row.0.clone());
                     continue;
                 }
-                if let (Some(from), Some(to)) = (row.3.as_deref(), row.4.as_deref()) {
-                    if !from.is_empty() && !to.is_empty() && to < from {
-                        contradictory_dates.push(row.0.clone());
-                    }
+                if let (Some(from), Some(to)) = (row.3.as_deref(), row.4.as_deref())
+                    && !from.is_empty()
+                    && !to.is_empty()
+                    && to < from
+                {
+                    contradictory_dates.push(row.0.clone());
                 }
                 if let Ok(meta) = fs::symlink_metadata(&abs) {
                     let mtime = meta
@@ -520,9 +539,7 @@ impl MemoryFabric {
         missing_on_disk.dedup();
         contradictory_dates.sort();
 
-        let sample = |v: &Vec<String>| -> Value {
-            json!(v.iter().take(10).collect::<Vec<_>>())
-        };
+        let sample = |v: &Vec<String>| -> Value { json!(v.iter().take(10).collect::<Vec<_>>()) };
         let damaged = zero_byte.len()
             + not_utf8.len()
             + unterminated_frontmatter.len()
@@ -631,10 +648,12 @@ impl MemoryFabric {
         let count = |sql: &str| -> i64 { con.query_row(sql, [], |r| r.get(0)).unwrap_or(0) };
         let docs = count("SELECT COUNT(*) FROM documents");
         let term_df = count("SELECT COUNT(*) FROM term_df");
-        let fts_integrity_ok = con.execute(
-            "INSERT INTO documents_fts(documents_fts,rank) VALUES('integrity-check',1)",
-            [],
-        ).is_ok();
+        let fts_integrity_ok = con
+            .execute(
+                "INSERT INTO documents_fts(documents_fts,rank) VALUES('integrity-check',1)",
+                [],
+            )
+            .is_ok();
         // Orphans: rows whose document is gone. The index path prunes these for notes it knows
         // were removed, so anything here arrived another way - a crash mid-delete, or a manual
         // index edit.
@@ -642,14 +661,16 @@ impl MemoryFabric {
         con.execute(
             "CREATE VIRTUAL TABLE temp._df_vocab USING fts5vocab(main, documents_fts, 'row')",
             [],
-        ).ok();
+        )
+        .ok();
         let orphan_df = count(
             "SELECT COUNT(*) FROM term_df WHERE term NOT IN (SELECT term FROM temp._df_vocab)",
         );
-        let dead_df = count(
-            "SELECT COUNT(*) FROM term_df WHERE df > (SELECT COUNT(*) FROM documents)",
-        );
-        let size_before: i64 = fs::metadata(&self.db_path).map(|m| m.len() as i64).unwrap_or(0);
+        let dead_df =
+            count("SELECT COUNT(*) FROM term_df WHERE df > (SELECT COUNT(*) FROM documents)");
+        let size_before: i64 = fs::metadata(&self.db_path)
+            .map(|m| m.len() as i64)
+            .unwrap_or(0);
         let freelist = count("PRAGMA freelist_count");
         let page_size = count("PRAGMA page_size");
         let reclaimable = freelist * page_size;
@@ -663,28 +684,40 @@ impl MemoryFabric {
         // database is in INCREMENTAL mode. A file created before that pragma was set still needs
         // the forced rewrite, so that path is unchanged.
         let auto_vacuum = count("PRAGMA auto_vacuum");
-        let inc_before: i64 = fs::metadata(&self.db_path).map(|m| m.len() as i64).unwrap_or(0);
+        let inc_before: i64 = fs::metadata(&self.db_path)
+            .map(|m| m.len() as i64)
+            .unwrap_or(0);
         if auto_vacuum == 2 && freelist > 0 {
             // Cannot run inside a transaction, same as VACUUM below.
-            if let Err(e) = con.execute_batch("PRAGMA incremental_vacuum") {
-                if std::env::var("FABRIC_DEBUG").is_ok() {
-                    eprintln!("[fabric] incremental_vacuum: {e}");
-                }
+            if let Err(e) = con.execute_batch("PRAGMA incremental_vacuum")
+                && std::env::var("FABRIC_DEBUG").is_ok()
+            {
+                eprintln!("[fabric] incremental_vacuum: {e}");
             }
         }
-        let inc_after: i64 = fs::metadata(&self.db_path).map(|m| m.len() as i64).unwrap_or(0);
+        let inc_after: i64 = fs::metadata(&self.db_path)
+            .map(|m| m.len() as i64)
+            .unwrap_or(0);
         let incremental_reclaimed = (inc_before - inc_after).max(0);
 
         let mut removed = json!(null);
         if force {
-            con.execute("DELETE FROM term_df WHERE term NOT IN (SELECT term FROM temp._df_vocab)", [])
-                .map_err(|e| e.to_string())?;
-            con.execute("DELETE FROM note_links WHERE source NOT IN (SELECT relpath FROM documents)", [])
-                .map_err(|e| e.to_string())?;
+            con.execute(
+                "DELETE FROM term_df WHERE term NOT IN (SELECT term FROM temp._df_vocab)",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+            con.execute(
+                "DELETE FROM note_links WHERE source NOT IN (SELECT relpath FROM documents)",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
             // VACUUM cannot run inside a transaction.
             con.execute_batch("VACUUM").map_err(|e| e.to_string())?;
             con.execute_batch("PRAGMA optimize").ok();
-            let after: i64 = fs::metadata(&self.db_path).map(|m| m.len() as i64).unwrap_or(0);
+            let after: i64 = fs::metadata(&self.db_path)
+                .map(|m| m.len() as i64)
+                .unwrap_or(0);
             removed = json!({
                 "orphan_term_df": orphan_df,
                 "bytes_before": size_before,
@@ -789,12 +822,16 @@ impl MemoryFabric {
             let mut total_lines = 0usize;
             let mut total_headings = 0usize;
             for path in &notes {
-                let Ok(rel) = path.strip_prefix(&self.vault) else { continue };
+                let Ok(rel) = path.strip_prefix(&self.vault) else {
+                    continue;
+                };
                 let rel = rel.to_string_lossy().replace('\\', "/");
                 if !rel.starts_with("projects/") && !rel.starts_with("pi-harness/") {
                     continue;
                 }
-                let Ok(text) = fs::read_to_string(path) else { continue };
+                let Ok(text) = fs::read_to_string(path) else {
+                    continue;
+                };
                 let lines = text.lines().count();
                 let headings = text.lines().filter(|l| l.starts_with('#')).count();
                 total_lines += lines;
@@ -915,7 +952,7 @@ impl MemoryFabric {
                     "integrity_ok": false,
                     "documents": Value::Null,
                     "message": "The index exists but cannot be opened. Search will fall back to a linear scan of the vault. Run the repair command to quarantine and rebuild it.",
-                }))
+                }));
             }
         };
         let integrity: String = con
@@ -933,18 +970,32 @@ impl MemoryFabric {
             .optional()
             .map_err(|e| e.to_string())?;
         let unresolved: i64 = con
-            .query_row("SELECT COUNT(*) FROM secret_alarms WHERE resolved_at IS NULL", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM secret_alarms WHERE resolved_at IS NULL",
+                [],
+                |r| r.get(0),
+            )
             .unwrap_or(0);
         let oldest_alarm: Option<String> = con
             .query_row(
                 "SELECT MIN(detected_at) FROM secret_alarms WHERE resolved_at IS NULL",
-                [], |r| r.get(0),
+                [],
+                |r| r.get(0),
             )
             .optional()
             .unwrap_or(None);
-        let index_bytes = std::fs::metadata(&self.db_path).map(|m| m.len()).unwrap_or(0);
-        let bytes_per_doc = if docs > 0 { index_bytes / docs as u64 } else { 0 };
-        let growth_warn_at_docs = if bytes_per_doc > 0 { (512 * 1024 * 1024u64 / bytes_per_doc) as i64 } else { 0 };
+        let index_bytes = std::fs::metadata(&self.db_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        let bytes_per_doc = if docs > 0 {
+            index_bytes / docs as u64
+        } else {
+            0
+        };
+        let growth_warn_at_docs = (512 * 1024 * 1024u64)
+            .checked_div(bytes_per_doc)
+            .map(|documents| documents as i64)
+            .unwrap_or(0);
         let growth_warning = growth_warn_at_docs > 0 && docs >= growth_warn_at_docs;
         let git = vault_history(&self.vault);
         Ok(
@@ -1000,47 +1051,59 @@ impl MemoryFabric {
 
         let mut stmt = con.prepare("SELECT relpath, title, valid_to FROM documents WHERE valid_to IS NOT NULL AND valid_to < ?1 ORDER BY relpath")
             .map_err(|e| e.to_string())?;
-        let stale: Vec<Value> = stmt.query_map([&now_date], |r| {
-            Ok(json!({
-                "relpath": r.get::<_, String>(0)?,
-                "title": r.get::<_, String>(1)?,
-                "valid_to": r.get::<_, String>(2)?
-            }))
-        }).map_err(|e| e.to_string())?
-        .filter_map(Result::ok).collect();
+        let stale: Vec<Value> = stmt
+            .query_map([&now_date], |r| {
+                Ok(json!({
+                    "relpath": r.get::<_, String>(0)?,
+                    "title": r.get::<_, String>(1)?,
+                    "valid_to": r.get::<_, String>(2)?
+                }))
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(Result::ok)
+            .collect();
 
         let mut stmt = con.prepare("SELECT relpath, title, source_status, superseded_by FROM documents WHERE superseded_by IS NOT NULL AND source_status = 'current' ORDER BY relpath")
             .map_err(|e| e.to_string())?;
-        let contradictions: Vec<Value> = stmt.query_map([], |r| {
-            Ok(json!({
-                "relpath": r.get::<_, String>(0)?,
-                "title": r.get::<_, String>(1)?,
-                "status": r.get::<_, String>(2)?,
-                "superseded_by": r.get::<_, String>(3)?
-            }))
-        }).map_err(|e| e.to_string())?
-        .filter_map(Result::ok).collect();
+        let contradictions: Vec<Value> = stmt
+            .query_map([], |r| {
+                Ok(json!({
+                    "relpath": r.get::<_, String>(0)?,
+                    "title": r.get::<_, String>(1)?,
+                    "status": r.get::<_, String>(2)?,
+                    "superseded_by": r.get::<_, String>(3)?
+                }))
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(Result::ok)
+            .collect();
 
         let mut stmt = con.prepare("SELECT relpath, title, content_hash FROM documents WHERE content_hash IN (SELECT content_hash FROM documents GROUP BY content_hash HAVING COUNT(*) > 1) ORDER BY content_hash, relpath")
             .map_err(|e| e.to_string())?;
-        let duplicates: Vec<Value> = stmt.query_map([], |r| {
-            Ok(json!({
-                "relpath": r.get::<_, String>(0)?,
-                "title": r.get::<_, String>(1)?,
-                "content_hash": r.get::<_, String>(2)?
-            }))
-        }).map_err(|e| e.to_string())?
-        .filter_map(Result::ok).collect();
+        let duplicates: Vec<Value> = stmt
+            .query_map([], |r| {
+                Ok(json!({
+                    "relpath": r.get::<_, String>(0)?,
+                    "title": r.get::<_, String>(1)?,
+                    "content_hash": r.get::<_, String>(2)?
+                }))
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(Result::ok)
+            .collect();
 
         let mut stmt = con.prepare("SELECT source, target FROM note_links WHERE NOT EXISTS (SELECT 1 FROM documents WHERE relpath = target OR title = target OR relpath = target || '.md') ORDER BY source, target")
             .map_err(|e| e.to_string())?;
-        let broken_links: Vec<Value> = stmt.query_map([], |r| {
-            Ok(json!({
-                "source": r.get::<_, String>(0)?,
-                "target": r.get::<_, String>(1)?
-            }))
-        }).map_err(|e| e.to_string())?
-        .filter_map(Result::ok).collect();
+        let broken_links: Vec<Value> = stmt
+            .query_map([], |r| {
+                Ok(json!({
+                    "source": r.get::<_, String>(0)?,
+                    "target": r.get::<_, String>(1)?
+                }))
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(Result::ok)
+            .collect();
 
         Ok(json!({
             "ok": true,

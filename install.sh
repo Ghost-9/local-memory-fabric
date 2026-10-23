@@ -8,8 +8,7 @@
 #      directory alone unless --purge is passed EXPLICITLY, and even then it backs up first.
 #   2. Rollback must be possible without a network. Update keeps the previous source tree, so
 #      `install.sh rollback` restores it. A tool that reads personal memory needs a way out.
-#   3. No silent failure. If the Rust engine cannot be built or downloaded, say so loudly:
-#      the extension then falls back to the Python engine, which is ~55x slower.
+#   3. No silent failure. The extension has no alternate engine fallback: its binary must match Cargo.toml.
 #
 # Usage:
 #   ./install.sh              install or update (idempotent)
@@ -25,6 +24,7 @@ BACKUP="${STATE}.backup"
 EXT_DIR="$HOME/.pi/agent/extensions/local-memory-fabric"
 MIN_MAJOR=26   # node --experimental-strip-types
 BIN_TARGET="$HERE/rust/target/release/memory-fabric"
+ENGINE_VERSION="$(awk -F '"' '/^version[[:space:]]*=/ { print $2; exit }' "$HERE/rust/Cargo.toml")"
 
 say()  { printf '%s\n' "$*"; }
 warn() { printf 'WARNING: %s\n' "$*" >&2; }
@@ -61,7 +61,7 @@ download_prebuilt_rust() {
     fi
   fi
 
-  local tag="v0.4.0"
+  local tag="v${ENGINE_VERSION}"
   local url="https://github.com/Ghost-9/local-memory-fabric/releases/download/${tag}/${target}"
   local sha_url="${url}.sha256"
   mkdir -p "$(dirname "$BIN_TARGET")"
@@ -90,34 +90,29 @@ download_prebuilt_rust() {
 }
 
 build_rust() {
+  [ -n "$ENGINE_VERSION" ] || die "Could not read the package version from rust/Cargo.toml."
+  if command -v cargo >/dev/null 2>&1; then
+    say "  building Rust engine $ENGINE_VERSION from source (Cargo is available; release downloads are skipped)..."
+    ( cd "$HERE/rust" && cargo build --release --locked --quiet ) || die "Rust build failed. Install the Rust toolchain and run: cd '$HERE/rust' && cargo build --release --locked"
+    verify_binary_version
+    say "  Rust engine built and verified: $BIN_TARGET"
+    return 0
+  fi
   if [ -x "$BIN_TARGET" ]; then
-    say "  Rust engine already present: $BIN_TARGET"
+    verify_binary_version
+    say "  matching Rust engine already present: $BIN_TARGET"
     return 0
   fi
-  # First try prebuilt download for instant start without cargo
-  if download_prebuilt_rust; then
-    return 0
-  fi
-  if ! command -v cargo >/dev/null 2>&1; then
-    warn "cargo not found and prebuilt binary download unavailable."
-    warn "The extension will fall back to the Python engine (~55x slower per query)."
-    warn "Install Rust from https://rustup.rs or place the binary in rust/target/release/ to get the fast path."
-    return 1
-  fi
-  say "  building the Rust engine from source (this takes a minute the first time)..."
-  if ( cd "$HERE/rust" && cargo build --release --locked --quiet ); then
-    say "  Rust engine built: $BIN_TARGET"
-    return 0
-  fi
-  warn "Rust build FAILED. The extension will fall back to Python (~55x slower)."
-  return 1
+  download_prebuilt_rust || die "No matching Rust engine is available. Install Rust from https://rustup.rs and run: cd '$HERE/rust' && cargo build --release --locked"
+  verify_binary_version
+  say "  downloaded Rust engine $ENGINE_VERSION and verified it against Cargo.toml."
 }
 
-install_dev_toolchain() {
-  # Only needed for ./test.sh; the extension itself has no runtime dependency.
-  command -v npm >/dev/null 2>&1 || { warn "npm not found; the type-check gate will fail. Run 'npm install' before ./test.sh."; return 1; }
-  say "  installing the dev toolchain (type checker, for the gate only)..."
-  npm install --silent --no-audit --no-fund || warn "npm install failed; ./test.sh step 9 will fail."
+verify_binary_version() {
+  [ -x "$BIN_TARGET" ] || die "Rust engine binary is missing. Build it with: cd '$HERE/rust' && cargo build --release --locked"
+  local actual
+  actual="$("$BIN_TARGET" --version 2>/dev/null | sed -n 's/.* \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\) (schema .*/\1/p')"
+  [ "$actual" = "$ENGINE_VERSION" ] || die "Rust engine version mismatch: Cargo.toml says $ENGINE_VERSION, binary reports ${actual:-unknown}. Build the matching binary with: cd '$HERE/rust' && cargo build --release --locked"
 }
 
 do_install() {
@@ -144,8 +139,7 @@ do_install() {
     say "  existing config preserved at $STATE/config.json"
   fi
 
-  build_rust || true
-  install_dev_toolchain || true
+  build_rust
 
   say ""
   say "Installed. Verify with:  ./test.sh"
@@ -195,13 +189,12 @@ do_status() {
     say "  export policy : enforce_export_policy is effectively $eff (default: off, by decision — see issue #8)"
   fi
   if [ -x "$BIN_TARGET" ]; then
-    say "  engine        : RUST (fast, ~55x)"
+    verify_binary_version
+    say "  engine        : Rust $ENGINE_VERSION"
+    say "  index         : $(printf '%s\n' '{"op":"status"}' | "$BIN_TARGET" 2>/dev/null || echo 'unknown')"
   else
-    warn "  engine        : PYTHON FALLBACK (~55x slower). Build it: cd rust && cargo build --release --locked"
-  fi
-  say "  type check    : $([ -f "$HERE/node_modules/typescript/bin/tsc" ] && echo 'toolchain present' || echo 'MISSING — run npm install (needed for ./test.sh only)')"
-  if command -v python3 >/dev/null 2>&1; then
-    say "  index         : $(printf '%s' '{"op":"status"}' | python3 "$HERE/memory_fabric.py" --json-stdin 2>/dev/null || echo 'unknown')"
+    warn "  engine        : MISSING. Build it: cd '$HERE/rust' && cargo build --release --locked"
+    return 1
   fi
 }
 

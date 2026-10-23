@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 /// Semantic embeddings and hybrid retrieval primitives for Memory Fabric.
 /// Implements 128-dimensional quantized dense representation and Reciprocal Rank Fusion (RRF-60).
-
 pub const VECTOR_DIMS: usize = 128;
 pub const RRF_K: f64 = 60.0;
 
@@ -144,7 +143,7 @@ pub fn cosine_similarity(a: &[i8; VECTOR_DIMS], b: &[i8; VECTOR_DIMS]) -> f64 {
         if norm_a == 0 || norm_b == 0 {
             return 0.0;
         }
-        return dot as f64 / ((norm_a as f64).sqrt() * (norm_b as f64).sqrt());
+        dot as f64 / ((norm_a as f64).sqrt() * (norm_b as f64).sqrt())
     }
 
     #[cfg(not(target_arch = "aarch64"))]
