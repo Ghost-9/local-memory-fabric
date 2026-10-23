@@ -22,5 +22,5 @@ body:
     validations: { required: false }
   - type: dropdown
     id: engine
-    attributes: { label: Engine, options: [rust, python, both/unknown] }
+    attributes: { label: Area, options: [rust-engine, pi-transport, mcp-adapter, unknown] }
     validations: { required: true }

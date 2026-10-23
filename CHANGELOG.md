@@ -1,3 +1,26 @@
+## [2.0.0] — 2026-10-24
+
+### Changed
+- **Single Rust engine.** The memory engine, MCP server, provider policy, transcript scrub, DLP,
+  injection, abstention, scope, session-cost, handoff, and health decisions now run in Rust.
+- **Pi transport only.** The host-required index.ts registers tools and hooks, sends JSON to the
+  Rust process, and renders responses. The package declares no npm runtime dependencies.
+- **Safer remote defaults.** Allowlisted non-loopback providers have outbound transcript scrubbing
+  enabled by default and remain propose-only unless remote full access is explicitly enabled.
+- **Versioned initialization.** Init prepares a Git-backed Markdown vault or fails, and both init
+  and doctor explain that an empty vault returns no memories until notes are added.
+- **Version-matched installation.** The installer builds from Cargo when available and checks any
+  downloaded binary against the package version in rust/Cargo.toml.
+- **One Rust gate.** Python engines, adapters, tests, parity checks, and benchmark harnesses were
+  removed. Their regression coverage is in Rust unit and protocol/conformance tests; recorded
+  benchmark findings and their limits remain under bench/evidence.
+
+### Fixed
+- Removed the stale release pin and the path that accepted an arbitrary installed Rust binary.
+- Corrected the documented and tested context-scrub default for allowlisted remote providers.
+- Changed remote canonical writes from default-enabled to explicit opt-in.
+- Made empty-vault behavior visible during initialization and diagnosis.
+
 ## [2026-10-17] — "no match" as a first-class answer
 
 ### Added
