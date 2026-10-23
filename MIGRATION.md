@@ -37,4 +37,4 @@ The package has no npm runtime dependencies and no npm-based test framework. Pi 
 
 ## Test migration
 
-The Rust test count moved from 26 to 97: 66 unit tests and 31 integration tests. The former TypeScript suites contained 82 test cases; their decision tables and edge assertions now run in Rust. The Python engine and adapter suites contained 34 named tests, with four additional procedural harnesses for availability, isolation, migration, and revert points; those contracts are exercised by the Rust integration suite. cargo test --all is the count source. No legacy suite runs in parallel with the shipped engine.
+The Rust test count moved from 26 to 98: 66 unit tests and 32 integration tests. The former TypeScript suites contained 82 test cases; their decision tables and edge assertions now run in Rust. The Python engine and adapter suites contained 34 named tests, with four additional procedural harnesses for availability, isolation, migration, and revert points; those contracts are exercised by the Rust integration suite. cargo test --all is the count source. No legacy suite runs in parallel with the shipped engine.

@@ -178,6 +178,22 @@ fn provider_policy_remote_scrubs_by_default_is_propose_only_and_opt_out_is_expli
 }
 
 #[test]
+fn runtime_version_is_sourced_from_cargo_package_metadata() {
+    let f = Fixture::new();
+    let output = f.command(&["--version"]).output().unwrap();
+    assert!(output.status.success());
+    let version = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        version.starts_with(&format!(
+            "Engram / Local Memory Fabric {} (schema ",
+            env!("CARGO_PKG_VERSION")
+        )),
+        "runtime version must match Cargo.toml: {version}"
+    );
+    assert!(version.ends_with(")\n"));
+}
+
+#[test]
 fn tool_guard_blocks_remote_shell_mutation_inside_the_vault() {
     let f = Fixture::new();
     let model = json!({"provider":"openai","base_url":"https://api.openai.com/v1"});
