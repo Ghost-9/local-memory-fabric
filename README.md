@@ -249,13 +249,24 @@ gates, the context scrub suite, TypeScript parse checks, the Rust unit suite, Py
 retrieval determinism, a read-only probe against a real vault, the fixture recall benchmark, the
 exit-code taxonomy, and a vendored type check.
 
-`cargo test --release --locked` in `rust/` runs the Rust unit suite on its own (26 tests at the time
-of writing).
+`cargo test --locked` in `rust/` runs the Rust unit suite on its own (30 tests at the time of
+writing).
 
-**Known limitation, stated in the changelog:** gate steps 22–23 of 23 do not currently run. Step 21
-aborts on a macOS TCC permission error when it reaches an iCloud Drive path; that is an environment
-constraint, not a passing check. [`CHANGELOG.md`](CHANGELOG.md) records it, along with the open
-`t3.json` abstention case and the measurements that were tried and rejected.
+**Current gate state — stated plainly, because the badge at the top of this file is red.**
+
+| Steps | Status |
+| :--- | :--- |
+| 1–11 | **pass** on both macOS and Ubuntu CI |
+| 12 — cold-path A/B smoke | **blocks CI** on both platforms: `AssertionError: Configured vault root is unavailable` |
+| 13–21 | reached only with a configured vault |
+| 22–23 | do not run (macOS TCC blocks an iCloud Drive path) |
+
+Step 12 requires a real memory vault, which a clean CI runner does not have. That is a gate design
+problem, not a failing assertion: the smoke test asserts a precondition the workflow never creates.
+Until a fixture vault is provided for CI, the red badge is accurate and this table is why.
+
+[`CHANGELOG.md`](CHANGELOG.md) records the same limitation, along with the open `t3.json` abstention
+case and the measurements that were tried and rejected.
 
 ### Benchmarks
 
